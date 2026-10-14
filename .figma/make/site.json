@@ -1,0 +1,11 @@
+{
+  "title": "Venice Catering System",
+  "description": "Explore Venice Catering Services and Events Place, offering elegant event planning, premium catering, and resort accommodations in a tropical setting.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
