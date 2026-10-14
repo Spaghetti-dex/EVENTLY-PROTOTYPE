@@ -551,9 +551,8 @@ footer { background: var(--teal-dark); color: white; padding: 60px clamp(24px, 7
 .availability-legend > span { align-items: center; color: #647a74; display: flex; font-size: 9px; font-weight: 600; gap: 6px; text-transform: capitalize; }
 .status-dot { border-radius: 50%; height: 8px; width: 8px; }
 .status-dot--available { background: var(--green); }
-.status-dot--limited { background: var(--orange); }
-.status-dot--reserved { background: var(--red); }
-.status-dot--unavailable { background: #a8b0ad; }
+.status-dot--reserved { background: #3d6e9f; }
+.status-dot--unavailable { background: var(--red); }
 .conflict-warning { align-items: center; animation: warning-in .35s both ease; background: #fff1ef; border: 1px solid rgba(253,0,3,.2); border-left: 4px solid var(--red); border-radius: 12px; display: flex; gap: 12px; margin-bottom: 18px; padding: 13px 16px; }
 .conflict-warning strong { color: #b50002; font-size: 11px; white-space: nowrap; }
 .conflict-warning span { color: #8e4e49; font-size: 10px; line-height: 1.4; }
@@ -572,12 +571,10 @@ footer { background: var(--teal-dark); color: white; padding: 60px clamp(24px, 7
 .calendar-day { align-items: center; background: transparent; border: 1px solid transparent; border-radius: 10px; color: var(--ink); cursor: pointer; display: flex; flex-direction: column; font-size: 11px; gap: 5px; height: 45px; justify-content: center; transition: background .2s ease, border-color .2s ease, transform .2s ease; }
 .calendar-day i { border-radius: 50%; height: 5px; width: 5px; }
 .calendar-day--available i { background: var(--green); }
-.calendar-day--limited { background: rgba(248,124,27,.07); }
-.calendar-day--limited i { background: var(--orange); }
-.calendar-day--reserved { background: rgba(253,0,3,.06); color: #a73a3b; }
-.calendar-day--reserved i { background: var(--red); }
-.calendar-day--unavailable { color: #b2b8b6; cursor: not-allowed; text-decoration: line-through; }
-.calendar-day--unavailable i { background: #bdc3c1; }
+.calendar-day--reserved { background: rgba(61,110,159,.08); color: #315f8b; }
+.calendar-day--reserved i { background: #3d6e9f; }
+.calendar-day--unavailable { background: rgba(253,0,3,.045); color: #a73a3b; cursor: not-allowed; text-decoration: line-through; }
+.calendar-day--unavailable i { background: var(--red); }
 .calendar-day:hover:not(:disabled) { border-color: var(--green); transform: translateY(-2px); }
 .calendar-day--selected { background: var(--teal); border-color: var(--teal); color: white; box-shadow: 0 7px 16px rgba(34,109,99,.22); }
 .calendar-day--selected i { background: white; }

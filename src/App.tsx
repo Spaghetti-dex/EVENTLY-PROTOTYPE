@@ -817,7 +817,7 @@ function PalmAccent({ className = "" }: { className?: string }) {
   );
 }
 
-type AvailabilityStatus = "available" | "limited" | "reserved" | "unavailable";
+type AvailabilityStatus = "available" | "reserved" | "unavailable";
 
 type VenicePackage = {
   name: string;
@@ -1886,9 +1886,9 @@ function ReservationFlow({
                   <p>Select the requested schedule. Fixed resort schedules are applied automatically, while unconfigured room schedules remain subject to admin assignment.</p>
                 </div>
                 <div className="availability-legend">
-                  {(["available", "limited", "reserved", "unavailable"] as AvailabilityStatus[]).map((status) => (
-                    <span key={status}><i className={`status-dot status-dot--${status}`} />{status}</span>
-                  ))}
+                  <span><i className="status-dot status-dot--available" />Available</span>
+                  <span><i className="status-dot status-dot--reserved" />Reserved</span>
+                  <span><i className="status-dot status-dot--unavailable" />Unavailable</span>
                 </div>
                 {conflictReason && (
                   <div className="conflict-warning" role="alert">
