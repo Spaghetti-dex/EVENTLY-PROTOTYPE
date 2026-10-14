@@ -714,3 +714,15 @@
   .admin-payment-review-card dl { grid-template-columns: 1fr; }.admin-payment-proof-preview { align-items: flex-start; flex-direction: column; }.admin-payment-review-actions { flex-direction: column; }.admin-payment-review-actions > button { justify-content: center; }
   .admin-mfa-setup { align-items: flex-start; flex-direction: column; }.admin-mfa-setup img { height: 115px; width: 115px; }
 }
+
+.admin-overview-stats { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.admin-overview-stats button { min-height: 126px; padding: 16px; }
+.admin-overview-secondary-stats { grid-template-columns: repeat(3,minmax(0,1fr)); margin-top: 14px; }
+.admin-overview-secondary-stats button { min-height: 116px; }
+.admin-overview-charts { margin-top: 14px; }
+@media (max-width: 920px) {
+  .admin-overview-stats,.admin-overview-secondary-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 350px) {
+  .admin-overview-stats,.admin-overview-secondary-stats { grid-template-columns: 1fr; }
+}

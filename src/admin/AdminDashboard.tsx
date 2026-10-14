@@ -9,7 +9,7 @@ type ScheduleResourceOption = { label: string; location: string; type: string; v
 type LoadState = "loading" | "ready" | "error";
 
 const sections = [
-  ["dashboard", "Overview", "grid"],
+  ["dashboard", "Dashboard", "grid"],
   ["reservations", "Reservations", "calendar"],
   ["orders", "Orders", "list"],
   ["customers", "Customers", "users"],
@@ -137,7 +137,7 @@ const columnsBySection: Record<string, { label: string; keys: string[] }[]> = {
 };
 
 const navigationGroups = [
-  { label: "Overview", paths: ["dashboard", "notifications"] },
+  { label: "Dashboard", paths: ["dashboard", "notifications"] },
   { label: "Booking Management", paths: ["reservations", "orders"] },
   { label: "Business Management", paths: ["packages", "catering-menu", "addons", "customers", "staff"] },
   { label: "Finance & Insights", paths: ["payments", "reports", "reviews"] },
@@ -1640,12 +1640,15 @@ function Overview({ go }: { go: (path: string) => void }) {
   const missingSchedule = pendingReservations.filter((row) => !first(row, ["start_time"]) || !first(row, ["end_time"]));
   const missingResource = pendingReservations.filter((row) => String(first(row, ["resource_mode"]) ?? "exclusive") !== "shared_capacity" && !first(row, ["resource_key"]));
   const cards = [
-    ["Total Reservations", data.reservations.length, "All bookings on record", "reservations", "calendar"],
-    ["Pending Approvals", pendingReservations.length, "Awaiting review and approval", "reservations", "clock"],
+    ["Total Bookings", data.reservations.length, "All bookings on record", "reservations", "calendar"],
+    ["Revenue", money.format(revenue), "Verified non-demo payments only", "payments", "chart"],
+    ["Pending Reservations", pendingReservations.length, "Awaiting review and approval", "reservations", "clock"],
+    ["Total Customers", data.profiles.length, "Customer accounts on record", "customers", "users"],
+  ];
+  const secondaryCards = [
     ["Confirmed Reservations", data.reservations.filter((row) => status(row) === "confirmed").length, "Upcoming confirmed bookings", "reservations", "star"],
     ["Today's Schedule", todaysBookings.length, "Bookings scheduled today", "calendar", "calendar"],
     ["Pending Payments", pendingPayments.length, "Awaiting secure verification", "payments", "card"],
-    ["Revenue Collected", money.format(revenue), "Verified non-demo payments only", "payments", "chart"],
   ];
   const months = Array.from({ length: 6 }, (_, offset) => {
     const current = new Date();
@@ -1739,18 +1742,8 @@ function Overview({ go }: { go: (path: string) => void }) {
   }).slice(0, count);
   return (
     <>
-      <div className="admin-stat-grid">{cards.map(([label, value, description, path, icon]) => <button key={label} onClick={() => go(String(path))} type="button"><i><Icon name={String(icon)} /></i><span>{label}</span><strong>{value}</strong><small>{description}</small></button>)}</div>
-      <section className="admin-card admin-attention-card">
-        <div className="admin-card-heading"><div><span className="admin-section-eyebrow">Requires attention</span><h2>Operational queue</h2><p>Open the exact reservation or payment requiring action.</p></div><b>{attentionRecords.length}</b></div>
-        <div className="admin-attention-list">
-          {attentionRecords.length ? attentionRecords.map((item, index) => <button key={`${item.path}-${item.detail}-${index}`} onClick={() => go(item.path)} type="button"><i><Icon name={item.icon} /></i><span><strong>{show(first(item.row, ["reservation_code", "_reservation_code", "reference_number", "id"]))}</strong><small>{item.detail} · {show(first(item.row, ["customer_name", "_customer_name", "amount"]))}</small></span><em>{item.action}</em></button>) : <div className="admin-compact-empty">No pending operational actions.</div>}
-        </div>
-      </section>
-      <section className="admin-card admin-dashboard-table">
-        <div className="admin-card-heading"><div><h2>Recent reservations</h2><p>Newest customer booking requests.</p></div><button onClick={() => go("reservations")} type="button">View all reservations</button></div>
-        <div className="admin-table-scroll"><table><thead><tr><th>Reservation</th><th>Customer</th><th>Service</th><th>Date & time</th><th>Status</th><th>Payment</th><th>Action</th></tr></thead><tbody>{recent(data.reservations, 6).map((row, index) => <tr key={String(row.id ?? index)}><td><strong>{show(first(row, ["reservation_code", "id"]))}</strong></td><td>{show(first(row, ["customer_name", "customer_id"]))}</td><td>{show(first(row, ["service_type", "service"]))}</td><td>{show(first(row, ["reservation_date"]), "reservation_date")}<small>{reservationSchedule(row)}</small></td><td><Value label="status" value={first(row, ["status"])} /></td><td><Value label="payment status" value={first(row, ["payment_status"])} /></td><td><button className="admin-row-action" onClick={() => go(`reservations?record=${row.id}`)} type="button">{status(row) === "pending" ? "Review" : "View"}</button></td></tr>)}</tbody></table></div>
-      </section>
-      <div className="admin-chart-grid">
+      <div className="admin-stat-grid admin-overview-stats">{cards.map(([label, value, description, path, icon]) => <button key={label} onClick={() => go(String(path))} type="button"><i><Icon name={String(icon)} /></i><span>{label}</span><strong>{value}</strong><small>{description}</small></button>)}</div>
+      <div className="admin-chart-grid admin-overview-charts">
         <section className="admin-card admin-chart-card admin-trend-card"><div className="admin-card-heading"><div><h2>Reservation trends</h2><p>Actual booking volume during the selected period.</p></div><div className="admin-chart-range">{(["7", "30", "90", "custom"] as const).map((item) => <button className={trendRange === item ? "is-active" : ""} key={item} onClick={() => setTrendRange(item)} type="button">{item === "custom" ? "Custom" : `${item} days`}</button>)}</div></div>{trendRange === "custom" && <div className="admin-chart-custom"><label>From<input onChange={(event) => setCustomFrom(event.target.value)} type="date" value={customFrom} /></label><label>To<input min={customFrom || undefined} onChange={(event) => setCustomTo(event.target.value)} type="date" value={customTo} /></label></div>}
           <div className="admin-line-chart"><svg aria-label="Reservation volume line chart" preserveAspectRatio="none" role="img" viewBox="0 0 600 180"><path className="admin-line-chart__grid" d="M24 34H576M24 76H576M24 118H576M24 160H576" /><path className="admin-line-chart__area" d={trendArea} /><path className="admin-line-chart__line" d={trendLine} />{trendCoordinates.map((item) => <circle cx={item.x} cy={item.y} key={`${item.label}-${item.x}`} r="3.5"><title>{item.label}: {item.value} reservations</title></circle>)}</svg><div>{trendCoordinates.filter((_, index) => index === 0 || index === trendCoordinates.length - 1 || index % Math.max(1, Math.floor(trendCoordinates.length / 4)) === 0).map((item) => <span key={`${item.label}-${item.x}`}>{item.label}</span>)}</div></div>
         </section>
@@ -1764,6 +1757,17 @@ function Overview({ go }: { go: (path: string) => void }) {
           <div className="admin-donut-layout"><div className="admin-donut-chart"><svg aria-label="Booking status donut chart" role="img" viewBox="0 0 140 140"><circle className="admin-donut-track" cx="70" cy="70" r="52" />{statusSegments.map((item) => <circle className={`admin-donut-segment is-${statusTone(item.name)}`} cx="70" cy="70" key={item.name} pathLength="100" r="52" strokeDasharray={`${item.length} ${100 - item.length}`} strokeDashoffset={item.offset}><title>{item.name}: {item.count}</title></circle>)}</svg><span><strong>{analyticsReservations.length}</strong><small>Total</small></span></div><div className="admin-donut-legend">{statusItems.map((item) => <div key={item.name}><i className={`is-${statusTone(item.name)}`} /><span>{item.name}</span><strong>{item.count}</strong></div>)}</div></div>
         </section>
       </div>
+      <div className="admin-stat-grid admin-overview-secondary-stats">{secondaryCards.map(([label, value, description, path, icon]) => <button key={label} onClick={() => go(String(path))} type="button"><i><Icon name={String(icon)} /></i><span>{label}</span><strong>{value}</strong><small>{description}</small></button>)}</div>
+      <section className="admin-card admin-attention-card">
+        <div className="admin-card-heading"><div><span className="admin-section-eyebrow">Requires attention</span><h2>Operational queue</h2><p>Open the exact reservation or payment requiring action.</p></div><b>{attentionRecords.length}</b></div>
+        <div className="admin-attention-list">
+          {attentionRecords.length ? attentionRecords.map((item, index) => <button key={`${item.path}-${item.detail}-${index}`} onClick={() => go(item.path)} type="button"><i><Icon name={item.icon} /></i><span><strong>{show(first(item.row, ["reservation_code", "_reservation_code", "reference_number", "id"]))}</strong><small>{item.detail} · {show(first(item.row, ["customer_name", "_customer_name", "amount"]))}</small></span><em>{item.action}</em></button>) : <div className="admin-compact-empty">No pending operational actions.</div>}
+        </div>
+      </section>
+      <section className="admin-card admin-dashboard-table">
+        <div className="admin-card-heading"><div><h2>Recent reservations</h2><p>Newest customer booking requests.</p></div><button onClick={() => go("reservations")} type="button">View all reservations</button></div>
+        <div className="admin-table-scroll"><table><thead><tr><th>Reservation</th><th>Customer</th><th>Service</th><th>Date & time</th><th>Status</th><th>Payment</th><th>Action</th></tr></thead><tbody>{recent(data.reservations, 6).map((row, index) => <tr key={String(row.id ?? index)}><td><strong>{show(first(row, ["reservation_code", "id"]))}</strong></td><td>{show(first(row, ["customer_name", "customer_id"]))}</td><td>{show(first(row, ["service_type", "service"]))}</td><td>{show(first(row, ["reservation_date"]), "reservation_date")}<small>{reservationSchedule(row)}</small></td><td><Value label="status" value={first(row, ["status"])} /></td><td><Value label="payment status" value={first(row, ["payment_status"])} /></td><td><button className="admin-row-action" onClick={() => go(`reservations?record=${row.id}`)} type="button">{status(row) === "pending" ? "Review" : "View"}</button></td></tr>)}</tbody></table></div>
+      </section>
       <div className="admin-recent-grid">
         {[
           ["Recent reservations", recent(data.reservations), "reservations", ["reservation_code", "code", "id"], ["service", "service_type", "status"]],
@@ -2440,7 +2444,7 @@ export default function AdminDashboard({ profile, path, navigate }: { profile: E
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [profileOpen, setProfileOpen] = useState(false);
   const [navCounts, setNavCounts] = useState<Record<string, number>>({});
-  const title = sections.find(([candidate]) => candidate === section)?.[1] ?? "Overview";
+  const title = sections.find(([candidate]) => candidate === section)?.[1] ?? "Dashboard";
   const go = (next: string) => { setSidebarOpen(false); navigate(`/admin/${next === "calendar" ? "reservations" : next}`); };
   const logout = async () => { await signOutUser(); navigate("/admin/login"); };
   const toggleSidebar = () => {
