@@ -35,6 +35,7 @@ import {
   type EventlyProfile,
 } from "./lib/supabase";
 import StaffPortal from "./staff/StaffPortal";
+import { CustomerMessagesPanel, FloatingCustomerChat } from "./messaging/MessagingViews";
 
 type AppLocation = {
   hash: string;
@@ -405,7 +406,7 @@ function Button({
   href?: string;
 }) {
   return (
-    <a className={`button button--${variant}`} href={href}>
+    <a className={`button button--${variant}`} data-booking-cta={variant === "booking" ? "true" : undefined} href={href}>
       <span>{children}</span>
       <Icon name="arrow" size={18} />
     </a>
@@ -413,21 +414,84 @@ function Button({
 }
 
 function FloatingBookNow({ href }: { href: string }) {
-  const [bookingVisible, setBookingVisible] = useState(false);
+  const [suppressed, setSuppressed] = useState(false);
 
   useEffect(() => {
-    const booking = document.getElementById("booking");
-    if (!booking) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setBookingVisible(entry.isIntersecting),
-      { threshold: 0.03 },
-    );
-    observer.observe(booking);
-    return () => observer.disconnect();
+    const visibleCtas = new Set<Element>();
+    const observedCtas = new Set<Element>();
+    let showTimer = 0;
+    const rendered = (element: Element) => {
+      if (!(element instanceof HTMLElement) || !element.isConnected) return false;
+      if (element.matches(":disabled,[aria-disabled='true'],[hidden],[inert]")) return false;
+      if (!element.getClientRects().length) return false;
+      for (let parent: HTMLElement | null = element; parent; parent = parent.parentElement) {
+        const style = window.getComputedStyle(parent);
+        if (style.display === "none" || style.visibility === "hidden" || style.pointerEvents === "none" || Number(style.opacity) <= 0.02 || parent.getAttribute("aria-hidden") === "true" || parent.hasAttribute("inert")) return false;
+      }
+      return true;
+    };
+    const hasActiveBookingFlow = () => Array.from(document.querySelectorAll<HTMLElement>("[data-booking-flow-active='true']")).some((element) => {
+      if (!element.isConnected || !element.getClientRects().length) return false;
+      for (let parent: HTMLElement | null = element; parent; parent = parent.parentElement) {
+        const style = window.getComputedStyle(parent);
+        if (style.display === "none" || style.visibility === "hidden" || parent.getAttribute("aria-hidden") === "true" || parent.hasAttribute("inert")) return false;
+      }
+      return true;
+    });
+    const updateSuppression = () => {
+      const shouldSuppress = hasActiveBookingFlow() || visibleCtas.size > 0;
+      window.clearTimeout(showTimer);
+      if (shouldSuppress) setSuppressed(true);
+      else showTimer = window.setTimeout(() => setSuppressed(false), 120);
+    };
+    const ctaObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const target = entry.target;
+        if (entry.isIntersecting && rendered(target)) visibleCtas.add(target);
+        else visibleCtas.delete(target);
+      });
+      updateSuppression();
+    }, { root: null, rootMargin: "-8px 0px -8px 0px", threshold: 0.01 });
+    const reconcileCtas = () => {
+      const current = new Set(document.querySelectorAll("[data-booking-cta='true']:not(.floating-book-now)"));
+      observedCtas.forEach((element) => {
+        if (!current.has(element)) {
+          ctaObserver.unobserve(element);
+          observedCtas.delete(element);
+          visibleCtas.delete(element);
+        }
+      });
+      current.forEach((element) => {
+        if (!observedCtas.has(element)) {
+          observedCtas.add(element);
+          ctaObserver.observe(element);
+        }
+      });
+      updateSuppression();
+    };
+    const mutations = new MutationObserver(() => {
+      reconcileCtas();
+      observedCtas.forEach((element) => {
+        ctaObserver.unobserve(element);
+        ctaObserver.observe(element);
+      });
+    });
+    reconcileCtas();
+    mutations.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["aria-disabled", "aria-hidden", "class", "data-booking-cta", "data-booking-flow-active", "disabled", "hidden", "inert", "style"],
+      childList: true,
+      subtree: true,
+    });
+    return () => {
+      window.clearTimeout(showTimer);
+      mutations.disconnect();
+      ctaObserver.disconnect();
+    };
   }, []);
 
   return (
-    <a className={`floating-book-now ${bookingVisible ? "floating-book-now--hidden" : ""}`} href={href} aria-label="Book Now">
+    <a aria-hidden={suppressed} className={`floating-book-now ${suppressed ? "floating-book-now--hidden" : ""}`} href={href} inert={suppressed} tabIndex={suppressed ? -1 : 0} aria-label="Book Now">
       <span className="floating-book-now__icon"><Icon name="calendar" size={19} /></span>
       <strong>Book Now</strong>
       <Icon name="arrow" size={19} />
@@ -723,7 +787,7 @@ function BookingLoginModal({
   };
 
   return createPortal(
-    <div className="booking-login-wrap" role="presentation">
+    <div className="booking-login-wrap" data-booking-flow-active="true" role="presentation">
       <button className="booking-login__backdrop" aria-label="Close booking login" onClick={onClose} type="button" />
       <section className="booking-login-modal" role="dialog" aria-modal="true" aria-labelledby="booking-login-title">
         <button className="booking-login__close" aria-label="Close booking login" onClick={onClose} type="button"><Icon name="close" /></button>
@@ -1123,6 +1187,13 @@ function readBookingDraft(): Partial<BookingDraft> {
   }
 }
 
+const confirmationStatusLabel = (status: string, pendingLabel: string) => {
+  const normalized = status.trim().toLowerCase();
+  if (!normalized || normalized === "status unavailable") return "Status unavailable";
+  if (normalized === "pending") return pendingLabel;
+  return normalized.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+};
+
 function ReservationFlow({
   onRequireLogin,
   customerProfile,
@@ -1164,6 +1235,10 @@ function ReservationFlow({
   const [activeMenuCategory, setActiveMenuCategory] = useState("Beef");
   const [conflictReason, setConflictReason] = useState("");
   const [confirmationCode, setConfirmationCode] = useState("");
+  const [createdReservation, setCreatedReservation] = useState<{ id: string; code: string } | null>(null);
+  const [confirmationStatuses, setConfirmationStatuses] = useState({ payment: "Status unavailable", booking: "Status unavailable" });
+  const [confirmationReceiptSaved, setConfirmationReceiptSaved] = useState(false);
+  const [pendingPaymentProofPath, setPendingPaymentProofPath] = useState("");
   const submittingBooking = useRef(false);
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState("");
@@ -1568,15 +1643,15 @@ function ReservationFlow({
   const currency = formatPhp;
   const menuComplete = requiredMenuCategories.every((category) => Boolean(menuSelections[category]));
   const supportedPaymentMethods: CustomerPaymentMethod[] = ["gcash", "maya", "bank_transfer"];
-  const activePaymentAccounts = paymentAccounts.filter((account) => account.is_active && supportedPaymentMethods.includes(account.method));
-  const legacyPaymentMethods = (["gcash", "bank_transfer"] as const).filter((method) => Boolean(paymentInstructions[`${method}_instructions`]?.trim()));
-  const availablePaymentMethods = paymentAccountsConfigured
-    ? Array.from(new Set(activePaymentAccounts.map((account) => account.method)))
-    : legacyPaymentMethods;
+  const activePaymentAccounts = paymentAccounts.filter((account) => account.is_active
+    && supportedPaymentMethods.includes(account.method)
+    && Boolean(account.display_name?.trim() && account.instructions?.trim())
+    && (account.method === "bank_transfer"
+      ? Boolean(account.bank_name?.trim() && account.account_number?.trim() && account.account_holder?.trim())
+      : Boolean(account.mobile_wallet_number?.trim() && account.account_holder?.trim())));
+  const availablePaymentMethods = Array.from(new Set(activePaymentAccounts.map((account) => account.method)));
   const selectedPaymentAccount = activePaymentAccounts.find((account) => account.method === paymentMethod) ?? null;
-  const selectedPaymentInstructions = selectedPaymentAccount?.instructions
-    || paymentInstructions[`${paymentMethod}_instructions`]
-    || "";
+  const selectedPaymentInstructions = selectedPaymentAccount?.instructions ?? "";
 
   useEffect(() => {
     if (availablePaymentMethods.length && !availablePaymentMethods.includes(paymentMethod)) {
@@ -1642,8 +1717,9 @@ function ReservationFlow({
       paymentMethod
       && availablePaymentMethods.includes(paymentMethod)
       && paymentReference.trim()
-      && Number(paymentAmount || requiredPaymentAmount) >= requiredPaymentAmount
-      && Number(paymentAmount || requiredPaymentAmount) <= subtotal
+      && Number.isFinite(Number(paymentAmount))
+      && Number(paymentAmount) > 0
+      && Number(paymentAmount) <= subtotal
       && subtotal > 0
       && paymentProof
       && !paymentOptionsLoading
@@ -1677,8 +1753,7 @@ function ReservationFlow({
       if (submittingBooking.current) return;
       submittingBooking.current = true;
       setBookingSubmitting(true);
-      let proofPath: string | null = null;
-      let proofUploaded = false;
+      let reservationForRetry = createdReservation;
       try {
         const { data: authData } = await supabase.auth.getSession();
         if (!authData.session) {
@@ -1691,10 +1766,8 @@ function ReservationFlow({
         if (!supportedPaymentMethods.includes(paymentMethod) || !availablePaymentMethods.includes(paymentMethod)) {
           throw new Error("Select an active GCash, Maya, or Bank Transfer method.");
         }
-        const amount = Number(paymentAmount || requiredPaymentAmount);
-        if (!Number.isFinite(amount) || amount < requiredPaymentAmount || amount > subtotal) {
-          throw new Error(`Enter an amount between ${currency(requiredPaymentAmount)} and ${currency(subtotal)}.`);
-        }
+        const amount = Number(paymentAmount);
+        if (!Number.isFinite(amount) || amount <= 0 || amount > subtotal) throw new Error("Enter the amount you actually paid. It must be greater than zero and no more than the booking total.");
         if (!paymentReference.trim() || paymentReference.trim().length > 160) {
           throw new Error("Enter a transaction reference number (160 characters or fewer).");
         }
@@ -1706,63 +1779,94 @@ function ReservationFlow({
             ? "This package has an invalid configured schedule. Contact the administrator."
             : "Select a valid start and end time.");
         }
-        const proofExtension = paymentProof.type === "image/jpeg" ? "jpg" : paymentProof.type === "image/png" ? "png" : "webp";
-        proofPath = `${authData.session.user.id}/${crypto.randomUUID()}.${proofExtension}`;
-        const upload = await supabase.storage.from("payment-proofs").upload(proofPath, paymentProof, {
-          contentType: paymentProof.type,
-          upsert: false,
-        });
-        if (upload.error) throw upload.error;
-        proofUploaded = true;
-        const { data, error } = await supabase.rpc("create_evently_reservation", {
-          p_booking: {
-            addons: validatedAddOns.map(({ id }) => ({ id })),
-            customer_email: email.trim(),
-            customer_name: guestName.trim(),
-            customer_phone: normalizePhilippineMobile(phone) || phone.trim(),
-            guest_count: guests,
-            booking_service: service,
-            idempotency_key: clientRequestId,
-            menu: service === "Catering" ? menuSelections : {},
-            package_id: packageChoice.id,
-            package_variant_id: selectedVariant?.id ?? null,
-            reservation_date: dateKey(selectedDate),
-            start_time: reservationStartTime ? `${reservationStartTime.slice(0, 5)}:00` : null,
-            end_time: reservationEndTime ? `${reservationEndTime.slice(0, 5)}:00` : null,
-            cottage_selected: cottageSelected,
-            pool_access_selected: poolAccessSelected,
-            item_quantity: itemQuantity,
-            rooms,
-            nights,
-            special_requests: specialRequests.trim() || null,
-            payment: {
-              amount,
-              method: paymentMethod,
-              reference_number: paymentReference.trim(),
-              proof_url: proofPath,
+        let reservation = reservationForRetry;
+        if (!reservation) {
+          const { data, error } = await supabase.rpc("create_evently_reservation", {
+            p_booking: {
+              addons: validatedAddOns.map(({ id }) => ({ id })),
+              customer_email: email.trim(),
+              customer_name: guestName.trim(),
+              customer_phone: normalizePhilippineMobile(phone) || phone.trim(),
+              guest_count: guests,
+              booking_service: service,
+              idempotency_key: clientRequestId,
+              menu: service === "Catering" ? menuSelections : {},
+              package_id: packageChoice.id,
+              package_variant_id: selectedVariant?.id ?? null,
+              reservation_date: dateKey(selectedDate),
+              start_time: reservationStartTime ? `${reservationStartTime.slice(0, 5)}:00` : null,
+              end_time: reservationEndTime ? `${reservationEndTime.slice(0, 5)}:00` : null,
+              cottage_selected: cottageSelected,
+              pool_access_selected: poolAccessSelected,
+              item_quantity: itemQuantity,
+              rooms,
+              nights,
+              special_requests: specialRequests.trim() || null,
             },
-          },
-        });
-        if (error) throw error;
-        const result = data as { reservation_code?: string; payment_proof_path?: string } | null;
-        if (!result?.reservation_code) throw new Error("The reservation was not confirmed by the database.");
-        if (result.payment_proof_path !== proofPath) {
-          await supabase.storage.from("payment-proofs").remove([proofPath]);
-          proofUploaded = false;
+          });
+          if (error) throw error;
+          const result = data as { reservation_id?: string; reservation_code?: string } | null;
+          if (!result?.reservation_id || !result.reservation_code) {
+            throw new Error("The reservation was not confirmed by the database.");
+          }
+          reservation = { id: result.reservation_id, code: result.reservation_code };
+          reservationForRetry = reservation;
+          setCreatedReservation(reservation);
         }
-        setConfirmationCode(result.reservation_code);
+
+        let proofPath = pendingPaymentProofPath;
+        if (!proofPath) {
+          const proofExtension = paymentProof.type === "image/jpeg" ? "jpg" : paymentProof.type === "image/png" ? "png" : "webp";
+          proofPath = `${authData.session.user.id}/${crypto.randomUUID()}.${proofExtension}`;
+          const upload = await supabase.storage.from("payment-proofs").upload(proofPath, paymentProof, {
+            contentType: paymentProof.type,
+            upsert: false,
+          });
+          if (upload.error) throw upload.error;
+          setPendingPaymentProofPath(proofPath);
+        }
+
+        const { error: paymentError } = await supabase.rpc("evently_submit_payment_proof", {
+          p_reservation_id: reservation.id,
+          p_amount: amount,
+          p_method: paymentMethod,
+          p_reference_number: paymentReference.trim(),
+          p_proof_path: proofPath,
+        });
+        if (paymentError) throw paymentError;
+
+        try {
+          const [savedReservation, savedPayment] = await Promise.all([
+            supabase.from("reservations").select("*").eq("id", reservation.id).maybeSingle(),
+            supabase.from("payments").select("*").eq("reservation_id", reservation.id)
+              .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+          ]);
+          setConfirmationStatuses({
+            booking: savedReservation.data
+              ? rowText(savedReservation.data as CustomerDataRow, ["booking_status", "reservation_status", "status"], "Status unavailable")
+              : "Status unavailable",
+            payment: savedPayment.data
+              ? rowText(savedPayment.data as CustomerDataRow, ["verification_status", "payment_status", "status"], "Status unavailable")
+              : "Status unavailable",
+          });
+        } catch {
+          setConfirmationStatuses({ payment: "Status unavailable", booking: "Status unavailable" });
+        }
+        // The receipt upload and payment-proof RPC both succeeded before this point.
+        setConfirmationReceiptSaved(true);
+
+        setConfirmationCode(reservation.code);
         setBookingError("");
         window.dispatchEvent(new Event(customerBookingsChangedEvent));
         window.dispatchEvent(new Event("evently-admin-data-changed"));
         setStep(9);
       } catch (error) {
-        if (proofPath && proofUploaded) {
-          await supabase.storage.from("payment-proofs").remove([proofPath]);
-        }
         const message = error && typeof error === "object" && "message" in error
           ? String(error.message)
           : "The booking and payment proof could not be submitted.";
-        setBookingError(message);
+        setBookingError(reservationForRetry
+          ? `Payment proof was not submitted: ${message} Your booking ${reservationForRetry.code} is saved. Retry to submit payment without creating another reservation.`
+          : message);
         return;
       } finally {
         submittingBooking.current = false;
@@ -1805,20 +1909,24 @@ function ReservationFlow({
     setActiveMenuCategory("Beef");
     setConflictReason("");
     setConfirmationCode("");
+    setCreatedReservation(null);
+    setConfirmationStatuses({ payment: "Status unavailable", booking: "Status unavailable" });
+    setConfirmationReceiptSaved(false);
+    setPendingPaymentProofPath("");
     submittingBooking.current = false;
     setBookingSubmitting(false);
     setBookingError("");
   };
 
   return (
-    <section className="reservation-section" id="booking">
+      <section className="reservation-section" data-booking-flow-active={step > 1 || Boolean(service) || bookingSubmitting ? "true" : undefined} id="booking">
       <div className="reservation-intro">
         <span className="section-kicker">Reserve with confidence</span>
         <h2>Plan your Venice<br /><em>experience.</em></h2>
         <p>Choose your service and date. We will keep every detail clear as you build your booking.</p>
       </div>
 
-      <div className="reservation-shell">
+      <div className={`reservation-shell${step === 9 ? " reservation-shell--confirmation" : ""}`}>
         <div className="reservation-progress" aria-label={`Reservation step ${progressIndex + 1} of ${steps.length}`}>
           <div className="reservation-progress__desktop">
             {steps.map(({ id, label }, index) => (
@@ -1852,6 +1960,7 @@ function ReservationFlow({
                 <div className="service-choice-grid">
                   {serviceCatalog.map((serviceOption) => (
                     <button
+                      data-booking-cta="true"
                       className={`choice-card ${service === serviceOption.id ? "choice-card--selected" : ""}`}
                       key={serviceOption.id}
                       onClick={() => {
@@ -2247,7 +2356,7 @@ function ReservationFlow({
                 <div className="booking-step__heading">
                   <span>Step {progressIndex + 1} of {steps.length}</span>
                   <h3>Submit payment proof</h3>
-                  <p>Your booking and payment submission are saved together. A receipt or reference is not confirmation that money was received.</p>
+                  <p>We save your reservation first, then securely upload and submit the receipt you provide. A receipt or reference is not confirmation that money was received.</p>
                 </div>
                 {demoPaymentMode && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>This capstone demonstration records sample payment information for administrator review only. Do not send real funds based on this demo screen.</span></div>}
                 <div className="booking-payment-summary">
@@ -2255,7 +2364,7 @@ function ReservationFlow({
                   <div><span>Booking date and time</span><strong>{selectedDate?.toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · {reservationStartTime && reservationEndTime ? `${reservationStartTime.slice(0, 5)}–${reservationEndTime.slice(0, 5)}` : "Time to be assigned by Admin"}</strong></div>
                   <div><span>Guest count</span><strong>{guests}</strong></div>
                   <div><span>Total booking price</span><strong>{currency(subtotal)}</strong></div>
-                  <div><span>Required down payment</span><strong>{currency(requiredPaymentAmount)}</strong></div>
+                  <div><span>Required deposit</span><strong>{currency(requiredPaymentAmount)}</strong></div>
                 </div>
                 {!session && <p className="booking-payment-message" role="status">Sign in or create a customer account before submitting a reservation.</p>}
                 {paymentOptionsLoading && <p className="booking-payment-message" role="status">Loading available payment destinations…</p>}
@@ -2264,8 +2373,7 @@ function ReservationFlow({
                 <div className="booking-payment-form">
                   <label><span>Payment method</span><select disabled={!availablePaymentMethods.length} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)} required value={paymentMethod}>{availablePaymentMethods.map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
                   {selectedPaymentAccount && <div className="booking-payment-destination"><strong>{selectedPaymentAccount.display_name}</strong>{selectedPaymentAccount.account_holder && <span>Account holder: {selectedPaymentAccount.account_holder}</span>}{selectedPaymentAccount.bank_name && <span>Bank: {selectedPaymentAccount.bank_name}</span>}{(selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number) && <span>Send to: {selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number}</span>}{selectedPaymentAccount.qr_code_url && <img alt={`${selectedPaymentAccount.display_name} payment QR code`} src={selectedPaymentAccount.qr_code_url} />}<p>{selectedPaymentInstructions}</p></div>}
-                  {!selectedPaymentAccount && selectedPaymentInstructions && <div className="booking-payment-destination"><strong>{customerPaymentMethodLabels[paymentMethod]} instructions</strong><p>{selectedPaymentInstructions}</p></div>}
-                  <label><span>Payment amount</span><input max={subtotal} min={requiredPaymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} required step="0.01" type="number" value={paymentAmount || (requiredPaymentAmount ? requiredPaymentAmount.toFixed(2) : "")} /><small>{deposit > 0 ? "At least the configured deposit is required. You may submit up to the full total." : "No deposit is configured; the full booking amount is required."}</small></label>
+                  <label><span>Actual amount paid (PHP)</span><input autoComplete="off" max={subtotal} min="0.01" onChange={(event) => setPaymentAmount(event.target.value)} required step="0.01" type="number" value={paymentAmount} /><small>Enter what you actually transferred. The required deposit is {currency(requiredPaymentAmount)}; payment proof will remain pending until an administrator reviews it.</small></label>
                   <label><span>Payment reference / transaction number</span><input autoComplete="off" maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} placeholder={demoPaymentMode ? "Example: DEMO-GCASH-2026-001" : "Enter your transaction reference"} required value={paymentReference} /></label>
                   <label><span>Receipt screenshot (JPG, PNG, or WebP · max 5 MB)</span><input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" ref={paymentProofInput} onChange={(event) => {
                     const file = event.target.files?.[0] ?? null;
@@ -2273,34 +2381,42 @@ function ReservationFlow({
                       setBookingError("Receipt must be a JPG, PNG, or WebP image no larger than 5 MB.");
                       event.target.value = "";
                       setPaymentProof(null);
+                      setPendingPaymentProofPath("");
                       return;
                     }
                     setBookingError("");
+                    setPendingPaymentProofPath("");
                     setPaymentProof(file);
                   }} required={!paymentProof} type="file" /></label>
-                  {paymentProof && <div className="booking-receipt-preview"><img alt="Receipt screenshot preview" src={paymentProofPreview} /><div><strong>{paymentProof.name}</strong><span>{(paymentProof.size / (1024 * 1024)).toFixed(2)} MB · ready to upload</span><div><button onClick={() => paymentProofInput.current?.click()} type="button">Replace image</button><button onClick={() => { setPaymentProof(null); if (paymentProofInput.current) paymentProofInput.current.value = ""; }} type="button">Remove image</button></div></div></div>}
+                  {paymentProof && <div className="booking-receipt-preview"><img alt="Receipt screenshot preview" src={paymentProofPreview} /><div><strong>{paymentProof.name}</strong><span>{(paymentProof.size / (1024 * 1024)).toFixed(2)} MB · ready to upload</span><div><button onClick={() => paymentProofInput.current?.click()} type="button">Replace image</button><button onClick={() => { setPaymentProof(null); setPendingPaymentProofPath(""); if (paymentProofInput.current) paymentProofInput.current.value = ""; }} type="button">Remove image</button></div></div></div>}
                   <p className="booking-payment-privacy">Receipt files are stored in a private Supabase bucket. Only the submitting customer and authorized Owner/Admin accounts can access them.</p>
-                  {bookingSubmitting && <p className="booking-payment-message" aria-live="polite">Uploading receipt securely and submitting your booking…</p>}
+                  {bookingSubmitting && <p className="booking-payment-message" aria-live="polite">{createdReservation ? "Uploading receipt securely and submitting payment proof…" : "Saving your reservation, then uploading and submitting payment proof…"}</p>}
                 </div>
               </div>
             )}
 
             {step === 9 && (
               <div className="booking-step booking-step--enter confirmation">
-                <div className="confirmation__mark">✓</div>
-                <span className="section-kicker">Payment proof received</span>
-                <h3>Your Venice moment<br />is on its way.</h3>
-                <p>We saved your booking and payment submission together. The submitted proof is awaiting administrator review; the reservation is not confirmed until an authorized Admin verifies the proof and approves the schedule.</p>
+                <header className="confirmation__header">
+                  <div className="confirmation__mark" aria-hidden="true">✓</div>
+                  {confirmationReceiptSaved && <span className="section-kicker">Payment proof received</span>}
+                  <h3>Your Venice moment is on its way.</h3>
+                  <p>Your reservation has been submitted. Payment review and booking approval are handled separately; the reservation is not confirmed until an authorized administrator approves it.</p>
+                </header>
                 {demoPaymentMode && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>Your sample reference and receipt are demonstration data only.</span></div>}
-                <div className="confirmation__code"><span>Payment status</span><strong>Payment Submitted — Pending Verification</strong></div>
-                <div className="confirmation__code"><span>Booking status</span><strong>Pending Admin Approval</strong></div>
-                <div className="confirmation__code"><span>Submitted amount</span><strong>{currency(Number(paymentAmount || requiredPaymentAmount))}</strong></div>
-                <div className="confirmation__code"><span>Payment method</span><strong>{customerPaymentMethodLabels[paymentMethod]}</strong></div>
-                <div className="confirmation__code"><span>Reservation date</span><strong>{selectedDate?.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}</strong></div>
-                <div className="confirmation__code"><span>Schedule</span><strong>{reservationStartTime && reservationEndTime ? `${reservationStartTime.slice(0, 5)}–${reservationEndTime.slice(0, 5)}${reservationEndTime <= reservationStartTime ? " · ends the following day" : ""}` : "Pending administrator assignment"}</strong></div>
-                <div className="confirmation__code"><span>Selected package</span><strong>{selectedPackageLabel}</strong></div>
-                <div className="confirmation__code"><span>Booking reference</span><strong>{confirmationCode}</strong></div>
-                <button className="booking-primary" type="button" onClick={resetBooking}>Make another booking <Icon name="arrow" size={18} /></button>
+                <div className="confirmation__status-grid" aria-label="Current payment and booking status">
+                  <article className="confirmation__status-card"><span>Payment Status</span><strong>{confirmationStatusLabel(confirmationStatuses.payment, "Pending Verification")}</strong></article>
+                  <article className="confirmation__status-card"><span>Booking Status</span><strong>{confirmationStatusLabel(confirmationStatuses.booking, "Pending Admin Approval")}</strong></article>
+                </div>
+                <dl className="confirmation__summary">
+                  <div><dt>Booking Reference</dt><dd>{confirmationCode || "Unavailable"}</dd></div>
+                  <div><dt>Selected Package</dt><dd>{selectedPackageLabel || "Package unavailable"}</dd></div>
+                  <div><dt>Reservation Date</dt><dd>{selectedDate?.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" }) ?? "Date unavailable"}</dd></div>
+                  <div><dt>Schedule</dt><dd>{reservationStartTime && reservationEndTime ? `${reservationStartTime.slice(0, 5)}–${reservationEndTime.slice(0, 5)}${reservationEndTime <= reservationStartTime ? " · ends the following day" : ""}` : "Pending administrator assignment"}</dd></div>
+                  <div><dt>Payment Method</dt><dd>{customerPaymentMethodLabels[paymentMethod]}</dd></div>
+                  <div><dt>Submitted Amount</dt><dd>{currency(Number(paymentAmount))}</dd></div>
+                </dl>
+                <button className="booking-primary confirmation__another" type="button" onClick={resetBooking}>Make Another Booking <Icon name="arrow" size={18} /></button>
               </div>
             )}
 
@@ -2308,12 +2424,12 @@ function ReservationFlow({
               <>
               {bookingError && <div className="booking-inline-error" role="alert">{bookingError}</div>}
               <div className="booking-controls">
-                <button className="booking-back" disabled={step === 1} type="button" onClick={() => setStep((current) => current === 5 && service !== "Catering" ? 3 : Math.max(1, current - 1))}>
+                <button className="booking-back" disabled={step === 1 || (step === 8 && Boolean(createdReservation))} type="button" onClick={() => setStep((current) => current === 5 && service !== "Catering" ? 3 : Math.max(1, current - 1))}>
                   Back
                 </button>
                 {step === 6 && <button className="skip-offer-button" onClick={() => setStep(7)} type="button">Skip This Offer</button>}
-                <button className="booking-primary" disabled={!canContinue || Boolean(conflictReason) || bookingSubmitting} type="button" onClick={nextStep}>
-                  {step === 8 ? bookingSubmitting ? "Submitting Payment Proof…" : "Submit Booking & Payment" : step === 7 ? "Continue to Payment" : step === 6 ? "Continue to Review" : "Continue"} <Icon name="arrow" size={18} />
+                <button className="booking-primary" data-booking-cta="true" disabled={!canContinue || Boolean(conflictReason) || bookingSubmitting} type="button" onClick={nextStep}>
+                  {step === 8 ? bookingSubmitting ? "Submitting Payment Proof…" : createdReservation ? "Retry Payment Proof" : "Submit Booking & Payment Proof" : step === 7 ? "Continue to Payment" : step === 6 ? "Continue to Review" : "Continue"} <Icon name="arrow" size={18} />
                 </button>
               </div>
               </>
@@ -2363,6 +2479,7 @@ function CustomerHeader() {
   const links = [
     ["/account/profile", "My Profile", "/account/profile"],
     ["/account/history", "Booking History", "/account/history"],
+    ["/account/messages", "Messages", "/account/messages"],
     ["/#booking", "Booking", "/order"],
     ["/track-order", "Track Booking", "/track-order"],
     ["/account/settings", "Account Settings", "/account/settings"],
@@ -2417,7 +2534,7 @@ function CustomerFooter() {
 }
 
 function AccountLayout({ active, children, description, title }: {
-  active: "profile" | "history" | "settings";
+  active: "profile" | "history" | "messages" | "settings";
   children: ReactNode;
   description: string;
   title: string;
@@ -2425,6 +2542,7 @@ function AccountLayout({ active, children, description, title }: {
   const items = [
     ["profile", "/account/profile", "My Profile"],
     ["history", "/account/history", "Booking History"],
+    ["messages", "/account/messages", "Messages"],
     ["settings", "/account/settings", "Account Settings"],
   ] as const;
   return (
@@ -2445,6 +2563,12 @@ function AccountLayout({ active, children, description, title }: {
       <CustomerFooter />
     </main>
   );
+}
+
+function CustomerMessagesPage() {
+  return <AccountLayout active="messages" description="Send a message in Evently's interactive support chat demo." title="Messages">
+    <CustomerMessagesPanel />
+  </AccountLayout>;
 }
 
 type CustomerDataRow = Record<string, unknown>;
@@ -2951,17 +3075,17 @@ function OrderPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<CustomerPaymentMethod>("gcash");
-  const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentProof, setPaymentProof] = useState<File | null>(null);
   const paymentProofInput = useRef<HTMLInputElement | null>(null);
   const [paymentProofPreview, setPaymentProofPreview] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [pendingPaymentProofPath, setPendingPaymentProofPath] = useState("");
   const [paymentMessage, setPaymentMessage] = useState("");
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
-  const [paymentInstructions, setPaymentInstructions] = useState<Record<string, string>>({});
   const [paymentAccounts, setPaymentAccounts] = useState<CustomerPaymentAccount[]>([]);
-  const [paymentAccountsConfigured, setPaymentAccountsConfigured] = useState(false);
   const [demoPaymentMode, setDemoPaymentMode] = useState(true);
+  const [paymentOptionsError, setPaymentOptionsError] = useState("");
 
   useEffect(() => {
     if (!paymentProof) { setPaymentProofPreview(""); return; }
@@ -3002,13 +3126,12 @@ function OrderPage() {
     return () => window.clearInterval(interval);
   }, [loadOrder]);
   useEffect(() => {
-    supabase.rpc("evently_customer_payment_options").then(({ data }) => {
+    supabase.rpc("evently_customer_payment_options").then(({ data, error: optionsError }) => {
+      if (optionsError) { setPaymentOptionsError(optionsError.message); return; }
       if (!data || typeof data !== "object") return;
        const options = data as { accounts?: unknown; configured?: boolean; demo_mode?: boolean; legacy_instructions?: Record<string, string> };
        setPaymentAccounts(Array.isArray(options.accounts) ? options.accounts as CustomerPaymentAccount[] : []);
-       setPaymentAccountsConfigured(options.configured === true);
-       setPaymentInstructions(options.legacy_instructions ?? {});
-       setDemoPaymentMode(options.demo_mode !== false);
+        setDemoPaymentMode(options.demo_mode !== false);
     });
   }, []);
 
@@ -3020,14 +3143,19 @@ function OrderPage() {
   const menu = order ? rowList(order, ["menu_items", "selected_menu", "menu"]) : [];
   const addons = order ? rowList(order, ["addons", "selected_addons"]) : [];
   const outstandingBalance = reservation ? remainingBalance(reservation) : Math.max(0, total - amountPaid);
-  const activePaymentAccounts = paymentAccounts.filter((account) => account.is_active && ["gcash", "maya", "bank_transfer"].includes(account.method));
-  const legacyMethodOptions = (["gcash", "bank_transfer"] as const).filter((method) => Boolean(paymentInstructions[`${method}_instructions`]?.trim()));
-  const availablePaymentMethods: CustomerPaymentMethod[] = paymentAccountsConfigured
-    ? Array.from(new Set(activePaymentAccounts.map((account) => account.method)))
-    : [...legacyMethodOptions];
+  const amountDueNow = amountPaid > 0
+    ? outstandingBalance
+    : Math.min(outstandingBalance, depositAmount > 0 ? depositAmount : total);
+  const activePaymentAccounts = paymentAccounts.filter((account) => account.is_active
+    && ["gcash", "maya", "bank_transfer"].includes(account.method)
+    && Boolean(account.display_name?.trim() && account.instructions?.trim() && account.account_holder?.trim())
+    && (account.method === "bank_transfer"
+      ? Boolean(account.bank_name?.trim() && account.account_number?.trim())
+      : Boolean(account.mobile_wallet_number?.trim())));
+  const availablePaymentMethods: CustomerPaymentMethod[] = Array.from(new Set(activePaymentAccounts.map((account) => account.method)));
   const availablePaymentMethodKey = availablePaymentMethods.join("|");
   const selectedPaymentAccount = activePaymentAccounts.find((account) => account.method === paymentMethod) ?? null;
-  const selectedPaymentInstructions = selectedPaymentAccount?.instructions || paymentInstructions[`${paymentMethod}_instructions`] || "";
+  const selectedPaymentInstructions = selectedPaymentAccount?.instructions ?? "";
   const latestPayment = payments[0] ?? null;
   const latestPaymentStatus = rowText(latestPayment ?? {}, ["verification_status", "status"], "").toLowerCase();
   const paymentAwaitingReview = payments.some((payment) => rowText(payment, ["verification_status", "status"], "").toLowerCase() === "pending");
@@ -3040,9 +3168,8 @@ function OrderPage() {
     if (!session || !order || paymentSubmitting) return;
     setPaymentMessage("");
     const amount = Number(paymentAmount);
-    const requiredAmount = amountPaid > 0 ? 0.01 : depositAmount > 0 ? depositAmount : total;
-    if (!Number.isFinite(amount) || amount < requiredAmount || amount > outstandingBalance) {
-      setPaymentMessage(`Enter an amount between ${formatPhp(requiredAmount)} and the remaining balance.`);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > outstandingBalance) {
+      setPaymentMessage("Enter the amount you actually paid. It must be greater than zero and no more than the saved booking balance.");
       return;
     }
     if (paymentAwaitingReview) {
@@ -3053,7 +3180,7 @@ function OrderPage() {
       setPaymentMessage("A transaction reference and proof of payment are required.");
       return;
     }
-    if (!availablePaymentMethods.includes(paymentMethod) || !selectedPaymentInstructions.trim()) {
+    if (!availablePaymentMethods.includes(paymentMethod) || !selectedPaymentAccount || !selectedPaymentInstructions.trim()) {
       setPaymentMessage("This payment method is not configured. Contact Venice before submitting payment.");
       return;
     }
@@ -3062,9 +3189,9 @@ function OrderPage() {
       return;
     }
     setPaymentSubmitting(true);
-    let proofPath: string | null = null;
     try {
-      if (paymentProof) {
+      let proofPath = pendingPaymentProofPath;
+      if (!proofPath && paymentProof) {
         const extension = paymentProof.type === "image/jpeg" ? "jpg" : paymentProof.type === "image/png" ? "png" : "webp";
         proofPath = `${session.user.id}/${crypto.randomUUID()}.${extension}`;
         const upload = await supabase.storage.from("payment-proofs").upload(proofPath, paymentProof, {
@@ -3072,26 +3199,27 @@ function OrderPage() {
           upsert: false,
         });
         if (upload.error) throw upload.error;
+        setPendingPaymentProofPath(proofPath);
       }
       const reservationId = String(rowValue(order, ["reservation_id"]) ?? "");
       if (!reservationId) throw new Error("This order is not linked to a reservation.");
-      const { error: submitError } = await supabase.rpc("submit_evently_payment", {
+      const { error: submitError } = await supabase.rpc("evently_submit_payment_proof", {
+        p_reservation_id: reservationId,
         p_amount: amount,
         p_method: paymentMethod,
-        p_proof_url: proofPath,
         p_reference_number: paymentReference.trim(),
-        p_reservation_id: reservationId,
+        p_proof_path: proofPath,
       });
       if (submitError) throw submitError;
-       setPaymentMessage(demoPaymentMode ? "Demo payment submitted for administrator verification. No actual money transfer is represented." : "Payment proof submitted for administrator verification.");
-       setPaymentAmount("");
-       setPaymentReference("");
-       setPaymentProof(null);
-       if (paymentProofInput.current) paymentProofInput.current.value = "";
-       await loadOrder();
-    } catch (paymentError) {
-      if (proofPath) await supabase.storage.from("payment-proofs").remove([proofPath]);
-      setPaymentMessage(paymentError instanceof Error ? paymentError.message : "Payment submission failed.");
+        setPaymentMessage(demoPaymentMode ? "Demo payment submitted for administrator verification. No actual money transfer is represented." : "Payment proof submitted for administrator verification.");
+        setPaymentReference("");
+        setPaymentProof(null);
+        setPaymentAmount("");
+        setPendingPaymentProofPath("");
+        if (paymentProofInput.current) paymentProofInput.current.value = "";
+        await loadOrder();
+     } catch (paymentError) {
+       setPaymentMessage(paymentError instanceof Error ? paymentError.message : "Payment submission failed.");
     } finally {
       setPaymentSubmitting(false);
     }
@@ -3122,10 +3250,13 @@ function OrderPage() {
              <h2>{latestPaymentStatus === "rejected" ? "Resubmit Payment Proof" : "Submit a Payment"}</h2>
              {demoPaymentMode && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>Use sample transaction data only. No processor is connected.</span></div>}
               <label><span>Payment method</span><select disabled={!availablePaymentMethods.length} value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)}>{availablePaymentMethods.map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
-             {!availablePaymentMethods.length && <p role="status">No active payment methods are currently published. Contact Venice before sending funds.</p>}
+              {paymentOptionsError && <p className="booking-payment-message is-error" role="alert">Payment destinations could not be loaded: {paymentOptionsError}</p>}
+              {!availablePaymentMethods.length && <p role="status">No active, correctly configured payment destinations are currently available. Contact Venice before sending funds.</p>}
              {selectedPaymentAccount && <div className="customer-payment-destination"><strong>{selectedPaymentAccount.display_name}</strong>{selectedPaymentAccount.account_holder && <span>Account holder: {selectedPaymentAccount.account_holder}</span>}{selectedPaymentAccount.bank_name && <span>Bank: {selectedPaymentAccount.bank_name}</span>}{(selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number) && <span>Send to: {selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number}</span>}{selectedPaymentAccount.qr_code_url && <img alt={`${selectedPaymentAccount.display_name} payment QR code`} src={selectedPaymentAccount.qr_code_url} />}<p>{selectedPaymentInstructions}</p></div>}
              {!selectedPaymentAccount && selectedPaymentInstructions && <p>{selectedPaymentInstructions}</p>}
-             <label><span>Amount</span><input min={amountPaid > 0 ? "0.01" : depositAmount > 0 ? depositAmount : total} max={outstandingBalance} onChange={(event) => setPaymentAmount(event.target.value)} required step="0.01" type="number" value={paymentAmount} /></label>
+               <div className="payment-card__balance"><span>Total booking price</span><strong>{formatPhp(total)}</strong></div>
+               <div className="payment-card__balance"><span>Suggested amount due</span><strong>{formatPhp(amountDueNow)}</strong></div>
+               <label><span>Actual amount paid (PHP)</span><input max={outstandingBalance} min="0.01" onChange={(event) => setPaymentAmount(event.target.value)} required step="0.01" type="number" value={paymentAmount} /><small>Enter the amount you actually transferred. It may differ from the suggested amount.</small></label>
              <label><span>Transaction reference</span><input maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} required value={paymentReference} /></label>
              <label><span>Proof of payment (JPG, PNG, or WebP · max 10 MB)</span><input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" ref={paymentProofInput} onChange={(event) => {
                const file = event.target.files?.[0] ?? null;
@@ -3135,11 +3266,12 @@ function OrderPage() {
                  setPaymentProof(null);
                  return;
                }
-               setPaymentMessage("");
-               setPaymentProof(file);
+                setPaymentMessage("");
+                setPendingPaymentProofPath("");
+                setPaymentProof(file);
              }} required={!paymentProof} type="file" /></label>
-             {paymentProof && <div className="booking-receipt-preview"><img alt="Receipt screenshot preview" src={paymentProofPreview} /><div><strong>{paymentProof.name}</strong><span>{(paymentProof.size / (1024 * 1024)).toFixed(2)} MB</span><div><button onClick={() => paymentProofInput.current?.click()} type="button">Replace image</button><button onClick={() => { setPaymentProof(null); if (paymentProofInput.current) paymentProofInput.current.value = ""; }} type="button">Remove image</button></div></div></div>}
-            <button disabled={paymentSubmitting} type="submit">{paymentSubmitting ? "Submitting…" : "Submit for Verification"}</button>
+              {paymentProof && <div className="booking-receipt-preview"><img alt="Receipt screenshot preview" src={paymentProofPreview} /><div><strong>{paymentProof.name}</strong><span>{(paymentProof.size / (1024 * 1024)).toFixed(2)} MB</span><div><button onClick={() => paymentProofInput.current?.click()} type="button">Replace image</button><button onClick={() => { setPaymentProof(null); setPendingPaymentProofPath(""); if (paymentProofInput.current) paymentProofInput.current.value = ""; }} type="button">Remove image</button></div></div></div>}
+              <button disabled={paymentSubmitting || !availablePaymentMethods.length || Boolean(paymentOptionsError)} type="submit">{paymentSubmitting ? "Submitting…" : "Submit for Verification"}</button>
             {paymentMessage && <span role="status">{paymentMessage}</span>}
            </form>}
         </aside>
@@ -3829,6 +3961,7 @@ function Homepage() {
                     <div><span>{profileInitials}</span><p><strong>{customerProfile?.fullName || "Venice Customer"}</strong><small>{customerProfile?.email || "Customer account"}</small></p></div>
                     <a href="/account/profile"><span>👤</span> My Profile</a>
                     <a href="/account/history"><span>📋</span> Booking History</a>
+                    <a href="/account/messages"><span>💬</span> Messages</a>
                     <a href="/account/history?view=orders"><span>🛍️</span> Purchase / Order History</a>
                     <a href="/account/history?view=payments"><span>💳</span> Payment History</a>
                     <a href="/account/settings"><span>⚙️</span> Account Settings</a>
@@ -3863,6 +3996,7 @@ function Homepage() {
               <>
                 <a href="/account/profile" onClick={closeMenu}>My Profile</a>
                 <a href="/account/history" onClick={closeMenu}>My History</a>
+                <a href="/account/messages" onClick={closeMenu}>Messages</a>
                 <a href="/account/settings" onClick={closeMenu}>Account Settings</a>
                 <button className="mobile-account-action" onClick={() => { closeMenu(); setLogoutConfirmOpen(true); }} type="button">Log Out</button>
               </>
@@ -3925,13 +4059,13 @@ function Homepage() {
               <span>{String(index + 1).padStart(2, "0")}</span>
               <h3>{experience.label}</h3>
               <p>{experience.description}</p>
-              <button onClick={() => experience.serviceId === "staycation" ? setStaycationOptionsOpen((open) => !open) : chooseService(experience.serviceId)} type="button">
+              <button data-booking-cta={experience.serviceId === "staycation" ? undefined : "true"} onClick={() => experience.serviceId === "staycation" ? setStaycationOptionsOpen((open) => !open) : chooseService(experience.serviceId)} type="button">
                 {experience.serviceId === "staycation" ? "View stay options" : "View packages"} <Icon name="arrow" size={17} />
               </button>
               {experience.serviceId === "staycation" && staycationOptionsOpen && (
                 <div className="staycation-options">
-                  <button onClick={() => chooseService("Swimming Pool")} type="button"><strong>Swimming Pool Tours</strong><small>Day, night, and overnight schedules</small></button>
-                  <button onClick={() => chooseService("Room Accommodation")} type="button"><strong>Room Accommodation</strong><small>Standard and Kubo room options</small></button>
+                  <button data-booking-cta="true" onClick={() => chooseService("Swimming Pool")} type="button"><strong>Swimming Pool Tours</strong><small>Day, night, and overnight schedules</small></button>
+                  <button data-booking-cta="true" onClick={() => chooseService("Room Accommodation")} type="button"><strong>Room Accommodation</strong><small>Standard and Kubo room options</small></button>
                 </div>
               )}
             </article>
@@ -3961,7 +4095,7 @@ function Homepage() {
             <span><Icon name="sparkle" /> Curated menus</span>
             <span><Icon name="people" /> Intimate to grand</span>
           </div>
-          <button className="button button--booking inline-service-button" onClick={() => chooseService("Catering")} type="button"><span>Book Catering</span><Icon name="arrow" size={18} /></button>
+          <button className="button button--booking inline-service-button" data-booking-cta="true" onClick={() => chooseService("Catering")} type="button"><span>Book Catering</span><Icon name="arrow" size={18} /></button>
         </div>
       </section>
 
@@ -3983,7 +4117,7 @@ function Homepage() {
             <span><Icon name="calendar" /> Flexible event dates</span>
             <span><Icon name="sparkle" /> Styling support</span>
           </div>
-          <button className="button button--booking inline-service-button" onClick={() => chooseService("Event")} type="button"><span>Book Your Event</span><Icon name="arrow" size={18} /></button>
+          <button className="button button--booking inline-service-button" data-booking-cta="true" onClick={() => chooseService("Event")} type="button"><span>Book Your Event</span><Icon name="arrow" size={18} /></button>
         </div>
       </section>
 
@@ -4003,7 +4137,7 @@ function Homepage() {
             <span><Icon name="people" /> Made for groups</span>
             <span><Icon name="sun" /> Tropical open spaces</span>
           </div>
-          <button className="button button--booking inline-service-button" onClick={() => chooseService("Swimming Pool")} type="button"><span>Reserve Your Stay</span><Icon name="arrow" size={18} /></button>
+          <button className="button button--booking inline-service-button" data-booking-cta="true" onClick={() => chooseService("Swimming Pool")} type="button"><span>Reserve Your Stay</span><Icon name="arrow" size={18} /></button>
         </div>
       </section>
 
@@ -4026,7 +4160,7 @@ function Homepage() {
               <h3>{firstPackage.name}</h3>
               <p>{firstPackage.detail}. {firstPackage.inclusions.join(" · ")}.</p>
               <div className="package-card__detail"><Icon name="people" size={18} /> {firstPackage.priceLabel ?? `Packages from ${formatPhp(lowestPrice)}`}</div>
-              <button className="package-card__link" onClick={() => chooseService(serviceOption.id)} type="button">
+              <button className="package-card__link" data-booking-cta="true" onClick={() => chooseService(serviceOption.id)} type="button">
                 View packages <Icon name="arrow" size={18} />
               </button>
             </article>
@@ -4160,6 +4294,7 @@ function PublicPage({ children }: { children: ReactNode }) {
     <>
       <div className="app-page-transition">{children}</div>
       {showFloatingBooking && <FloatingBookNow href={bookingHref} />}
+      {showFloatingBooking && <FloatingCustomerChat />}
     </>
   );
 }
@@ -4312,6 +4447,7 @@ function AppRoute({ pathname }: { pathname: string }) {
   if (pathname === "/track-order") return <PublicPage><TrackOrderPage /></PublicPage>;
   if (pathname === "/account/profile") return <ProtectedCustomerRoute><PublicPage><CustomerProfilePage /></PublicPage></ProtectedCustomerRoute>;
   if (pathname === "/account/history") return <ProtectedCustomerRoute><PublicPage><CustomerHistoryPage /></PublicPage></ProtectedCustomerRoute>;
+  if (pathname === "/account/messages") return <ProtectedCustomerRoute><PublicPage><CustomerMessagesPage /></PublicPage></ProtectedCustomerRoute>;
   if (pathname === "/account/settings") return <ProtectedCustomerRoute><PublicPage><CustomerAccountSettingsPage /></PublicPage></ProtectedCustomerRoute>;
   if (pathname === "/auth/callback") return <OAuthCallbackPage />;
   if (pathname === "/admin/login") return <AdminLoginPage />;

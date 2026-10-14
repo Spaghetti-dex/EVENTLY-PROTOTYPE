@@ -1,6 +1,5 @@
--- Require a private payment submission as part of new reservations, then gate
--- final booking approval on verified proof. Existing RPC signatures and
--- historical payment/reservation rows are preserved.
+-- Keep payment proof private and gate final booking approval on verified proof.
+-- Reservation creation persists the booking separately from the receipt upload.
 
 do $$
 begin
@@ -400,14 +399,10 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_payment jsonb := p_booking -> 'payment';
   v_result jsonb;
   v_package public.packages%rowtype;
   v_reservation_id uuid;
   v_existing_id uuid;
-  v_payment_id uuid;
-  v_payment_status text;
-  v_payment_proof_path text;
   v_booking_service text := lower(trim(coalesce(p_booking ->> 'booking_service', '')));
   v_unit_price numeric(12,2);
   v_old_base numeric(12,2);
@@ -422,9 +417,6 @@ begin
   if auth.uid() is null then raise exception 'Authentication is required'; end if;
   if jsonb_typeof(p_booking) is distinct from 'object' then raise exception 'Booking details are required'; end if;
   if nullif(p_booking ->> 'idempotency_key', '') is null then raise exception 'An idempotency key is required'; end if;
-  if jsonb_typeof(v_payment) is distinct from 'object' then
-    raise exception 'Submit payment details and a receipt image with the booking';
-  end if;
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('evently-booking:' || auth.uid()::text || ':' || (p_booking ->> 'idempotency_key'), 0)
   );
@@ -503,37 +495,10 @@ begin
     end if;
   end if;
 
-  -- If a previous response was lost, an idempotent retry returns its existing
-  -- pending/verified proof instead of inserting a duplicate payment.
-  execute format(
-    'select id, %I::text, proof_url
-     from public.payments
-     where reservation_id = $1 and customer_id = $2
-       and lower(%I::text) in (''pending'', ''verified'')
-     order by submitted_at desc, created_at desc
-     limit 1 for update',
-    public.evently_existing_column('public.payments', array['verification_status', 'status']),
-    public.evently_existing_column('public.payments', array['verification_status', 'status'])
-  ) into v_payment_id, v_payment_status, v_payment_proof_path
-    using v_reservation_id, auth.uid();
-
-  if v_payment_id is null then
-    v_payment_proof_path := nullif(trim(v_payment ->> 'proof_url'), '');
-    v_payment_id := public.submit_evently_payment(
-      v_reservation_id,
-      nullif(v_payment ->> 'amount', '')::numeric,
-      v_payment ->> 'method',
-      v_payment ->> 'reference_number',
-      v_payment_proof_path
-    );
-    v_payment_status := 'pending';
-  end if;
-
-  return v_result || jsonb_build_object(
-    'payment_id', v_payment_id,
-    'payment_status', v_payment_status,
-    'payment_proof_path', v_payment_proof_path
-  );
+  -- Reservation persistence is intentionally independent from payment proof.
+  -- The customer uploads a private receipt after this result is returned, then
+  -- submits it through the existing evently_submit_payment_proof RPC.
+  return v_result;
 end;
 $$;
 

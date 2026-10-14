@@ -2,15 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, Bell, CalendarCheck2, CalendarDays, Check, CheckCircle2, ChevronDown,
   ChevronRight, Clock3, ClipboardCheck, ClipboardList, ExternalLink, Inbox, LayoutDashboard,
-  LogOut, MapPin, Menu, Package, RefreshCw, Search, Star, UserRound, Users, X,
+  LogOut, MapPin, Menu, MessageCircle, Package, RefreshCw, Search, Star, UserRound, Users, X,
   type LucideIcon,
 } from "lucide-react";
 import type { EventlyProfile } from "../lib/supabase";
 import { signOutUser, supabase } from "../lib/supabase";
+import { MessagingInbox } from "../messaging/MessagingViews";
 
 type Row = Record<string, unknown>;
 type Permission = { permission: string; granted: boolean };
-type PortalSection = "dashboard" | "notifications" | "reservations" | "recommendations" | "orders" | "calendar" | "customers" | "reviews" | "profile";
+type PortalSection = "dashboard" | "notifications" | "reservations" | "recommendations" | "orders" | "calendar" | "customers" | "reviews" | "profile" | "messages";
 type PortalLink = { path: PortalSection; label: string; icon: LucideIcon };
 
 const navigationGroups: Array<{ label: string; links: PortalLink[] }> = [
@@ -28,6 +29,7 @@ const navigationGroups: Array<{ label: string; links: PortalLink[] }> = [
     { path: "customers", label: "Customers", icon: Users },
     { path: "reviews", label: "Reviews", icon: Star },
     { path: "profile", label: "My Profile", icon: UserRound },
+    { path: "messages", label: "Messages", icon: MessageCircle },
   ] },
 ];
 const allLinks = navigationGroups.flatMap((group) => group.links);
@@ -405,6 +407,7 @@ export default function StaffPortal({ profile, path, navigate }: { profile: Even
           {section === "reviews" && <StaffReviewsPage reviews={reviews} error={reviewsError} canModerate={can("moderate_reviews")} onFlag={flagReview}/>}
           {section === "notifications" && <NotificationsPage rows={notifications} error={notificationsError} onRead={markNotificationsRead} onOpenReservation={(id) => { const row = rows.find((item) => String(item.id) === id); if (row) setSelected(row); else go("reservations"); }}/ >}
           {section === "profile" && <ProfilePage profile={profile} name={profileName} mobile={mobile} newPassword={newPassword} onName={setProfileName} onMobile={setMobile} onPassword={setNewPassword} onSave={() => void updateProfile()} onUpdatePassword={() => void updatePassword()}/>}
+          {section === "messages" && <MessagingInbox role="staff" />}
         </>}
       </div>
     </div>
@@ -448,6 +451,7 @@ function pageDescription(section: PortalSection) {
     customers: "Customer details are shown only when your Owner-approved permission allows them.",
     reviews: "Flag potentially inappropriate reviews for Admin/Owner moderation.",
     profile: "Manage your personal contact information and sign-in security.",
+    messages: "Read and reply to fictional customer conversations in the Demo Chat inbox.",
   };
   return descriptions[section];
 }

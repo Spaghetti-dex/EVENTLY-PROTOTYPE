@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from "react-dom";
 import type { EventlyProfile } from "../lib/supabase";
 import { eventlyFunctionBaseUrl, signOutUser, supabase } from "../lib/supabase";
+import { MessagingInbox } from "../messaging/MessagingViews";
 
 type Row = Record<string, unknown>;
 type ScheduleResourceOption = { label: string; location: string; type: string; value: string };
@@ -20,6 +21,7 @@ const sections = [
   ["staff", "Staff Management", "users"],
   ["reports", "Reports & Analytics", "chart"],
   ["notifications", "Notifications", "bell"],
+  ["messages", "Messages", "message"],
   ["activity-logs", "Activity Logs", "clock"],
   ["settings", "Settings", "settings"],
 ] as const;
@@ -92,6 +94,7 @@ const columnsBySection: Record<string, { label: string; keys: string[] }[]> = {
     { label: "Amount", keys: ["amount", "payment_amount"] },
     { label: "Method", keys: ["payment_method", "method"] },
     { label: "Status", keys: ["verification_status", "payment_status", "status"] },
+    { label: "Receipt", keys: ["_receipt_status"] },
     { label: "Payment Date", keys: ["submitted_at", "created_at"] },
   ],
   reviews: [
@@ -138,6 +141,7 @@ const navigationGroups = [
   { label: "Booking Management", paths: ["reservations", "orders"] },
   { label: "Business Management", paths: ["packages", "catering-menu", "addons", "customers", "staff"] },
   { label: "Finance & Insights", paths: ["payments", "reports", "reviews"] },
+  { label: "Communication", paths: ["messages"] },
   { label: "System", paths: ["activity-logs", "settings"] },
 ];
 
@@ -154,6 +158,7 @@ const pageDescriptions: Record<string, string> = {
   staff: "Invite staff and manage operational permissions.",
   reports: "Export and analyze RLS-permitted operational records.",
   notifications: "Review customer-facing and operational notifications.",
+  messages: "Browse fictional customer conversations in the Evently Demo Chat inbox.",
   "activity-logs": "Trace important administrative activity.",
   settings: "Manage account security and supported business preferences.",
 };
@@ -191,7 +196,7 @@ async function loadAdminRows(section: string, table: string) {
     ? ["payments", "reservations", "profiles"] as const
     : section === "orders"
       ? ["orders", "reservations", "profiles"] as const
-      : ["reservations", "profiles", "evently_booking_recommendations"] as const;
+      : ["reservations", "profiles", "evently_booking_recommendations", "packages", "package_variants"] as const;
   const results = await Promise.all(tableNames.map((name) => supabase.from(name).select("*").limit(500)));
   const failure = results.find((result) => result.error)?.error;
   if (failure) throw failure;
@@ -205,12 +210,21 @@ async function loadAdminRows(section: string, table: string) {
 
   if (section === "reservations") {
     const recommendations = (byTable.evently_booking_recommendations ?? []) as Row[];
+    const packages = (byTable.packages ?? []) as Row[];
+    const variants = (byTable.package_variants ?? []) as Row[];
     return (reservations.map((reservation) => {
       const recommendation = recommendations
         .filter((item) => String(item.reservation_id) === String(reservation.id))
         .sort((left, right) => String(right.created_at ?? "").localeCompare(String(left.created_at ?? "")))[0] ?? null;
+      const packageRow = packages.find((item) => String(item.id) === String(reservation.package_id));
+      const variantRow = variants.find((item) => String(item.id) === String(reservation.package_variant_id));
       return {
         ...reservation,
+        package_name: first(reservation, ["package_name"]) ?? first(packageRow ?? {}, ["name"]),
+        package_category: first(reservation, ["package_category"]) ?? first(packageRow ?? {}, ["package_category"]),
+        resource_key: first(reservation, ["resource_key"]) ?? first(variantRow ?? {}, ["resource_key"]) ?? first(packageRow ?? {}, ["resource_key"]),
+        resource_mode: first(reservation, ["resource_mode"]) ?? first(packageRow ?? {}, ["resource_mode"]),
+        schedule_mode: first(reservation, ["schedule_mode"]) ?? first(variantRow ?? {}, ["schedule_mode"]) ?? first(packageRow ?? {}, ["schedule_mode"]),
         _customer_name: first(reservation, ["customer_name"]) ?? profileName(reservation.customer_id),
         _latest_staff_recommendation: recommendation ? {
           ...recommendation,
@@ -230,6 +244,7 @@ async function loadAdminRows(section: string, table: string) {
         ...payment,
         _customer_name: first(reservation ?? {}, ["customer_name"]) ?? profileName(payment.customer_id),
         _reservation_code: first(reservation ?? {}, ["reservation_code", "id"]),
+        _receipt_status: first(payment, ["proof_url"]) ? "Private receipt attached" : "Missing receipt",
       };
     });
   }
@@ -265,6 +280,7 @@ function Icon({ name }: { name: string }) {
     pin: <><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></>,
     refresh: <><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6.1 9a7 7 0 0 1 11.7-2L20 9M4 15l2.2 2a7 7 0 0 0 11.7-2" /></>,
     chevron: <path d="m9 18 6-6-6-6" />,
+    message: <><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8A8.5 8.5 0 0 1 8.7 3.9a8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z" /></>,
   };
   return <svg aria-hidden="true" className="admin-icon" viewBox="0 0 24 24">{paths[name] ?? paths.grid}</svg>;
 }
@@ -459,6 +475,7 @@ function ReservationsView({ go }: { go: (path: string) => void }) {
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
   const [selected, setSelected] = useState<Row | null>(null);
+  const [rejectTarget, setRejectTarget] = useState("");
   const [scheduleEditTarget, setScheduleEditTarget] = useState("");
   const [page, setPage] = useState(1);
   const recordsRef = useRef<HTMLElement | null>(null);
@@ -498,7 +515,7 @@ function ReservationsView({ go }: { go: (path: string) => void }) {
     if (latest && latest !== selected) setSelected(latest);
   }, [rows]);
   const services = Array.from(new Set(rows.map((row) => String(first(row, ["service_type", "service"]) ?? "")).filter(Boolean)));
-  const statusTabs = ["All", "Pending", "Confirmed", "Completed", "Cancelled"];
+  const statusTabs = ["All", "Pending", "Confirmed", "Completed", "Cancelled", "Rejected"];
   const counts = Object.fromEntries(statusTabs.map((item) => [
     item,
     item === "All" ? rows.length : rows.filter((row) => normalizedStatus(row) === item.toLowerCase()).length,
@@ -607,14 +624,10 @@ function ReservationsView({ go }: { go: (path: string) => void }) {
                   <MoreActionsMenu
                     label={show(first(row, ["reservation_code", "id"]))}
                     items={[
-                      { label: "View Booking Details", onSelect: () => setSelected(row) },
+                      { label: "Open Reservation", onSelect: () => setSelected(row) },
                       { label: "Approve Booking", disabled: normalizedStatus(row) !== "pending", onSelect: () => setSelected(row) },
-                      { label: "Reject Booking", disabled: normalizedStatus(row) !== "pending", onSelect: () => setSelected(row) },
-                      { label: "View Payment Details", onSelect: () => setSelected(row) },
-                      { label: "View Booking Schedule", onSelect: () => setSelected(row) },
-                      { label: "View Customer", onSelect: () => { if (row.customer_id) go(`customers?record=${encodeURIComponent(String(row.customer_id))}`); else setSelected(row); } },
-                      { label: "View Activity History", onSelect: () => setSelected(row) },
-                      ...(normalizedStatus(row) === "pending" ? [{ label: "Edit Schedule", onSelect: () => { setScheduleEditTarget(String(row.id)); setSelected(row); } }] : []),
+                      { label: "Reject Booking", disabled: normalizedStatus(row) !== "pending", onSelect: () => { setSelected(row); setRejectTarget(String(row.id)); } },
+                      { label: "Edit Schedule", disabled: normalizedStatus(row) !== "pending", onSelect: () => { setScheduleEditTarget(String(row.id)); setSelected(row); } },
                     ]}
                   />
                 </td>
@@ -624,7 +637,7 @@ function ReservationsView({ go }: { go: (path: string) => void }) {
           {visible.length > pageSize && <div className="admin-pagination"><span>Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, visible.length)} of {visible.length}</span><div><button disabled={page === 1} onClick={() => setPage((current) => current - 1)} type="button">Previous</button><b>{page} / {pageCount}</b><button disabled={page === pageCount} onClick={() => setPage((current) => current + 1)} type="button">Next</button></div></div>}
         </>}
       </section>
-      {selected && <DetailDrawer onChanged={load} onClose={() => { setSelected(null); setScheduleEditTarget(""); }} openScheduleEditor={scheduleEditTarget === String(selected.id)} row={selected} section="reservations" title={show(first(selected, ["reservation_code", "id"]))} />}
+      {selected && <DetailDrawer onChanged={load} onNavigate={go} onClose={() => { setSelected(null); setScheduleEditTarget(""); setRejectTarget(""); }} openRejectionModal={rejectTarget === String(selected.id)} openScheduleEditor={scheduleEditTarget === String(selected.id)} row={selected} section="reservations" title={show(first(selected, ["reservation_code", "id"]))} />}
     </>
   );
 }
@@ -637,6 +650,7 @@ function DataTable({ section, go, defaultFilter = "All" }: { section: string; go
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Row | null>(null);
+  const [rejectOnOpen, setRejectOnOpen] = useState(false);
   const [filter, setFilter] = useState(defaultFilter);
   const [page, setPage] = useState(1);
   const pageSize = 12;
@@ -738,12 +752,10 @@ function DataTable({ section, go, defaultFilter = "All" }: { section: string; go
                   <td onClick={(event) => event.stopPropagation()}><MoreActionsMenu
                     label={show(first(row, ["reservation_code", "order_code", "reference_number", "name", "id"]))}
                     items={[
-                      { label: section === "reservations" ? "View Booking Details" : section === "customers" ? "View Customer Profile" : "View Details", onSelect: () => setSelected(row) },
+                      { label: section === "reservations" ? "Open Reservation" : section === "customers" ? "View Customer Profile" : "View Details", onSelect: () => setSelected(row) },
                       ...(section === "reservations" ? [
                         { label: "Approve Booking", onSelect: () => setSelected(row) },
-                        { label: "Reject Booking", onSelect: () => setSelected(row) },
-                        { label: "View Payment Details", onSelect: () => setSelected(row) },
-                        { label: "View Booking Schedule", onSelect: () => setSelected(row) },
+                        { label: "Reject Booking", disabled: normalizedStatus(row) !== "pending", onSelect: () => { setSelected(row); setRejectOnOpen(true); } },
                       ] : []),
                       ...(section === "customers" ? [
                         { label: "View Booking History", onSelect: () => setSelected(row) },
@@ -760,7 +772,7 @@ function DataTable({ section, go, defaultFilter = "All" }: { section: string; go
         )}
         {visible.length > pageSize && <div className="admin-pagination"><span>Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, visible.length)} of {visible.length}</span><div><button disabled={page === 1} onClick={() => setPage((current) => current - 1)} type="button">Previous</button><b>{page} / {pageCount}</b><button disabled={page === pageCount} onClick={() => setPage((current) => current + 1)} type="button">Next</button></div></div>}
       </section>
-      {selected && <DetailDrawer row={selected} section={section} title={show(first(selected, columns[0]?.keys ?? ["id"]))} onChanged={load} onClose={() => setSelected(null)} />}
+      {selected && <DetailDrawer row={selected} section={section} title={show(first(selected, columns[0]?.keys ?? ["id"]))} onChanged={load} onClose={() => { setSelected(null); setRejectOnOpen(false); }} openRejectionModal={rejectOnOpen} />}
     </>
   );
 }
@@ -1081,7 +1093,7 @@ function PaymentReviewCard({ payment, onReviewed }: { payment: Row; onReviewed?:
 
   return <article className="admin-payment-review-card">
     <header><div><strong>{show(first(payment, ["reference_number", "id"]))}</strong><small>{show(first(payment, ["method", "payment_method"]), "method")} · {show(first(payment, ["submitted_at", "created_at"]), "created_at")}</small></div><Value label="status" value={status} /></header>
-    <dl><div><dt>Submitted amount</dt><dd>{show(first(payment, ["amount", "payment_amount"]), "amount")}</dd></div><div><dt>Customer</dt><dd>{show(first(payment, ["_customer_name", "customer_name", "customer_id"]))}</dd></div><div><dt>Demo mode</dt><dd>{payment.demo_mode === true ? "Demo — no actual money transfer" : "Manual payment proof"}</dd></div><div><dt>Reviewed</dt><dd>{first(payment, ["reviewed_at", "verified_at"]) ? `${show(first(payment, ["reviewed_at", "verified_at"]), "created_at")} · ${show(first(payment, ["reviewed_by", "verified_by"]))}` : "Not reviewed"}</dd></div></dl>
+     <dl><div><dt>Reservation</dt><dd>{show(first(payment, ["_reservation_code", "reservation_code", "reservation_id"]))}</dd></div><div><dt>Submitted amount</dt><dd>{show(first(payment, ["amount", "payment_amount"]), "amount")}</dd></div><div><dt>Customer</dt><dd>{show(first(payment, ["_customer_name", "customer_name", "customer_id"]))}</dd></div><div><dt>Demo mode</dt><dd>{payment.demo_mode === true ? "Demo — no actual money transfer" : "Manual payment proof"}</dd></div><div><dt>Reviewed</dt><dd>{first(payment, ["reviewed_at", "verified_at"]) ? `${show(first(payment, ["reviewed_at", "verified_at"]), "created_at")} · ${show(first(payment, ["reviewed_by", "verified_by"]))}` : "Not reviewed"}</dd></div></dl>
     {proofLoading && <p className="admin-payment-proof-missing">Loading private receipt for review…</p>}
     {proofPath && signedUrl && isImage && <a className="admin-payment-proof-preview" href={signedUrl} rel="noreferrer" target="_blank"><img alt="Private payment receipt preview" src={signedUrl} /><span>Open full-size receipt</span></a>}
     {proofPath && signedUrl && !isImage && <a className="admin-proof-button" href={signedUrl} rel="noreferrer" target="_blank">View private receipt</a>}
@@ -1092,8 +1104,10 @@ function PaymentReviewCard({ payment, onReviewed }: { payment: Row; onReviewed?:
   </article>;
 }
 
-function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEditor = false, onEditCatalog }: { row: Row; section: string; title: string; onClose: () => void; onChanged?: () => void | Promise<void>; openScheduleEditor?: boolean; onEditCatalog?: (entity: CatalogEntity, row: Row) => void }) {
+function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, openScheduleEditor = false, openRejectionModal = false, onEditCatalog }: { row: Row; section: string; title: string; onClose: () => void; onChanged?: () => void | Promise<void>; onNavigate?: (path: string) => void; openScheduleEditor?: boolean; openRejectionModal?: boolean; onEditCatalog?: (entity: CatalogEntity, row: Row) => void }) {
   const [actionState, setActionState] = useState<LoadState>("ready");
+  const actionStateRef = useRef(actionState);
+  actionStateRef.current = actionState;
   const [actionMessage, setActionMessage] = useState("");
   const [relatedPayments, setRelatedPayments] = useState<Row[]>([]);
   const [relatedPaymentsLoading, setRelatedPaymentsLoading] = useState(false);
@@ -1107,9 +1121,33 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
   const [scheduleResource, setScheduleResource] = useState(String(first(row, ["resource_key"]) ?? ""));
   const [scheduleResources, setScheduleResources] = useState<ScheduleResourceOption[]>([]);
   const [scheduleResourceError, setScheduleResourceError] = useState("");
+  const [scheduleValidation, setScheduleValidation] = useState<Row | null>(null);
+  const [scheduleValidationError, setScheduleValidationError] = useState("");
   const [schedulePersisted, setSchedulePersisted] = useState(true);
   const [scheduleEditing, setScheduleEditing] = useState(false);
+  const [reservationTab, setReservationTab] = useState("Overview");
+  const [rejectionOpen, setRejectionOpen] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const rejectionDialogRef = useRef<HTMLElement | null>(null);
   const actionLock = useRef(false);
+  const linkedCustomerName = first(row, ["customer_name", "_customer_name", "customer_id"]);
+  const linkedReservationCode = first(row, ["reservation_code", "id"]);
+  const loadRelatedPayments = useCallback(async () => {
+    if (section !== "reservations" || !row.id) return;
+    setRelatedPaymentsLoading(true);
+    const { data, error } = await supabase.from("payments").select("*")
+      .eq("reservation_id", row.id).order("created_at", { ascending: false });
+    setRelatedPaymentsLoading(false);
+    if (error) {
+      setActionMessage(error.message);
+      return;
+    }
+    setRelatedPayments(((data ?? []) as Row[]).map((payment) => ({
+      ...payment,
+      _customer_name: linkedCustomerName,
+      _reservation_code: linkedReservationCode,
+    })));
+  }, [linkedCustomerName, linkedReservationCode, row.id, section]);
   const groups = [
     { label: section === "reservations" ? "Booking overview" : "Record overview", test: /code|status|date|created|updated|id$/i },
     { label: "Customer information", test: /customer|user|profile|email|phone|mobile|name/i },
@@ -1124,22 +1162,19 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
     return { ...group, entries };
   });
   const remaining = Object.entries(row).filter(([key]) => !used.has(key));
+  useEffect(() => { void loadRelatedPayments(); }, [loadRelatedPayments]);
   useEffect(() => {
     if (section !== "reservations" || !row.id) return;
-    setRelatedPaymentsLoading(true);
-    void Promise.all([
-      supabase.from("payments").select("*").eq("reservation_id", row.id).order("created_at", { ascending: false }),
-      supabase.from("admin_activity_logs").select("*").eq("entity_id", row.id).order("created_at", { ascending: false }),
-    ]).then(([payments, activity]) => {
-      setRelatedPaymentsLoading(false);
-      if (payments.error) setActionMessage(payments.error.message);
-      else setRelatedPayments(((payments.data ?? []) as Row[]).map((payment) => ({
-        ...payment,
-        _customer_name: first(row, ["customer_name", "_customer_name", "customer_id"]),
-      })));
-      if (!activity.error) setRelatedActivity((activity.data ?? []) as Row[]);
-    });
+    void supabase.from("admin_activity_logs").select("*").eq("entity_id", row.id)
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => { if (!error) setRelatedActivity((data ?? []) as Row[]); });
   }, [row.id, section]);
+  useEffect(() => {
+    if (section !== "reservations") return;
+    const refresh = () => { void loadRelatedPayments(); };
+    window.addEventListener("evently-admin-data-changed", refresh);
+    return () => window.removeEventListener("evently-admin-data-changed", refresh);
+  }, [loadRelatedPayments, section]);
   useEffect(() => {
     if (section !== "customers" || !row.id) return;
     supabase.from("reservations").select("*").eq("customer_id", row.id).order("created_at", { ascending: false })
@@ -1175,19 +1210,52 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
       ? ["order_status", "status"]
       : ["verification_status", "status"];
   const [currentStatus, setCurrentStatus] = useState(() => String(first(row, statusKeys) ?? "").toLowerCase());
+  const refreshScheduleValidation = useCallback(async () => {
+    if (section !== "reservations" || !row.id) return;
+    setScheduleValidation(null);
+    setScheduleValidationError("");
+    const { data, error } = await supabase.rpc("evently_admin_check_reservation_schedule", {
+      p_reservation_id: String(row.id),
+    });
+    if (error) {
+      setScheduleValidationError(error.message);
+      return;
+    }
+    setScheduleValidation(data as Row);
+  }, [row.id, section]);
+  useEffect(() => { void refreshScheduleValidation(); }, [refreshScheduleValidation]);
   const scheduleFixed = String(first(row, ["schedule_mode"]) ?? "").toLowerCase() === "fixed";
   const scheduleRequired = String(first(row, ["schedule_mode"]) ?? "admin_assign").toLowerCase() !== "untimed";
-  const scheduleResourceRequired = String(first(row, ["resource_mode"]) ?? "exclusive").toLowerCase() !== "shared_capacity";
+  const rowPackageCategory = String(first(row, ["package_category"]) ?? "").toLowerCase();
+  const rowResourceMode = String(first(row, ["resource_mode"]) ?? "admin_assign").toLowerCase();
+  const rowHasResource = Boolean(first(row, ["resource_key"]));
+  const scheduleResourceRequired = rowPackageCategory !== "outside_catering" && (
+    ["event_venue", "room"].includes(rowPackageCategory)
+    || rowResourceMode === "exclusive"
+    || (rowHasResource && rowResourceMode !== "shared_capacity")
+  );
   const scheduleResourceVerified = scheduleResources.some((resource) => resource.value === scheduleResource);
   const selectedResource = scheduleResources.find((resource) => resource.value === scheduleResource);
   const scheduleComplete = !scheduleRequired || Boolean(
-    schedulePersisted
-    && scheduleDate
+    scheduleDate
     && scheduleStart
     && scheduleEnd
     && scheduleStart !== scheduleEnd
     && (!scheduleResourceRequired || scheduleResourceVerified),
   );
+  const effectiveScheduleRequired = scheduleValidation
+    ? scheduleValidation.schedule_required === true
+    : scheduleRequired;
+  const effectiveResourceRequired = scheduleValidation
+    ? scheduleValidation.resource_required === true
+    : scheduleResourceRequired;
+  const assignedResourceIsValid = scheduleValidation
+    ? scheduleValidation.resource_valid === true
+    : !effectiveResourceRequired || scheduleResourceVerified;
+  const serverScheduleComplete = scheduleValidation
+    ? scheduleValidation.schedule_complete === true
+    : scheduleComplete;
+  const serverHasNoConflict = schedulePersisted && scheduleValidation?.no_conflict === true;
   const customerComplete = Boolean(first(row, ["customer_name", "_customer_name", "customer_id"]));
   const packageComplete = Boolean(first(row, ["package_name", "package_id"]));
   const configuredDeposit = Number(first(row, ["deposit_amount"]) ?? 0);
@@ -1196,14 +1264,23 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
   const verifiedAmount = verifiedPayments.reduce((total, payment) => total + Number(first(payment, ["amount", "payment_amount"]) ?? 0), 0);
   const verifiedProof = verifiedPayments.some((payment) => Number(first(payment, ["amount", "payment_amount"]) ?? 0) > 0 && Boolean(first(payment, ["reference_number"])) && Boolean(first(payment, ["proof_url"])));
   const paymentVerified = !relatedPaymentsLoading && verifiedProof && verifiedAmount >= requiredPayment;
+  const paymentMissingReason = relatedPaymentsLoading
+    ? "Loading linked payment submissions…"
+    : verifiedProof && verifiedAmount < requiredPayment
+      ? `Verified payment (${money.format(verifiedAmount)}) is below the required deposit (${money.format(requiredPayment)}).`
+      : verifiedProof
+        ? "The verified payment amount does not cover the required deposit."
+        : relatedPayments.some((payment) => String(first(payment, ["verification_status", "status"]) ?? "").toLowerCase() === "pending")
+          ? "Payment proof is awaiting Owner/Admin verification."
+          : "No valid uploaded receipt has been verified by an Owner/Admin.";
   const approvalChecks = [
     { complete: customerComplete, label: "Customer information complete", missing: "Customer information is missing." },
     { complete: packageComplete, label: "Package is valid", missing: "A valid package is required." },
     { complete: Boolean(scheduleDate), label: "Reservation date selected", missing: "A reservation date is required." },
-    { complete: !scheduleRequired || Boolean(scheduleDate && scheduleStart && scheduleEnd && scheduleStart !== scheduleEnd), label: "Schedule assigned", missing: "Schedule incomplete — assign start and end times." },
-    { complete: !scheduleResourceRequired || scheduleResourceVerified, label: "Venue or resource assigned", missing: "Select a verified physical venue or resource." },
-    { complete: schedulePersisted && scheduleComplete, label: "No scheduling conflicts", missing: "Save the schedule so the secure conflict check can run." },
-    { complete: paymentVerified, label: "Required payment proof verified", missing: relatedPaymentsLoading ? "Loading linked payment submissions…" : "Submit and verify receipt proof for at least the required deposit before approval." },
+    { complete: !effectiveScheduleRequired || serverScheduleComplete, label: "Schedule assigned", missing: "Reservation date and distinct start/end times are required." },
+    { complete: assignedResourceIsValid, label: "Venue or resource assigned", missing: String(first(scheduleValidation ?? {}, ["reason"]) ?? "The package requires an active configured venue/resource.") },
+    { complete: serverHasNoConflict && serverScheduleComplete && assignedResourceIsValid, label: "No scheduling conflicts", missing: String(first(scheduleValidation ?? {}, ["reason"]) ?? "Schedule validation is still running or unavailable.") },
+    { complete: paymentVerified, label: "Required payment proof verified", missing: paymentMissingReason },
   ];
   const startMinutes = scheduleStart ? Number(scheduleStart.slice(0, 2)) * 60 + Number(scheduleStart.slice(3, 5)) : 0;
   const endMinutes = scheduleEnd ? Number(scheduleEnd.slice(0, 2)) * 60 + Number(scheduleEnd.slice(3, 5)) : 0;
@@ -1229,12 +1306,57 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
     setScheduleEditing(openScheduleEditor);
   }, [openScheduleEditor, row, scheduleFixed, scheduleRequired, section]);
   useEffect(() => {
+    if (openRejectionModal && section === "reservations" && currentStatus === "pending") {
+      setRejectionReason("");
+      setRejectionOpen(true);
+    }
+  }, [openRejectionModal, currentStatus, section]);
+  useEffect(() => {
+    if (!rejectionOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previouslyFocused = activeElement && activeElement !== document.body && activeElement.isConnected
+      ? activeElement
+      : document.querySelector<HTMLElement>(".admin-drawer-actions button.is-danger");
+    document.body.style.overflow = "hidden";
+    const dialog = rejectionDialogRef.current;
+    const focusable = () => dialog?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), textarea:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    focusable()?.[0]?.focus();
+    const keepFocusInside = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (actionStateRef.current !== "loading") setRejectionOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items?.length) return;
+      const firstItem = items[0];
+      const lastItem = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === firstItem) {
+        event.preventDefault();
+        lastItem.focus();
+      } else if (!event.shiftKey && document.activeElement === lastItem) {
+        event.preventDefault();
+        firstItem.focus();
+      }
+    };
+    document.addEventListener("keydown", keepFocusInside);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", keepFocusInside);
+      previouslyFocused?.focus();
+    };
+  }, [rejectionOpen]);
+  useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
+      if (rejectionOpen) return;
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  }, [onClose, rejectionOpen]);
   useEffect(() => {
     if (section !== "reservations") return;
     let active = true;
@@ -1253,19 +1375,18 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
       const packageId = String(first(row, ["package_id"]) ?? "");
       const variantId = String(first(row, ["package_variant_id"]) ?? "");
       const [packageResult, variantResult] = await Promise.all([
-        packageId ? supabase.from("packages").select("resource_key").eq("id", packageId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+        packageId ? supabase.from("packages").select("resource_key,package_category,service_type,name,resource_mode,schedule_mode").eq("id", packageId).maybeSingle() : Promise.resolve({ data: null, error: null }),
         variantId ? supabase.from("package_variants").select("resource_key").eq("id", variantId).maybeSingle() : Promise.resolve({ data: null, error: null }),
       ]);
       if (!active) return;
-      const service = String(first(row, ["service_type", "service"]) ?? "").toLowerCase();
-      const packageCategory = String(first(row, ["package_category"]) ?? "").toLowerCase();
-      const expectedType = service === "catering"
-        ? "catering"
-        : packageCategory === "event_venue"
-          ? "venue"
-          : String(first(row, ["package_name"]) ?? "").toLowerCase().includes("room")
-            ? "room"
-            : "";
+      const packageData = (packageResult.data ?? {}) as Row;
+      const packageCategory = String(first(row, ["package_category"]) ?? first(packageData, ["package_category"]) ?? "").toLowerCase();
+      const packageName = String(first(row, ["package_name"]) ?? first(packageData, ["name"]) ?? "").toLowerCase();
+      const expectedType = packageCategory === "event_venue"
+        ? "venue"
+        : packageCategory === "room" || packageName.includes("room")
+          ? "room"
+          : "";
       const configured = ((data ?? []) as Row[])
         .filter((resource) => !expectedType || String(resource.resource_type ?? "").toLowerCase().includes(expectedType))
         .map((resource) => ({
@@ -1281,14 +1402,13 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
         ? existingAssignment
         : configured.some((resource) => resource.value === catalogAssignment) ? catalogAssignment : "";
       setScheduleResource((current) => configured.some((resource) => resource.value === current) ? current : preferredAssignment);
-      if (!existingAssignment && preferredAssignment) setSchedulePersisted(false);
-      if (scheduleResourceRequired && !configured.length) {
+      if (effectiveResourceRequired && !configured.length) {
         setScheduleResourceError(`No active ${expectedType || "physical"} resources are configured. Add the real facility to evently_resources before scheduling this reservation.`);
       }
     };
     void loadResources();
     return () => { active = false; };
-  }, [row, section]);
+  }, [effectiveResourceRequired, row, section]);
   const saveReservationSchedule = async () => {
     if (section !== "reservations" || actionState === "loading") return;
     if (!scheduleStart || !scheduleEnd || scheduleStart === scheduleEnd) {
@@ -1296,7 +1416,7 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
       setActionMessage("Enter distinct start and end times.");
       return;
     }
-    if (scheduleResourceRequired && (!scheduleResource || !scheduleResources.some((resource) => resource.value === scheduleResource))) {
+    if (effectiveResourceRequired && (!scheduleResource || !scheduleResources.some((resource) => resource.value === scheduleResource))) {
       setActionState("error");
       setActionMessage(scheduleResourceError || "Select the verified physical venue or resource before saving.");
       return;
@@ -1328,7 +1448,8 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
     setActionState("ready");
     setSchedulePersisted(true);
     setScheduleEditing(false);
-    setActionMessage("Reservation schedule saved and checked for confirmed conflicts.");
+    await refreshScheduleValidation();
+    setActionMessage("Reservation schedule saved and checked against active reservations.");
     await onChanged?.();
     window.dispatchEvent(new Event("evently-admin-data-changed"));
     window.dispatchEvent(new Event("evently-customer-bookings-changed"));
@@ -1345,9 +1466,10 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
     const reservationDate = scheduleDate || show(first(row, ["reservation_date"]), "reservation_date");
     const startTime = scheduleStart || show(first(row, ["start_time"]));
     const endTime = scheduleEnd || show(first(row, ["end_time"]));
-    const scheduleVerified = window.confirm(
-      `Verify this booking schedule before approval.\n\nVenue / resource: ${venue}\nDate: ${reservationDate}\nTime: ${startTime}–${endTime}\n\nSelect OK only if you personally verified the actual venue or resource and confirmed that this time slot does not conflict with another approved reservation.`,
-    );
+    const schedulePrompt = effectiveResourceRequired
+      ? `Verify this booking schedule before approval.\n\nVenue / resource: ${venue}\nDate: ${reservationDate}\nTime: ${startTime}–${endTime}\n\nSelect OK only if you personally verified the actual venue or resource and confirmed that this time slot does not conflict with another active reservation.`
+      : `Verify this booking schedule before approval.\n\nNo Evently-owned physical venue is required for this package.\nDate: ${reservationDate}\nTime: ${startTime}–${endTime}\n\nSelect OK only after confirming the schedule details are correct.`;
+    const scheduleVerified = window.confirm(schedulePrompt);
     if (!scheduleVerified) return;
 
     actionLock.current = true;
@@ -1400,19 +1522,19 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
     if (key === "status") return currentStatus;
     if (key === "start_time") return scheduleStart;
     if (key === "end_time") return scheduleEnd;
-    if (key === "resource_key") return scheduleResource;
+     if (key === "resource_key") return String(first(scheduleValidation ?? {}, ["resource_key"]) ?? scheduleResource);
     return value;
   };
-  const mutate = async (action: string) => {
+  const mutate = async (action: string, suppliedReason?: string) => {
     if (actionLock.current || actionState === "loading") return;
-    let reason: string | null = null;
+    let reason: string | null = suppliedReason ?? null;
     if (action === "cancelled" || action === "rejected") {
-      reason = window.prompt(section === "payments"
+      reason = suppliedReason ?? (window.prompt(section === "payments"
         ? "Enter the payment rejection reason:"
-        : "Enter the booking rejection or cancellation reason:")?.trim() ?? "";
+        : "Enter the booking rejection or cancellation reason:")?.trim() ?? "");
       if (!reason) return;
     }
-    if (!window.confirm(`Confirm ${action === "cancelled" ? "reject/cancel" : action} for this ${section.replace(/-/g, " ")} record?`)) {
+    if (suppliedReason === undefined && !window.confirm(`Confirm ${action === "cancelled" ? "reject/cancel" : action} for this ${section.replace(/-/g, " ")} record?`)) {
       return;
     }
     actionLock.current = true;
@@ -1420,7 +1542,9 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
     setActionMessage("");
     const id = String(row.id ?? "");
     const request = section === "reservations"
-      ? supabase.rpc("admin_transition_reservation", { p_reason: reason, p_reservation_id: id, p_status: action })
+      ? action === "rejected"
+        ? supabase.rpc("admin_reject_reservation", { p_reason: reason, p_reservation_id: id })
+        : supabase.rpc("admin_transition_reservation", { p_reason: reason, p_reservation_id: id, p_status: action })
       : section === "orders"
         ? supabase.rpc("admin_transition_order", { p_order_id: id, p_status: action })
         : supabase.rpc("admin_review_payment", { p_decision: action, p_payment_id: id, p_reason: reason });
@@ -1429,29 +1553,47 @@ function DetailDrawer({ row, section, title, onClose, onChanged, openScheduleEdi
       actionLock.current = false;
       setActionState("error");
       setActionMessage(error.message);
+      if (action === "rejected") setRejectionOpen(true);
       return;
     }
     actionLock.current = false;
     setActionState("ready");
     setCurrentStatus(action.toLowerCase());
     setActionMessage("Saved to Supabase.");
+    if (action === "rejected") {
+      setRejectionOpen(false);
+      setRejectionReason("");
+    }
     await onChanged?.();
     window.dispatchEvent(new Event("evently-admin-data-changed"));
     window.dispatchEvent(new Event("evently-customer-bookings-changed"));
   };
   return (
-    <div className="admin-drawer-wrap">
+      <div className={`admin-drawer-wrap${rejectionOpen ? " is-confirming-rejection" : ""}`} inert={rejectionOpen}>
       <button aria-label="Close details" className="admin-drawer-backdrop" onClick={onClose} type="button" />
       <aside aria-label={`${title} details`} aria-modal="true" className="admin-detail-drawer" role="dialog">
         <div className="admin-drawer-heading"><div><span>{sections.find(([path]) => path === section)?.[1]} details</span><h2>{title}</h2></div><button aria-label="Close details" onClick={onClose} type="button">Close</button></div>
          {[...grouped, { label: "Additional information", test: /.*/, entries: remaining }].filter((group) => group.entries.length).map((group) => <section className="admin-detail-section" key={group.label}><h3>{group.label}</h3><dl>{group.entries.map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, " ")}</dt><dd><Value label={key} value={detailValue(key, value)} /></dd></div>)}</dl></section>)}
-         {section === "reservations" && <section className="admin-detail-section"><h3>Assigned venue</h3><p><strong>{selectedResource?.label ?? show(first(row, ["resource_key"]), "resource_key")}</strong>{selectedResource?.location ? ` · ${selectedResource.location}` : ""}</p>{currentStatus === "pending" && <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Change Venue / Schedule</button>}</section>}
+         {section === "reservations" && <section className="admin-detail-section"><h3>Assigned venue</h3><p><strong>{String(first(scheduleValidation ?? {}, ["resource_name"]) ?? selectedResource?.label ?? first(row, ["resource_name", "resource_key"]) ?? "No physical venue required")}</strong>{selectedResource?.location ? ` · ${selectedResource.location}` : ""}</p>{currentStatus === "pending" && effectiveResourceRequired && <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Change Venue / Schedule</button>}</section>}
          {section === "reservations" && <section className="admin-detail-section"><h3>Staff recommendation</h3>{row._latest_staff_recommendation && typeof row._latest_staff_recommendation === "object" ? (() => { const recommendation = row._latest_staff_recommendation as Row; return <dl><div><dt>Recommendation</dt><dd>{show(first(recommendation, ["recommendation"]))}</dd></div><div><dt>Status</dt><dd>{show(first(recommendation, ["review_state"]))}</dd></div><div><dt>Staff member</dt><dd>{show(first(recommendation, ["staff_name", "staff_id"]))}</dd></div><div><dt>Reason</dt><dd>{show(first(recommendation, ["reason"]))}</dd></div><div><dt>Notes</dt><dd>{show(first(recommendation, ["notes"]))}</dd></div><div><dt>Submitted</dt><dd>{show(first(recommendation, ["created_at"]), "created_at")}</dd></div></dl>; })() : <p>No staff recommendation has been submitted for this reservation.</p>}</section>}
         {section === "reservations" && <section className="admin-detail-section"><h3>Payment submissions</h3>{relatedPaymentsLoading ? <p>Loading linked payment submissions…</p> : relatedPayments.length ? <div className="admin-payment-review-list">{relatedPayments.map((payment) => <PaymentReviewCard key={String(payment.id)} onReviewed={(updated) => setRelatedPayments((current) => current.map((item) => item.id === updated.id ? updated : item))} payment={payment} />)}</div> : <p>No payment proof has been submitted for this reservation.</p>}</section>}
         {section === "reservations" && <section className="admin-detail-section"><h3>Reservation history</h3>{relatedActivity.length ? <div className="admin-history-timeline">{relatedActivity.map((activity) => <div key={String(activity.id)}><i /><span><strong>{show(first(activity, ["action"]))}</strong><small>{show(first(activity, ["description"]))}</small><time>{show(first(activity, ["created_at"]), "created_at")}</time></span></div>)}</div> : <p>No administrative history has been recorded for this reservation yet.</p>}</section>}
-        {section === "reservations" && currentStatus === "pending" && <section className="admin-approval-checklist"><div><span>Approval readiness</span><strong>{approvalChecks.every((check) => check.complete) ? "Ready for approval" : "Action required"}</strong></div>{approvalChecks.map((check) => <p className={check.complete ? "is-complete" : ""} key={check.label}><i>{check.complete ? "✓" : "!"}</i><span><strong>{check.label}</strong>{!check.complete && <small>{check.missing}</small>}</span></p>)}<small>Payment proof verification and exclusive-resource conflicts are checked securely again by the approval RPC.</small></section>}
-        {section === "reservations" && currentStatus === "pending" && scheduleEditing && <section className="admin-workflow-actions admin-schedule-editor"><h3>Edit schedule</h3><p>{scheduleFixed ? "This package uses a fixed tour schedule. Times are locked to the configured package." : "Assign the agreed schedule. An end time earlier than the start time is treated as the following day."}</p><div className="admin-schedule-context"><span>Reservation</span><strong>{show(first(row, ["reservation_code", "id"]))}</strong><span>Package</span><strong>{show(first(row, ["package_name", "package_id"]))}</strong><span>Variant</span><strong>{show(first(row, ["package_variant", "package_variant_id"]))}</strong><span>Duration</span><strong>{durationLabel}</strong></div><label><span>Reservation date</span><input disabled type="date" value={scheduleDate} /></label>{scheduleResourceRequired ? <label><span>Physical venue or resource</span><select required onChange={(event) => { setScheduleResource(event.target.value); setSchedulePersisted(false); }} value={scheduleResource}><option value="">Select a configured resource</option>{scheduleResources.map((resource) => <option key={resource.value} value={resource.value}>{resource.label}{resource.location ? ` · ${resource.location}` : ""}</option>)}</select></label> : <p className="admin-schedule-shared">Shared pool schedule — no exclusive pool resource is assigned.</p>}{scheduleResourceError && <p className="admin-schedule-error" role="alert">{scheduleResourceError}</p>}<div><label><span>Start time</span><input disabled={scheduleFixed} onChange={(event) => { setScheduleStart(event.target.value); setSchedulePersisted(false); }} type="time" value={scheduleStart} /></label><label><span>End time</span><input disabled={scheduleFixed} onChange={(event) => { setScheduleEnd(event.target.value); setSchedulePersisted(false); }} type="time" value={scheduleEnd} /></label></div><div className="admin-schedule-actions"><button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => { setScheduleStart(String(first(row, ["start_time"]) ?? scheduleStart).slice(0, 5)); setScheduleEnd(String(first(row, ["end_time"]) ?? scheduleEnd).slice(0, 5)); setScheduleResource(String(first(row, ["resource_key"]) ?? "")); setSchedulePersisted(true); setScheduleEditing(false); }} type="button">Cancel</button>{scheduleResourceRequired && <button disabled={actionState === "loading" || Boolean(scheduleResourceError) || !scheduleResource || !scheduleStart || !scheduleEnd} onClick={() => void saveReservationSchedule()} type="button">{actionState === "loading" ? "Saving…" : "Save Schedule"}</button>}</div></section>}
-        {section === "reservations" && <section className="admin-workflow-actions admin-drawer-actions"><h3>Reservation actions</h3>{currentStatus === "pending" && !approvalChecks.every((check) => check.complete) && <p>{approvalChecks.find((check) => !check.complete)?.missing ?? "Complete the approval checks first."}</p>}<div>{currentStatus === "pending" && <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Edit Schedule</button>}{currentStatus === "pending" && <button disabled={actionState === "loading" || !approvalChecks.every((check) => check.complete)} title={!approvalChecks.every((check) => check.complete) ? approvalChecks.find((check) => !check.complete)?.missing : undefined} onClick={() => void approveBooking()} type="button">{actionState === "loading" ? "Approving…" : "Approve Booking"}</button>}{!["cancelled", "rejected", "completed"].includes(currentStatus) && <button className="is-danger" disabled={actionState === "loading"} onClick={() => void mutate("cancelled")} type="button">Reject Booking</button>}{currentStatus === "confirmed" && <button disabled={actionState === "loading"} onClick={() => void mutate("completed")} type="button">Mark Completed</button>}<button className="admin-close-action" onClick={onClose} type="button">Close</button></div></section>}
+         {section === "reservations" && currentStatus === "pending" && <section className="admin-approval-checklist"><div><span>Approval readiness</span><strong>{approvalChecks.every((check) => check.complete) ? "Ready for approval" : "Action required"}</strong></div>{approvalChecks.map((check) => <p className={check.complete ? "is-complete" : ""} key={check.label}><i>{check.complete ? "✓" : "!"}</i><span><strong>{check.label}</strong>{!check.complete && <small>{check.missing}</small>}</span></p>)}{scheduleValidationError && <small className="admin-schedule-error">Schedule validation unavailable: {scheduleValidationError}</small>}<small>Payment proof verification and exclusive-resource conflicts are checked securely again by the approval RPC.</small></section>}
+        {section === "reservations" && currentStatus === "pending" && scheduleEditing && <section className="admin-workflow-actions admin-schedule-editor"><h3>Edit schedule</h3><p>{scheduleFixed ? "This package uses a fixed tour schedule. Times are locked to the configured package." : "Assign the agreed schedule. An end time earlier than the start time is treated as the following day."}</p><div className="admin-schedule-context"><span>Reservation</span><strong>{show(first(row, ["reservation_code", "id"]))}</strong><span>Package</span><strong>{show(first(row, ["package_name", "package_id"]))}</strong><span>Variant</span><strong>{show(first(row, ["package_variant", "package_variant_id"]))}</strong><span>Duration</span><strong>{durationLabel}</strong></div><label><span>Reservation date</span><input disabled type="date" value={scheduleDate} /></label>{effectiveResourceRequired ? <label><span>Physical venue or resource</span><select required onChange={(event) => { setScheduleResource(event.target.value); setSchedulePersisted(false); }} value={scheduleResource}><option value="">Select a configured resource</option>{scheduleResources.map((resource) => <option key={resource.value} value={resource.value}>{resource.label}{resource.location ? ` · ${resource.location}` : ""}</option>)}</select></label> : <p className="admin-schedule-shared">No exclusive Evently resource is required for this package.</p>}{scheduleResourceError && <p className="admin-schedule-error" role="alert">{scheduleResourceError}</p>}<div><label><span>Start time</span><input disabled={scheduleFixed} onChange={(event) => { setScheduleStart(event.target.value); setSchedulePersisted(false); }} type="time" value={scheduleStart} /></label><label><span>End time</span><input disabled={scheduleFixed} onChange={(event) => { setScheduleEnd(event.target.value); setSchedulePersisted(false); }} type="time" value={scheduleEnd} /></label></div><div className="admin-schedule-actions"><button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => { setScheduleStart(String(first(row, ["start_time"]) ?? scheduleStart).slice(0, 5)); setScheduleEnd(String(first(row, ["end_time"]) ?? scheduleEnd).slice(0, 5)); setScheduleResource(String(first(row, ["resource_key"]) ?? "")); setSchedulePersisted(true); setScheduleEditing(false); }} type="button">Cancel</button>{scheduleResourceRequired && <button disabled={actionState === "loading" || Boolean(scheduleResourceError) || !scheduleResource || !scheduleStart || !scheduleEnd} onClick={() => void saveReservationSchedule()} type="button">{actionState === "loading" ? "Saving…" : "Save Schedule"}</button>}</div></section>}
+         {section === "reservations" && <section className="admin-workflow-actions admin-drawer-actions"><h3>Reservation actions</h3>{currentStatus === "pending" && !approvalChecks.every((check) => check.complete) && <p>{approvalChecks.find((check) => !check.complete)?.missing ?? "Complete the approval checks first."}</p>}<div>{currentStatus === "pending" && <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Edit Schedule</button>}{currentStatus === "pending" && <button disabled={actionState === "loading" || !approvalChecks.every((check) => check.complete)} title={!approvalChecks.every((check) => check.complete) ? approvalChecks.find((check) => !check.complete)?.missing : undefined} onClick={() => void approveBooking()} type="button">{actionState === "loading" ? "Approving…" : "Approve Booking"}</button>}{currentStatus === "pending" && <button className="is-danger" disabled={actionState === "loading"} onClick={() => { setRejectionReason(""); setRejectionOpen(true); }} type="button">Reject Booking</button>}{currentStatus === "confirmed" && <button disabled={actionState === "loading"} onClick={() => void mutate("completed")} type="button">Mark Completed</button>}<button className="admin-close-action" onClick={onClose} type="button">Close</button></div></section>}
+         {rejectionOpen && typeof document !== "undefined" && createPortal(
+           <div className="admin-modal-wrap admin-rejection-modal-wrap">
+             <button aria-label="Close rejection confirmation" className="admin-modal-backdrop" disabled={actionState === "loading"} onClick={() => setRejectionOpen(false)} type="button" />
+             <section aria-labelledby="reject-booking-title" aria-modal="true" className="admin-editor-modal admin-rejection-dialog" ref={rejectionDialogRef} role="dialog" tabIndex={-1}>
+               <div className="admin-editor-modal__heading"><div><h2 id="reject-booking-title"><i aria-hidden="true">⚠</i> Reject Reservation</h2><span>Reservation {show(linkedReservationCode)}</span></div><button aria-label="Close rejection confirmation" className="admin-rejection-close" disabled={actionState === "loading"} onClick={() => setRejectionOpen(false)} type="button">×</button></div>
+               <p className="admin-rejection-customer">Reject this reservation for <strong>{show(linkedCustomerName)}</strong>? This action cannot be undone.</p>
+               <label className="admin-rejection-reason"><span>Rejection reason <b aria-hidden="true">*</b></span><textarea autoFocus onChange={(event) => setRejectionReason(event.target.value)} required value={rejectionReason} /></label>
+               {actionState === "error" && actionMessage && <p className="admin-action-message is-error" role="alert">{actionMessage}</p>}
+               <div className="admin-editor-modal__actions"><button className="admin-quiet-button" disabled={actionState === "loading"} onClick={() => setRejectionOpen(false)} type="button">Cancel</button><button className="admin-secondary-button admin-rejection-confirm" disabled={actionState === "loading" || rejectionReason.trim().length < 3} onClick={() => void mutate("rejected", rejectionReason.trim())} type="button">{actionState === "loading" ? "Rejecting…" : "Confirm Rejection"}</button></div>
+             </section>
+           </div>,
+           document.body
+         )}
         {section === "orders" && <section className="admin-workflow-actions"><h3>Order actions</h3><div>{currentStatus === "pending" && <button disabled={actionState === "loading"} onClick={() => void mutate("confirmed")} type="button">Confirm Order</button>}{currentStatus === "confirmed" && <button disabled={actionState === "loading"} onClick={() => void mutate("preparing")} type="button">Start Preparing</button>}{currentStatus === "preparing" && <button disabled={actionState === "loading"} onClick={() => void mutate("ready")} type="button">Mark Ready</button>}{currentStatus === "ready" && <button disabled={actionState === "loading"} onClick={() => void mutate("completed")} type="button">Mark Completed</button>}{!["cancelled", "completed"].includes(currentStatus) && <button className="is-danger" disabled={actionState === "loading"} onClick={() => void mutate("cancelled")} type="button">Cancel Order</button>}</div></section>}
         {section === "payments" && <section className="admin-detail-section"><h3>Payment review</h3><PaymentReviewCard onReviewed={(updated) => { setCurrentStatus(String(first(updated, statusKeys) ?? "").toLowerCase()); void onChanged?.(); }} payment={row} /></section>}
         {section === "packages" && <section className="admin-detail-section"><h3>Package variants</h3>{relatedVariants.length ? <dl>{relatedVariants.map((variant) => <div key={String(variant.id)}><dt>{show(first(variant, ["name"]))}</dt><dd>{show(first(variant, ["price"]), "price")} · {show(first(variant, ["guest_capacity"]))} guests · {first(variant, ["has_aircon"]) ? "Air-conditioned" : "Non-aircon"} <MoreActionsMenu label={String(first(variant, ["name"]) ?? "variant")} items={[{ label: "Edit Variant", disabled: !onEditCatalog, onSelect: () => onEditCatalog?.("package_variant", variant) }]} /></dd></div>)}</dl> : <p>No variants are linked to this package.</p>}</section>}
@@ -2329,6 +2471,7 @@ export default function AdminDashboard({ profile, path, navigate }: { profile: E
   let content: ReactNode;
   if (section === "dashboard") content = <><Overview go={go} /><RecommendationsView /><ScheduleProposalsView /></>;
   else if (section === "reservations") content = <ReservationsView go={go} />;
+  else if (section === "messages") content = <MessagingInbox onViewReservation={(id) => go(`reservations?record=${encodeURIComponent(id)}`)} role="admin" />;
   else if (section === "reports") content = <Reports />;
   else if (section === "notifications") content = <NotificationsView go={go} />;
   else if (section === "activity-logs") content = <ActivityLogView />;
@@ -2344,15 +2487,20 @@ export default function AdminDashboard({ profile, path, navigate }: { profile: E
       {sidebarOpen && <button aria-label="Close navigation" className="admin-sidebar-overlay" onClick={() => setSidebarOpen(false)} type="button" />}
       <aside className={`admin-sidebar ${sidebarOpen ? "is-open" : ""}`}>
         <div className="admin-logo"><span>E</span><div><strong>EVENTLY</strong><small>Admin Operations</small></div></div>
-        <nav aria-label="Admin navigation">{navigationGroups.map((group) => {
+        <nav aria-label="Admin navigation" className="admin-sidebar-navigation">{navigationGroups.map((group) => {
           const groupCollapsed = Boolean(collapsedGroups[group.label]);
+          const groupId = `admin-nav-${group.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
           return <div className={`admin-nav-group ${groupCollapsed ? "is-collapsed" : ""}`} key={group.label}>
-            <button aria-expanded={!groupCollapsed} aria-label={`${groupCollapsed ? "Expand" : "Collapse"} ${group.label}`} className="admin-nav-group-toggle" onClick={() => setCollapsedGroups((current) => ({ ...current, [group.label]: !current[group.label] }))} title={group.label} type="button"><span>{group.label}</span><Icon name="chevron" /></button>
-            {!groupCollapsed && group.paths.map((itemPath) => {
+            <button aria-controls={groupId} aria-expanded={!groupCollapsed} aria-label={`${groupCollapsed ? "Expand" : "Collapse"} ${group.label}`} className="admin-nav-group-toggle" onClick={() => setCollapsedGroups((current) => ({ ...current, [group.label]: !current[group.label] }))} title={group.label} type="button"><span>{group.label}</span><Icon name="chevron" /></button>
+            <div aria-hidden={groupCollapsed} className="admin-nav-group-items" id={groupId} inert={groupCollapsed}>
+              <div>
+              {group.paths.map((itemPath) => {
               const item = sections.find(([candidate]) => candidate === itemPath);
               if (!item) return null;
               return <button aria-current={section === itemPath ? "page" : undefined} aria-label={item[1]} className={section === itemPath ? "is-active" : ""} data-tooltip={item[1]} key={itemPath} onClick={() => go(itemPath)} type="button"><Icon name={item[2]} /><span>{item[1]}</span>{Boolean(navCounts[itemPath]) && <b aria-label={`${navCounts[itemPath]} pending`}>{navCounts[itemPath]}</b>}</button>;
-            })}
+              })}
+              </div>
+            </div>
           </div>;
         })}</nav>
         <div className="admin-sidebar-footer">
