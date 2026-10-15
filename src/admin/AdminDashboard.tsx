@@ -7,6 +7,7 @@ import { MessagingInbox } from "../messaging/MessagingViews";
 type Row = Record<string, unknown>;
 type ScheduleResourceOption = { label: string; location: string; type: string; value: string };
 type LoadState = "loading" | "ready" | "error";
+type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled";
 
 const sections = [
   ["dashboard", "Dashboard", "grid"],
@@ -244,6 +245,11 @@ async function loadAdminRows(section: string, table: string) {
         ...payment,
         _customer_name: first(reservation ?? {}, ["customer_name"]) ?? profileName(payment.customer_id),
         _reservation_code: first(reservation ?? {}, ["reservation_code", "id"]),
+        _reservation_total_amount: first(reservation ?? {}, ["total_amount"]),
+        _reservation_deposit_amount: first(reservation ?? {}, ["deposit_amount"]),
+        _reservation_amount_paid: first(reservation ?? {}, ["amount_paid"]),
+        _reservation_remaining_balance: first(reservation ?? {}, ["remaining_balance"]),
+        _reservation_payment_status: first(reservation ?? {}, ["payment_status"]),
         _receipt_status: first(payment, ["proof_url"]) ? "Private receipt attached" : "Missing receipt",
       };
     });
@@ -308,11 +314,48 @@ function statusTone(value: unknown) {
   return "info";
 }
 
+function paymentStatusLabel(value: unknown) {
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized === "partial") return "Partially Paid";
+  if (normalized === "paid") return "Fully Paid";
+  if (normalized === "pending") return "Pending Verification";
+  if (normalized === "unpaid") return "Pending Payment";
+  if (normalized === "deposit_verified") return "Deposit Verified";
+  return show(value);
+}
+
+function paymentVerificationLabel(value: unknown) {
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized === "pending") return "Pending Verification";
+  if (normalized === "verified") return "Verified";
+  if (normalized === "rejected") return "Rejected — Resubmission Required";
+  return show(value);
+}
+
+function reservationPaymentSummary(payment: Row) {
+  const total = Number(first(payment, ["_reservation_total_amount", "total_amount"]) ?? 0);
+  const deposit = Number(first(payment, ["_reservation_deposit_amount", "deposit_amount"]) ?? 0);
+  const paid = Number(first(payment, ["_reservation_amount_paid", "amount_paid"]) ?? 0);
+  const balanceValue = first(payment, ["_reservation_remaining_balance", "remaining_balance"]);
+  const balance = balanceValue === null || balanceValue === undefined
+    ? Math.max(0, total - paid)
+    : Math.max(0, Number(balanceValue) || 0);
+  const storedStatus = String(first(payment, ["_reservation_payment_status", "payment_status"]) ?? "").toLowerCase();
+  const label = total > 0 && paid >= total
+    ? "Fully Paid"
+    : deposit > 0 && paid >= deposit && paid > 0
+      ? "Deposit Verified · Partially Paid"
+      : paid > 0 || storedStatus === "partial"
+        ? "Partially Paid"
+        : storedStatus === "pending" ? "Pending Verification" : "Pending Payment";
+  return { balance, deposit, label, paid, total };
+}
+
 function Value({ value, label }: { value: unknown; label: string }) {
   const isStatus = /status|published|active|available|read/i.test(label);
   if (label === "Deposit %") return <>{value === null || value === undefined || value === "" ? "—" : `${show(value)}%`}</>;
   return isStatus
-    ? <span className={`admin-status admin-status--${statusTone(value)}`}>{show(value, label)}</span>
+    ? <span className={`admin-status admin-status--${statusTone(value)}`}>{/payment status/i.test(label) ? paymentStatusLabel(value) : show(value, label)}</span>
     : <>{show(value, label)}</>;
 }
 
@@ -459,7 +502,7 @@ const reservationSchedule = (row: Row) => {
   return `${start}–${end}${end <= start ? " · next day" : ""}`;
 };
 
-function ReservationsView({ go }: { go: (path: string) => void }) {
+function ReservationsView({ go, canManageReservations }: { go: (path: string) => void; canManageReservations: boolean }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [state, setState] = useState<LoadState>("loading");
   const [error, setError] = useState("");
@@ -515,7 +558,7 @@ function ReservationsView({ go }: { go: (path: string) => void }) {
     if (latest && latest !== selected) setSelected(latest);
   }, [rows]);
   const services = Array.from(new Set(rows.map((row) => String(first(row, ["service_type", "service"]) ?? "")).filter(Boolean)));
-  const statusTabs = ["All", "Pending", "Confirmed", "Completed", "Cancelled", "Rejected"];
+  const statusTabs = ["All", "Pending", "Confirmed", "Completed", "Cancelled"];
   const counts = Object.fromEntries(statusTabs.map((item) => [
     item,
     item === "All" ? rows.length : rows.filter((row) => normalizedStatus(row) === item.toLowerCase()).length,
@@ -625,9 +668,11 @@ function ReservationsView({ go }: { go: (path: string) => void }) {
                     label={show(first(row, ["reservation_code", "id"]))}
                     items={[
                       { label: "Open Reservation", onSelect: () => setSelected(row) },
-                      { label: "Approve Booking", disabled: normalizedStatus(row) !== "pending", onSelect: () => setSelected(row) },
-                      { label: "Reject Booking", disabled: normalizedStatus(row) !== "pending", onSelect: () => { setSelected(row); setRejectTarget(String(row.id)); } },
-                      { label: "Edit Schedule", disabled: normalizedStatus(row) !== "pending", onSelect: () => { setScheduleEditTarget(String(row.id)); setSelected(row); } },
+                      ...(canManageReservations ? [
+                        { label: "Approve Booking", disabled: normalizedStatus(row) !== "pending", onSelect: () => setSelected(row) },
+                        { label: "Reject Booking", disabled: normalizedStatus(row) !== "pending", onSelect: () => { setSelected(row); setRejectTarget(String(row.id)); } },
+                        { label: "Edit Schedule", disabled: normalizedStatus(row) !== "pending", onSelect: () => { setScheduleEditTarget(String(row.id)); setSelected(row); } },
+                      ] : []),
                     ]}
                   />
                 </td>
@@ -637,7 +682,7 @@ function ReservationsView({ go }: { go: (path: string) => void }) {
           {visible.length > pageSize && <div className="admin-pagination"><span>Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, visible.length)} of {visible.length}</span><div><button disabled={page === 1} onClick={() => setPage((current) => current - 1)} type="button">Previous</button><b>{page} / {pageCount}</b><button disabled={page === pageCount} onClick={() => setPage((current) => current + 1)} type="button">Next</button></div></div>}
         </>}
       </section>
-      {selected && <DetailDrawer onChanged={load} onNavigate={go} onClose={() => { setSelected(null); setScheduleEditTarget(""); setRejectTarget(""); }} openRejectionModal={rejectTarget === String(selected.id)} openScheduleEditor={scheduleEditTarget === String(selected.id)} row={selected} section="reservations" title={show(first(selected, ["reservation_code", "id"]))} />}
+      {selected && <DetailDrawer canManageReservations={canManageReservations} onChanged={load} onNavigate={go} onClose={() => { setSelected(null); setScheduleEditTarget(""); setRejectTarget(""); }} openRejectionModal={rejectTarget === String(selected.id)} openScheduleEditor={scheduleEditTarget === String(selected.id)} row={selected} section="reservations" title={show(first(selected, ["reservation_code", "id"]))} />}
     </>
   );
 }
@@ -1039,6 +1084,7 @@ function PaymentReviewCard({ payment, onReviewed }: { payment: Row; onReviewed?:
   const [status, setStatus] = useState(initialStatus);
   const proofPath = String(first(payment, ["proof_url"]) ?? "");
   const isImage = /\.(jpe?g|png|webp)$/i.test(proofPath);
+  const paymentSummary = reservationPaymentSummary(payment);
 
   useEffect(() => { setStatus(initialStatus); }, [initialStatus, payment.id]);
 
@@ -1072,28 +1118,45 @@ function PaymentReviewCard({ payment, onReviewed }: { payment: Row; onReviewed?:
       p_payment_id: String(payment.id ?? ""),
       p_reason: reason || null,
     });
-    setBusy(false);
     if (error) {
+      setBusy(false);
       setMessage(error.message);
       return;
     }
+    const reservationId = String(first(payment, ["reservation_id"]) ?? "");
+    const [paymentRefresh, reservationRefresh] = await Promise.all([
+      supabase.from("payments").select("*").eq("id", payment.id).single(),
+      reservationId ? supabase.from("reservations").select("*").eq("id", reservationId).single() : Promise.resolve({ data: null, error: null }),
+    ]);
+    const refreshedPayment = (paymentRefresh.data as Row | null) ?? payment;
+    const refreshedReservation = reservationRefresh.data as Row | null;
     const updated = {
       ...payment,
+      ...refreshedPayment,
       [statusKey]: decision,
       rejection_reason: decision === "rejected" ? reason : null,
       review_notes: reason || null,
       reviewed_at: new Date().toISOString(),
+      _reservation_total_amount: first(refreshedReservation ?? payment, ["total_amount", "_reservation_total_amount"]),
+      _reservation_deposit_amount: first(refreshedReservation ?? payment, ["deposit_amount", "_reservation_deposit_amount"]),
+      _reservation_amount_paid: first(refreshedReservation ?? payment, ["amount_paid", "_reservation_amount_paid"]),
+      _reservation_remaining_balance: first(refreshedReservation ?? payment, ["remaining_balance", "_reservation_remaining_balance"]),
+      _reservation_payment_status: first(refreshedReservation ?? payment, ["payment_status", "_reservation_payment_status"]),
     };
     onReviewed?.(updated);
     setStatus(decision);
-    setMessage(decision === "verified" ? "Payment proof verified for booking review." : "Payment proof rejected; the customer may submit corrected proof.");
+    const refreshError = paymentRefresh.error ?? reservationRefresh.error;
+    setMessage(refreshError
+      ? `${decision === "verified" ? "Payment proof verified" : "Payment proof rejected"}, but refreshed payment details could not be loaded: ${refreshError.message}`
+      : decision === "verified" ? "Payment proof verified. Reservation and payment details refreshed." : "Payment proof rejected; the customer may submit corrected proof.");
     window.dispatchEvent(new Event("evently-admin-data-changed"));
     window.dispatchEvent(new Event("evently-customer-bookings-changed"));
+    setBusy(false);
   };
 
   return <article className="admin-payment-review-card">
-    <header><div><strong>{show(first(payment, ["reference_number", "id"]))}</strong><small>{show(first(payment, ["method", "payment_method"]), "method")} · {show(first(payment, ["submitted_at", "created_at"]), "created_at")}</small></div><Value label="status" value={status} /></header>
-     <dl><div><dt>Reservation</dt><dd>{show(first(payment, ["_reservation_code", "reservation_code", "reservation_id"]))}</dd></div><div><dt>Submitted amount</dt><dd>{show(first(payment, ["amount", "payment_amount"]), "amount")}</dd></div><div><dt>Customer</dt><dd>{show(first(payment, ["_customer_name", "customer_name", "customer_id"]))}</dd></div><div><dt>Demo mode</dt><dd>{payment.demo_mode === true ? "Demo — no actual money transfer" : "Manual payment proof"}</dd></div><div><dt>Reviewed</dt><dd>{first(payment, ["reviewed_at", "verified_at"]) ? `${show(first(payment, ["reviewed_at", "verified_at"]), "created_at")} · ${show(first(payment, ["reviewed_by", "verified_by"]))}` : "Not reviewed"}</dd></div></dl>
+    <header><div><strong>{show(first(payment, ["reference_number", "id"]))}</strong><small>Verification status: {paymentVerificationLabel(status)}</small><small>{show(first(payment, ["method", "payment_method"]), "method")} · {show(first(payment, ["submitted_at", "created_at"]), "created_at")}</small></div><Value label="verification status" value={paymentVerificationLabel(status)} /></header>
+     <dl><div><dt>Reservation</dt><dd>{show(first(payment, ["_reservation_code", "reservation_code", "reservation_id"]))}</dd></div><div><dt>Submitted amount</dt><dd>{show(first(payment, ["amount", "payment_amount"]), "amount")}</dd></div><div><dt>Customer</dt><dd>{show(first(payment, ["_customer_name", "customer_name", "customer_id"]))}</dd></div><div><dt>Demo mode</dt><dd>{payment.demo_mode === true ? "Demo — no actual money transfer" : "Manual payment proof"}</dd></div>{paymentSummary.total > 0 && <><div><dt>Booking payment status</dt><dd>{paymentSummary.label}</dd></div><div><dt>Verified amount</dt><dd>{money.format(paymentSummary.paid)}</dd></div><div><dt>Total booking cost</dt><dd>{money.format(paymentSummary.total)}</dd></div><div><dt>Remaining balance</dt><dd>{money.format(paymentSummary.balance)}</dd></div></>}<div><dt>Reviewed</dt><dd>{first(payment, ["reviewed_at", "verified_at"]) ? `${show(first(payment, ["reviewed_at", "verified_at"]), "created_at")} · ${show(first(payment, ["reviewed_by", "verified_by"]))}` : "Not reviewed"}</dd></div></dl>
     {proofLoading && <p className="admin-payment-proof-missing">Loading private receipt for review…</p>}
     {proofPath && signedUrl && isImage && <a className="admin-payment-proof-preview" href={signedUrl} rel="noreferrer" target="_blank"><img alt="Private payment receipt preview" src={signedUrl} /><span>Open full-size receipt</span></a>}
     {proofPath && signedUrl && !isImage && <a className="admin-proof-button" href={signedUrl} rel="noreferrer" target="_blank">View private receipt</a>}
@@ -1104,7 +1167,7 @@ function PaymentReviewCard({ payment, onReviewed }: { payment: Row; onReviewed?:
   </article>;
 }
 
-function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, openScheduleEditor = false, openRejectionModal = false, onEditCatalog }: { row: Row; section: string; title: string; onClose: () => void; onChanged?: () => void | Promise<void>; onNavigate?: (path: string) => void; openScheduleEditor?: boolean; openRejectionModal?: boolean; onEditCatalog?: (entity: CatalogEntity, row: Row) => void }) {
+function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, openScheduleEditor = false, openRejectionModal = false, canManageReservations = false, onEditCatalog }: { row: Row; section: string; title: string; onClose: () => void; onChanged?: () => void | Promise<void>; onNavigate?: (path: string) => void; openScheduleEditor?: boolean; openRejectionModal?: boolean; canManageReservations?: boolean; onEditCatalog?: (entity: CatalogEntity, row: Row) => void }) {
   const [actionState, setActionState] = useState<LoadState>("ready");
   const actionStateRef = useRef(actionState);
   actionStateRef.current = actionState;
@@ -1132,6 +1195,11 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
   const actionLock = useRef(false);
   const linkedCustomerName = first(row, ["customer_name", "_customer_name", "customer_id"]);
   const linkedReservationCode = first(row, ["reservation_code", "id"]);
+  const reservationTotalAmount = first(row, ["total_amount"]);
+  const reservationDepositAmount = first(row, ["deposit_amount"]);
+  const reservationAmountPaid = first(row, ["amount_paid"]);
+  const reservationRemainingBalance = first(row, ["remaining_balance"]);
+  const reservationPaymentStatus = first(row, ["payment_status"]);
   const loadRelatedPayments = useCallback(async () => {
     if (section !== "reservations" || !row.id) return;
     setRelatedPaymentsLoading(true);
@@ -1146,8 +1214,13 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
       ...payment,
       _customer_name: linkedCustomerName,
       _reservation_code: linkedReservationCode,
+      _reservation_total_amount: reservationTotalAmount,
+      _reservation_deposit_amount: reservationDepositAmount,
+      _reservation_amount_paid: reservationAmountPaid,
+      _reservation_remaining_balance: reservationRemainingBalance,
+      _reservation_payment_status: reservationPaymentStatus,
     })));
-  }, [linkedCustomerName, linkedReservationCode, row.id, section]);
+  }, [linkedCustomerName, linkedReservationCode, reservationAmountPaid, reservationDepositAmount, reservationPaymentStatus, reservationRemainingBalance, reservationTotalAmount, row.id, section]);
   const groups = [
     { label: section === "reservations" ? "Booking overview" : "Record overview", test: /code|status|date|created|updated|id$/i },
     { label: "Customer information", test: /customer|user|profile|email|phone|mobile|name/i },
@@ -1410,7 +1483,7 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
     return () => { active = false; };
   }, [effectiveResourceRequired, row, section]);
   const saveReservationSchedule = async () => {
-    if (section !== "reservations" || actionState === "loading") return;
+    if (section !== "reservations" || !canManageReservations || actionState === "loading") return;
     if (!scheduleStart || !scheduleEnd || scheduleStart === scheduleEnd) {
       setActionState("error");
       setActionMessage("Enter distinct start and end times.");
@@ -1455,7 +1528,7 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
     window.dispatchEvent(new Event("evently-customer-bookings-changed"));
   };
   const approveBooking = async () => {
-    if (section !== "reservations" || actionLock.current || actionState === "loading" || currentStatus !== "pending") return;
+    if (section !== "reservations" || !canManageReservations || actionLock.current || actionState === "loading" || currentStatus !== "pending") return;
     const missingCheck = approvalChecks.find((check) => !check.complete);
     if (missingCheck) {
       setActionState("error");
@@ -1527,8 +1600,22 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
   };
   const mutate = async (action: string, suppliedReason?: string) => {
     if (actionLock.current || actionState === "loading") return;
+    if (section === "reservations" && !canManageReservations) {
+      setActionState("error");
+      setActionMessage("Only an Owner or Admin can change reservation status.");
+      return;
+    }
+    const rejectedReservation = section === "reservations" && action === "rejected";
+    const reservationTargetStatus = rejectedReservation
+      ? "cancelled"
+      : (["completed", "cancelled"] as const).find((status) => status === action) ?? null;
+    if (section === "reservations" && !reservationTargetStatus) {
+      setActionState("error");
+      setActionMessage("Use Approve Booking for approval. Only completed or cancelled are valid direct reservation status changes.");
+      return;
+    }
     let reason: string | null = suppliedReason ?? null;
-    if (action === "cancelled" || action === "rejected") {
+    if (action === "cancelled" || rejectedReservation) {
       reason = suppliedReason ?? (window.prompt(section === "payments"
         ? "Enter the payment rejection reason:"
         : "Enter the booking rejection or cancellation reason:")?.trim() ?? "");
@@ -1542,9 +1629,11 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
     setActionMessage("");
     const id = String(row.id ?? "");
     const request = section === "reservations"
-      ? action === "rejected"
-        ? supabase.rpc("admin_reject_reservation", { p_reason: reason, p_reservation_id: id })
-        : supabase.rpc("admin_transition_reservation", { p_reason: reason, p_reservation_id: id, p_status: action })
+      ? supabase.rpc("admin_set_reservation_status", {
+        p_reservation_id: id,
+        p_status: reservationTargetStatus as BookingStatus,
+        p_cancellation_reason: reservationTargetStatus === "cancelled" ? reason : null,
+      })
       : section === "orders"
         ? supabase.rpc("admin_transition_order", { p_order_id: id, p_status: action })
         : supabase.rpc("admin_review_payment", { p_decision: action, p_payment_id: id, p_reason: reason });
@@ -1552,21 +1641,40 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
     if (error) {
       actionLock.current = false;
       setActionState("error");
-      setActionMessage(error.message);
-      if (action === "rejected") setRejectionOpen(true);
+      setActionMessage(section === "reservations"
+        ? `Could not ${rejectedReservation ? "reject" : "update"} reservation status: ${error.message}`
+        : error.message);
+      if (rejectedReservation) setRejectionOpen(true);
       return;
     }
+    let savedReservationStatus: string | null = null;
+    let refreshMessage = "";
+    if (section === "reservations") {
+      const refreshed = await supabase.from("reservations").select("*").eq("id", id).single();
+      if (refreshed.error) refreshMessage = ` Status saved, but booking details could not be refreshed: ${refreshed.error.message}`;
+      else {
+        savedReservationStatus = String(first(refreshed.data as Row, ["status"]) ?? "").toLowerCase();
+        if (savedReservationStatus !== reservationTargetStatus) {
+          refreshMessage = ` Status update returned, but the saved status is “${savedReservationStatus || "unknown"}”. Refresh the booking and verify it.`;
+          savedReservationStatus = null;
+        }
+      }
+    }
     actionLock.current = false;
-    setActionState("ready");
-    setCurrentStatus(action.toLowerCase());
-    setActionMessage("Saved to Supabase.");
-    if (action === "rejected") {
+    setActionState(refreshMessage ? "error" : "ready");
+    if (savedReservationStatus) setCurrentStatus(savedReservationStatus);
+    else if (section === "reservations") setCurrentStatus(reservationTargetStatus as BookingStatus);
+    else setCurrentStatus(action.toLowerCase());
+    setActionMessage(section === "reservations"
+      ? `${rejectedReservation ? "Reservation rejected and recorded as cancelled" : `Reservation marked ${reservationTargetStatus}`}.${refreshMessage}`
+      : "Saved to Supabase.");
+    if (rejectedReservation) {
       setRejectionOpen(false);
       setRejectionReason("");
     }
-    await onChanged?.();
     window.dispatchEvent(new Event("evently-admin-data-changed"));
     window.dispatchEvent(new Event("evently-customer-bookings-changed"));
+    await onChanged?.();
   };
   return (
       <div className={`admin-drawer-wrap${rejectionOpen ? " is-confirming-rejection" : ""}`} inert={rejectionOpen}>
@@ -2474,7 +2582,7 @@ export default function AdminDashboard({ profile, path, navigate }: { profile: E
 
   let content: ReactNode;
   if (section === "dashboard") content = <><Overview go={go} /><RecommendationsView /><ScheduleProposalsView /></>;
-  else if (section === "reservations") content = <ReservationsView go={go} />;
+  else if (section === "reservations") content = <ReservationsView canManageReservations={profile.role === "owner" || profile.role === "admin"} go={go} />;
   else if (section === "messages") content = <MessagingInbox onViewReservation={(id) => go(`reservations?record=${encodeURIComponent(id)}`)} role="admin" />;
   else if (section === "reports") content = <Reports />;
   else if (section === "notifications") content = <NotificationsView go={go} />;
