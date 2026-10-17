@@ -10,8 +10,9 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import type { Session } from "@supabase/supabase-js";
+import { CalendarClock, CalendarDays, CalendarX, CreditCard, ExternalLink, LogOut, MessageSquare, Settings, ShoppingBag, UserRound } from "lucide-react";
 import AdminDashboard from "./admin/AdminDashboard";
 import {
   completeOAuthSession,
@@ -173,12 +174,14 @@ function Navigate({ replace = false, to }: { replace?: boolean; to: string }) {
 type IconName =
   | "arrow"
   | "bell"
+  | "building"
   | "calendar"
   | "chevron"
   | "close"
   | "facebook"
   | "eye"
   | "eyeOff"
+  | "food"
   | "instagram"
   | "menu"
   | "people"
@@ -195,6 +198,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
       </>
     ),
     bell: <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />,
+    building: <><path d="M3 21h18M5 21V5l7-3 7 3v16M9 9h1M14 9h1M9 13h1M14 13h1M10 21v-4h4v4" /></>,
     calendar: (
       <>
         <rect x="3" y="5" width="18" height="16" rx="2" />
@@ -221,6 +225,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
         <path d="M10.6 6.2A9.4 9.4 0 0 1 12 6c6.5 0 10 6 10 6a17 17 0 0 1-2.1 2.8M6.2 6.2C3.5 8 2 12 2 12s3.5 6 10 6a9.8 9.8 0 0 0 3.8-.8" />
       </>
     ),
+    food: <><path d="M4 3v7M7 3v7M4 7h3M5.5 10v11M14 3v8a3 3 0 0 0 3 3h1V3M17 14v7" /></>,
     instagram: (
       <>
         <rect x="3" y="3" width="18" height="18" rx="5" />
@@ -612,6 +617,7 @@ type CustomerAccountProfile = {
   username: string;
   email: string;
   mobile: string;
+  avatarUrl?: string;
   smsNotifications: boolean;
   accountCreated: string;
 };
@@ -621,12 +627,14 @@ function toCustomerAccountProfile(profile: {
   username?: string | null;
   email?: string;
   mobile_number?: string;
+  avatar_url?: string | null;
 }): CustomerAccountProfile {
   return {
     fullName: profile.full_name || "Evently Customer",
     username: profile.username || "",
     email: profile.email || "",
     mobile: profile.mobile_number || "",
+    avatarUrl: profile.avatar_url || undefined,
     smsNotifications: true,
     accountCreated: new Date().toISOString(),
   };
@@ -635,6 +643,24 @@ function toCustomerAccountProfile(profile: {
 function normalizePhilippineMobile(value: string) {
   if (!/^09\d{9}$/.test(value)) return null;
   return value;
+}
+
+function packageDescriptionTimes(description: string) {
+  return [...description.matchAll(/(\d{1,2}:\d{2})\s*(AM|PM)/gi)].map((match) => {
+    const [hourText, minute] = match[1].split(":");
+    let hour = Number(hourText) % 12;
+    if (match[2].toUpperCase() === "PM") hour += 12;
+    return `${String(hour).padStart(2, "0")}:${minute}`;
+  });
+}
+
+function poolUnitRate(packageRow: BookingPackageRow | undefined) {
+  if (!packageRow) return 0;
+  const minimumMatch = packageRow.description.match(/base price.{0,60}?minimum\s+(\d+)\s+guests/i);
+  const minimum = Number(minimumMatch?.[1]);
+  return minimum > 0 && Number(packageRow.price) > 0
+    ? Number(packageRow.price) / minimum
+    : Number(packageRow.price) || 0;
 }
 
 function normalizedService(value: string) {
@@ -990,8 +1016,37 @@ const serviceCatalog: VeniceService[] = [
 
 const serviceById = (id: string) => serviceCatalog.find((item) => item.id === id);
 const serviceLabel = (id: string) => serviceById(id)?.label ?? id;
+const bookingCategoryLabel = (serviceId: string) => {
+  if (["Catering", "Food Orders & Party Trays"].includes(serviceId)) return "Catering";
+  if (["Swimming Pool", "Room Accommodation"].includes(serviceId)) return "Staycation";
+  if (serviceId === "Event") return "Events Place";
+  return serviceLabel(serviceId);
+};
+type BookingMainCategory = "Catering" | "Staycation" | "Events Place";
+type CateringChoice = "with-venue" | "without-venue" | "party-trays" | null;
+type StaycationChoice = "day" | "night" | "overnight" | "rooms" | null;
+const staycationTourKey = (name: string): Exclude<StaycationChoice, "rooms" | null> | null => {
+  const normalized = name.trim().toLowerCase();
+  if (normalized.includes("overnight")) return "overnight";
+  if (normalized.includes("night")) return "night";
+  if (normalized.includes("day")) return "day";
+  return null;
+};
+const mainCategoryForService = (serviceId: string): BookingMainCategory | null => {
+  if (["Catering", "Food Orders & Party Trays"].includes(serviceId)) return "Catering";
+  if (["Swimming Pool", "Room Accommodation"].includes(serviceId)) return "Staycation";
+  if (serviceId === "Event") return "Events Place";
+  return null;
+};
+const bookingSummaryCategory = (serviceId: string, cateringChoice: CateringChoice, staycationChoice: StaycationChoice = null) => {
+  if (cateringChoice === "with-venue" && serviceId === "Event") return "Catering + Events Place";
+  if (cateringChoice === "without-venue" && serviceId === "Catering") return "Catering Only";
+  if (serviceId === "Swimming Pool" && staycationChoice) return `Staycation · ${staycationChoice === "day" ? "Day Tour" : staycationChoice === "night" ? "Night Tour" : "Overnight Tour"}`;
+  if (serviceId === "Room Accommodation") return "Staycation · Room Accommodation";
+  return bookingCategoryLabel(serviceId);
+};
 const roomPackageNames = new Set(["standard room", "kubo room"]);
-const swimmingPackageNames = new Set(["day tour", "day tour admission", "resort day tour", "night tour", "night tour admission", "resort night tour", "overnight tour", "overnight resort stay", "resort overnight tour"]);
+const swimmingPackageNames = new Set(["day tour", "day tour admission", "resort day tour", "day tour swimming — per person", "night tour", "night tour admission", "resort night tour", "night tour swimming — per person", "overnight tour", "overnight resort stay", "resort overnight tour", "overnight swimming — minimum 20 guests"]);
 type ScheduleMode = "untimed" | "fixed" | "customer_select" | "admin_assign";
 const serviceScheduleDefaults: Record<string, { mode: ScheduleMode; start?: string; end?: string; durationMinutes?: number }> = {
   Catering: { mode: "customer_select", durationMinutes: 240 },
@@ -1059,6 +1114,30 @@ const cateringMenu = [
   { key: "Drinks", items: ["Iced Tea", "Cucumber Lemon", "Four Seasons", "Pineapple"] },
 ] as const;
 
+const cateringMenuDisplayNames: Record<string, string> = {
+  "Ice Tea": "Iced Tea",
+  "Chopseuy": "Chopsuey",
+  "Mixed Pansit": "Mixed Pancit",
+};
+const cateringMenuDisplayName = (name: string) => cateringMenuDisplayNames[name] ?? name;
+
+const eventVenueInclusions = [
+  "4-hour venue with air conditioning",
+  "Simple backdrop",
+  "Complete table settings",
+  "Six food dishes",
+  "Beef dish",
+  "Pork dish",
+  "Chicken dish",
+  "Fish or shrimp dish",
+  "Vegetable dish",
+  "Pasta or pancit",
+  "Rice",
+  "Dessert",
+  "Drinks",
+  "Uniformed waiters",
+];
+
 const normalizeMenuCategory = (value: unknown) => {
   const normalized = String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   if (["pancit", "pansit", "pasta", "pasta/pancit", "pasta / pancit", "pasta and pancit"].includes(normalized)) return "pasta / pancit";
@@ -1089,6 +1168,10 @@ type BookingDraft = {
   clientRequestId: string;
   step: number;
   service: string;
+  selectedMainCategory?: BookingMainCategory | null;
+  cateringChoice?: CateringChoice;
+  staycationChoice?: StaycationChoice;
+  privacyAcknowledged?: boolean;
   selectedDate: string | null;
   month: string;
   selectedPackageId: string;
@@ -1123,7 +1206,7 @@ type BookingPackageRow = {
   id: string;
   menu_items: string[] | null;
   name: string;
-  price: number;
+  price: number | null;
   priceLabel?: string | null;
   package_category?: string | null;
   room_category?: string | null;
@@ -1208,6 +1291,10 @@ function ReservationFlow({
   const [clientRequestId, setClientRequestId] = useState(initialDraft.clientRequestId ?? crypto.randomUUID());
   const [step, setStep] = useState(initialDraft.step ?? 1);
   const [service, setService] = useState(initialDraft.service ?? "");
+  const [selectedMainCategory, setSelectedMainCategory] = useState<BookingMainCategory | null>(initialDraft.selectedMainCategory ?? mainCategoryForService(initialDraft.service ?? ""));
+  const [cateringChoice, setCateringChoice] = useState<CateringChoice>(initialDraft.cateringChoice ?? null);
+  const [staycationChoice, setStaycationChoice] = useState<StaycationChoice>(initialDraft.staycationChoice ?? null);
+  const [privacyAcknowledged, setPrivacyAcknowledged] = useState(initialDraft.privacyAcknowledged ?? false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(() => initialDraft.selectedDate ? new Date(initialDraft.selectedDate) : null);
   const [month, setMonth] = useState(() => {
     if (initialDraft.month) return new Date(initialDraft.month);
@@ -1215,6 +1302,36 @@ function ReservationFlow({
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
   const [selectedPackageId, setSelectedPackageId] = useState(initialDraft.selectedPackageId ?? initialDraft.selectedPackage ?? "");
+  const [eventVenueGroup, setEventVenueGroup] = useState("");
+  const eventVenueTransitionPending = useRef(false);
+  const transitionEventVenueGroup = (group: string) => {
+    if (eventVenueTransitionPending.current) return;
+    const update = () => setEventVenueGroup(group);
+    const viewTransitionDocument = document as Document & { startViewTransition?: (callback: () => void) => { finished: Promise<void> } };
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !viewTransitionDocument.startViewTransition) {
+      update();
+      return;
+    }
+    eventVenueTransitionPending.current = true;
+    const transition = viewTransitionDocument.startViewTransition(() => flushSync(update));
+    void transition.finished.then(
+      () => { eventVenueTransitionPending.current = false; },
+      () => { eventVenueTransitionPending.current = false; },
+    );
+  };
+  const chooseBookingService = (serviceId: string) => {
+    setService(serviceId);
+    setPrivacyAcknowledged(false);
+    setGuests(serviceId === "Swimming Pool" ? 1 : serviceId === "Room Accommodation" ? 4 : 50);
+    setSelectedPackageId("");
+    setSelectedVariantId("");
+    setDatabaseVariants([]);
+    setAddOns([]);
+    setMenuSelections({});
+    setStartTime("");
+    setEndTime("");
+    setEventVenueGroup("");
+  };
   const [selectedVariantId, setSelectedVariantId] = useState(initialDraft.selectedVariantId ?? "");
   const [guests, setGuests] = useState(initialDraft.guests ?? 50);
   const [guestName, setGuestName] = useState(initialDraft.guestName ?? "");
@@ -1398,6 +1515,10 @@ function ReservationFlow({
   useEffect(() => {
     if (!requestedService || !serviceById(requestedService)) return;
     setService(requestedService);
+    setPrivacyAcknowledged(false);
+    setSelectedMainCategory(mainCategoryForService(requestedService));
+    setCateringChoice(requestedService === "Food Orders & Party Trays" ? "party-trays" : null);
+    setStaycationChoice(requestedService === "Room Accommodation" ? "rooms" : null);
     setGuests(requestedService === "Swimming Pool" ? 1 : requestedService === "Room Accommodation" ? 4 : 50);
     setSelectedPackageId("");
     setSelectedVariantId("");
@@ -1437,6 +1558,10 @@ function ReservationFlow({
       clientRequestId,
       step,
       service,
+      selectedMainCategory,
+      cateringChoice,
+      staycationChoice,
+      privacyAcknowledged,
       selectedDate: selectedDate?.toISOString() ?? null,
       month: month.toISOString(),
       selectedPackageId,
@@ -1462,7 +1587,7 @@ function ReservationFlow({
       paymentReference,
     };
     sessionStorage.setItem(bookingDraftKey, JSON.stringify(draft));
-  }, [addOns, adults, children, clientRequestId, cottageSelected, email, endTime, guestName, guests, itemQuantity, menuSelections, month, nights, paymentAmount, paymentMethod, paymentReference, phone, poolAccessSelected, rooms, selectedDate, selectedPackageId, selectedVariantId, service, specialRequests, startTime, step]);
+  }, [addOns, adults, cateringChoice, children, clientRequestId, cottageSelected, email, endTime, guestName, guests, itemQuantity, menuSelections, month, nights, paymentAmount, paymentMethod, paymentReference, phone, poolAccessSelected, privacyAcknowledged, rooms, selectedDate, selectedMainCategory, selectedPackageId, selectedVariantId, service, specialRequests, startTime, staycationChoice, step]);
 
   const steps = service === "Catering"
     ? [
@@ -1491,9 +1616,13 @@ function ReservationFlow({
   const packageOptions = databasePackages
     .filter((item) => {
       if (service === "Swimming Pool") return normalizedService(item.service_type) === "resort"
-        && (item.package_category?.trim().toLowerCase() === "pool_tour" || swimmingPackageNames.has(item.name.trim().toLowerCase()));
+        && (item.package_category?.trim().toLowerCase() === "pool_tour" || swimmingPackageNames.has(item.name.trim().toLowerCase()))
+        && (!staycationChoice || staycationChoice === "rooms" || staycationTourKey(item.name) === staycationChoice);
       if (service === "Event") {
         return item.package_category?.trim().toLowerCase() === "event_venue";
+      }
+      if (service === "Catering") {
+        return normalizedService(item.service_type) === "catering";
       }
       if (service !== "Room Accommodation") {
         return normalizedService(item.service_type) === normalizedService(service)
@@ -1510,15 +1639,62 @@ function ReservationFlow({
     .map((item) => {
       const designPackage = activeService?.packages.find((candidate) => item.name.toLowerCase().includes(candidate.name.toLowerCase()) || candidate.name.toLowerCase().includes(item.name.toLowerCase().replace(" package", "")));
       const useDatabaseRoomDetails = service === "Room Accommodation";
+      const isOutsideCatering = item.package_category?.trim().toLowerCase() === "outside_catering";
+      const description = item.description || (useDatabaseRoomDetails ? "Room details are not configured." : designPackage?.detail || "Configured Evently package");
       return {
         ...item,
-        detail: item.description || (useDatabaseRoomDetails ? "Room details are not configured." : designPackage?.detail || "Configured Evently package"),
+        detail: isOutsideCatering
+          ? description.replace(/backdrop is charged separately\.?/i, "backdrop included.")
+          : description,
         inclusions: item.menu_items ?? (useDatabaseRoomDetails ? [] : designPackage?.inclusions ?? []),
         popular: useDatabaseRoomDetails ? false : designPackage?.popular,
       };
     });
+  const staycationTourOptions = ([
+    { key: "day", label: "Day Tour" },
+    { key: "night", label: "Night Tour" },
+    { key: "overnight", label: "Overnight Tour" },
+  ] as const).map((option) => {
+    const packageRow = databasePackages.find((item) => normalizedService(item.service_type) === "resort"
+      && (item.package_category?.trim().toLowerCase() === "pool_tour" || swimmingPackageNames.has(item.name.trim().toLowerCase()))
+      && staycationTourKey(item.name) === option.key);
+    const times = packageDescriptionTimes(packageRow?.description ?? "");
+    const start = packageRow?.fixed_start_time ?? packageRow?.operating_start_time ?? times[0];
+    const end = packageRow?.fixed_end_time ?? packageRow?.operating_end_time ?? times[1];
+    const price = poolUnitRate(packageRow);
+    return { ...option, packageRow, price, schedule: start && end ? `${start.slice(0, 5)}–${end.slice(0, 5)}${end <= start ? " · following day" : ""}` : "Schedule to be confirmed" };
+  });
+  const staycationRoomPackages = databasePackages.filter((item) => normalizedService(item.service_type) === "resort"
+    && (item.package_category?.trim().toLowerCase().includes("room") || roomPackageNames.has(item.name.trim().toLowerCase())));
+  const staycationRoomRates = staycationRoomPackages.map((item) => {
+    const occupancy = item.description.match(/(\d+)\s*to\s*(\d+)\s*guests/i);
+    const occupancyLabel = /kubo/i.test(item.name) ? "" : occupancy ? ` · ${occupancy[1]}–${occupancy[2]} guests` : item.guest_capacity ? ` · up to ${item.guest_capacity} guests` : "";
+    return `${/kubo/i.test(item.name) ? "Kubo Room" : "Regular Room"} ${formatPhp(Number(item.price) || 0)}${occupancyLabel}`;
+  }).join(" · ");
+  const eventVenueGroupFor = (item: BookingPackageRow) => {
+    const name = item.name.trim().toLowerCase();
+    if (name.includes("daffodil") || /\bpackage\s*1\b/.test(name)) return "1";
+    if (/\bpackage\s*2\b/.test(name) || (/amarillo/.test(name) && /\b(60|100)\s*(pax|persons?|guests?)\b/.test(name))) return "2";
+    if (/\bpackage\s*3\b/.test(name) || (/amarillo/.test(name) && /air\s*con|non.?air\s*con/.test(name))) return "3";
+    return "other";
+  };
+  const eventVenueGroups = ["1", "2", "3"] as const;
+  const eventVenueOptions = packageOptions.filter((item) => eventVenueGroupFor(item) === eventVenueGroup).sort((left, right) => {
+    if (eventVenueGroup === "2") return Number(right.guest_capacity ?? 0) - Number(left.guest_capacity ?? 0);
+    const leftNonAircon = /non.?air\s*con/i.test(left.name);
+    const rightNonAircon = /non.?air\s*con/i.test(right.name);
+    return Number(leftNonAircon) - Number(rightNonAircon);
+  });
+  const ungroupedEventVenueOptions = service === "Event" ? packageOptions.filter((item) => eventVenueGroupFor(item) === "other") : [];
   const packageChoice = packageOptions.find((item) => item.id === selectedPackageId)
     ?? packageOptions.find((item) => item.name === selectedPackageId);
+  const packageDisplayPrice = (price: number | null | undefined, label?: string | null) => {
+    if (Number.isFinite(Number(price)) && Number(price) > 0) return label || currency(Number(price));
+    return service === "Catering" ? "Price to be announced" : `from ${currency(Number(price) || 0)}`;
+  };
+  const packageCardPrice = (item: BookingPackageRow) => service === "Swimming Pool"
+    ? `${currency(poolUnitRate(item))} per person`
+    : packageDisplayPrice(item.price, item.priceLabel);
   useEffect(() => {
     if (packageChoice && selectedPackageId !== packageChoice.id) {
       setSelectedPackageId(packageChoice.id);
@@ -1572,10 +1748,12 @@ function ReservationFlow({
     : [];
   const selectedVariant = packageVariants.find((variant) => variant.id === selectedVariantId);
   const variantRequired = packageVariants.length > 1;
+  const packagePriceConfigured = Boolean(packageChoice && Number.isFinite(Number(selectedVariant?.price ?? packageChoice.price)) && Number(selectedVariant?.price ?? packageChoice.price) > 0);
   const serviceSchedule = serviceScheduleDefaults[service] ?? { mode: "admin_assign" as const };
-  const scheduleMode = selectedVariant?.schedule_mode ?? packageChoice?.schedule_mode ?? serviceSchedule.mode;
-  const configuredStartTime = selectedVariant?.fixed_start_time ?? packageChoice?.fixed_start_time ?? serviceSchedule.start ?? "";
-  const configuredEndTime = selectedVariant?.fixed_end_time ?? packageChoice?.fixed_end_time ?? serviceSchedule.end ?? "";
+  const scheduleMode = service === "Swimming Pool" ? "fixed" : selectedVariant?.schedule_mode ?? packageChoice?.schedule_mode ?? serviceSchedule.mode;
+  const descriptionTimes = packageDescriptionTimes(packageChoice?.description ?? "");
+  const configuredStartTime = selectedVariant?.fixed_start_time ?? packageChoice?.fixed_start_time ?? packageChoice?.operating_start_time ?? (service === "Swimming Pool" ? descriptionTimes[0] : undefined) ?? serviceSchedule.start ?? "";
+  const configuredEndTime = selectedVariant?.fixed_end_time ?? packageChoice?.fixed_end_time ?? packageChoice?.operating_end_time ?? (service === "Swimming Pool" ? descriptionTimes[1] : undefined) ?? serviceSchedule.end ?? "";
   const requiredDuration = selectedVariant?.duration_minutes ?? packageChoice?.duration_minutes ?? serviceSchedule.durationMinutes ?? null;
   const operatingStart = selectedVariant?.operating_start_time ?? packageChoice?.operating_start_time ?? "";
   const operatingEnd = selectedVariant?.operating_end_time ?? packageChoice?.operating_end_time ?? "";
@@ -1599,9 +1777,17 @@ function ReservationFlow({
   const selectedPackageLabel = packageChoice
     ? selectedVariant ? `${packageChoice.name} · ${selectedVariant.name}` : packageChoice.name
     : "";
-  const effectiveGuestCapacity = selectedVariant?.guest_capacity ?? packageChoice?.guest_capacity ?? null;
-  const effectiveUnitPrice = selectedVariant?.price ?? packageChoice?.price ?? 0;
-  const minimumGuests = packageChoice?.min_guest_count ?? 1;
+  const effectiveGuestCapacity = service === "Swimming Pool" || (service === "Room Accommodation" && /kubo room/i.test(packageChoice?.name ?? ""))
+    ? null
+    : selectedVariant?.guest_capacity ?? packageChoice?.guest_capacity ?? null;
+  const effectiveUnitPrice = selectedVariant?.price ?? (service === "Swimming Pool" ? poolUnitRate(packageChoice) : packageChoice?.price) ?? 0;
+  const minimumGuests = packageChoice?.min_guest_count
+    ?? (service === "Swimming Pool" && /minimum\s*20\s*guests/i.test(packageChoice?.description ?? "")
+      ? 20
+      : service === "Room Accommodation" && /4\s*to\s*5\s*guests/i.test(packageChoice?.description ?? "") ? 4 : 1);
+  const poolPricingReady = service !== "Swimming Pool" || (packageChoice?.pricing_mode === "per_guest"
+    && (!/base price.{0,60}?minimum\s+(\d+)\s+guests/i.test(packageChoice.description)
+      || Number(packageChoice.price) === poolUnitRate(packageChoice)));
   const cottageFee = cottageSelected ? packageChoice?.cottage_fee ?? 0 : 0;
   const poolAccessFee = poolAccessSelected ? packageChoice?.pool_access_fee ?? 0 : 0;
   const packagePrice = !packageChoice
@@ -1609,12 +1795,21 @@ function ReservationFlow({
     : activeService?.quantityMode === "items"
       ? effectiveUnitPrice * itemQuantity
       : activeService?.quantityMode === "tour"
-        ? effectiveUnitPrice * guests + cottageFee
+        ? effectiveUnitPrice * guests
         : activeService?.quantityMode === "rooms"
           ? effectiveUnitPrice * rooms * nights
           : effectiveUnitPrice;
-  const addOnOptions = databaseAddons.map((item) => ({ ...item, imageContext: `${item.name} Photo` }));
-  const validatedAddOns = addOnOptions.filter((item) => addOns.includes(item.name));
+  const isOutsideCateringPackage = packageChoice?.package_category?.trim().toLowerCase() === "outside_catering";
+  const cateringWithoutVenue = service === "Catering" && Boolean(packageChoice) && !packageChoice?.resource_key;
+  const addOnOptions = databaseAddons
+    .filter((item) => !(isOutsideCateringPackage && item.name.trim().toLowerCase() === "wedding backdrop"))
+    .map((item) => ({
+      ...item,
+      displayName: ({ "2-layer cake": "Two-Layer Cake", "2 clowns": "Two Clowns" } as Record<string, string>)[item.name.trim().toLowerCase()] ?? item.name,
+      pricePendingConfirmation: item.name.trim().toLowerCase() === "sound system with lights",
+      imageContext: `${item.name} Photo`,
+    }));
+  const validatedAddOns = addOnOptions.filter((item) => addOns.includes(item.name) && !item.pricePendingConfirmation);
   const addOnTotal = validatedAddOns.reduce((total, item) => total + item.price, 0);
   const selectedMenuTotal = service === "Catering"
     ? requiredMenuCategories.reduce((total, category) => {
@@ -1622,7 +1817,7 @@ function ReservationFlow({
       return total + Number(item?.price ?? 0) * guests;
     }, 0)
     : 0;
-  const subtotal = packagePrice + poolAccessFee + addOnTotal + selectedMenuTotal;
+  const subtotal = packagePrice + cottageFee + poolAccessFee + addOnTotal + selectedMenuTotal;
   const menuOptions = cateringMenu.map(({ key }) => ({
     key,
     items: menuCatalogState === "legacy"
@@ -1639,7 +1834,7 @@ function ReservationFlow({
   const depositPercentage = normalizeDepositPercentage(packageChoice?.deposit_percentage);
   const deposit = calculateRequiredDeposit(subtotal, depositPercentage);
   const requiredPaymentAmount = deposit > 0 ? deposit : subtotal;
-  const remaining = subtotal;
+  const remaining = Math.max(0, subtotal - deposit);
   const currency = formatPhp;
   const menuComplete = requiredMenuCategories.every((category) => Boolean(menuSelections[category]));
   const supportedPaymentMethods: CustomerPaymentMethod[] = ["gcash", "maya", "bank_transfer"];
@@ -1692,28 +1887,33 @@ function ReservationFlow({
 
   const toggleAddOn = (name: string) => {
     if (!addOnOptions.some((item) => item.name === name)) return;
+    if (name.trim().toLowerCase() === "sound system with lights") return;
     setAddOns((current) =>
       current.includes(name) ? current.filter((item) => item !== name) : [...current, name],
     );
   };
 
   const canContinue =
-    (step === 1 && Boolean(service)) ||
+    (step === 1 && Boolean(service) && (selectedMainCategory === "Catering" ? cateringChoice !== null : selectedMainCategory === "Staycation" ? staycationChoice !== null : true)) ||
     (step === 2 && Boolean(selectedDate) && !conflictReason && (
       scheduleMode !== "customer_select" || Boolean(startTime && reservationEndTime)
     )) ||
-    (step === 3 && Boolean(packageChoice) && !variantLoading && !variantError && scheduleReady && (
+    (step === 3 && Boolean(packageChoice) && (service !== "Catering" || packagePriceConfigured) && poolPricingReady && !variantLoading && !variantError && scheduleReady && (
       !variantRequired || Boolean(selectedVariant)
     ) && (
       activeService?.quantityMode !== "tour" || guests >= minimumGuests
     )) ||
     (step === 4 && service === "Catering" && menuComplete) ||
-    (step === 5 && Boolean(guestName && email && normalizePhilippineMobile(phone)) && guests > 0 && (
+    (step === 5 && Boolean(guestName && email && normalizePhilippineMobile(phone)) && (!cateringWithoutVenue || Boolean(specialRequests.trim())) && guests >= minimumGuests && (
       effectiveGuestCapacity == null || guests <= effectiveGuestCapacity
     )) ||
     step === 6 ||
     step === 7 ||
     (step === 8 && Boolean(
+      (service !== "Catering" || packagePriceConfigured)
+      && poolPricingReady
+      && privacyAcknowledged
+      &&
       paymentMethod
       && availablePaymentMethods.includes(paymentMethod)
       && paymentReference.trim()
@@ -1728,6 +1928,14 @@ function ReservationFlow({
 
   const nextStep = async () => {
     if (!canContinue || conflictReason) return;
+    if (step === 3 && service === "Catering" && !packagePriceConfigured) {
+      setBookingError("Catering-only pricing is not configured yet. Contact us for pricing before continuing.");
+      return;
+    }
+    if (step === 3 && service === "Swimming Pool" && !poolPricingReady) {
+      setBookingError("This tour’s active database record is missing the per-person pricing configuration required to match the booking total. Please contact EVENTLY before booking.");
+      return;
+    }
     if (step === 3 && packageChoice && selectedDate) {
       const { data: available, error } = await supabase.rpc("evently_check_availability", {
         p_package_id: packageChoice.id,
@@ -1761,6 +1969,10 @@ function ReservationFlow({
           return;
         }
         if (!packageChoice || !selectedDate) throw new Error("Select an available database package and reservation date.");
+        if (!privacyAcknowledged) throw new Error("Review and acknowledge the Privacy Notice before submitting.");
+        if (cateringWithoutVenue && !specialRequests.trim()) throw new Error("Enter the customer-provided event location before submitting catering without an EVENTLY venue.");
+        if (service === "Catering" && !packagePriceConfigured) throw new Error("Catering-only pricing is not configured yet. Contact us for pricing before continuing.");
+        if (service === "Swimming Pool" && !poolPricingReady) throw new Error("This tour’s active database record is missing per-person pricing configuration.");
         if (!normalizePhilippineMobile(phone)) throw new Error("Enter a valid Philippine mobile number in 09XXXXXXXXX format.");
         if (!paymentProof) throw new Error("Upload a JPG, PNG, or WebP payment receipt.");
         if (!supportedPaymentMethods.includes(paymentMethod) || !availablePaymentMethods.includes(paymentMethod)) {
@@ -1881,6 +2093,12 @@ function ReservationFlow({
     setStep(1);
     setClientRequestId(crypto.randomUUID());
     setService("");
+    setSelectedMainCategory(null);
+    setCateringChoice(null);
+    setStaycationChoice(null);
+    setPrivacyAcknowledged(false);
+    setSelectedMainCategory(null);
+    setCateringChoice(null);
     setSelectedDate(null);
     setSelectedPackageId("");
     setSelectedVariantId("");
@@ -1958,31 +2176,126 @@ function ReservationFlow({
                   <p>Select the experience that best fits your celebration.</p>
                 </div>
                 <div className="service-choice-grid">
-                  {serviceCatalog.map((serviceOption) => (
+                  {[
+                    { category: "Catering", serviceId: "Catering" },
+                    { category: "Staycation", serviceId: "Swimming Pool" },
+                    { category: "Events Place", serviceId: "Event" },
+                  ].map(({ category, serviceId }, index) => {
+                    const serviceOption = serviceById(serviceId)!;
+                    const selected = selectedMainCategory === category;
+                    const selectMainService = () => {
+                      setSelectedMainCategory(category as BookingMainCategory);
+                      setCateringChoice(null);
+                      setStaycationChoice(null);
+                      chooseBookingService(serviceId);
+                    };
+                    if (category === "Catering") return (
+                      <article className={`choice-card choice-card--expandable ${selected ? "choice-card--selected" : ""}`} key={category}>
+                        <button aria-pressed={selected} className="choice-card__main" data-booking-cta="true" onClick={selectMainService} type="button">
+                          <PhotoPlaceholder context={serviceOption.imageContext} compact className="choice-card__photo" />
+                          <span className="choice-card__number">0{index + 1}</span>
+                          <span className="choice-card__icon"><Icon name="sparkle" /></span>
+                          <strong>Catering</strong>
+                          <small>{serviceOption.description}</small>
+                          <span className="choice-card__check">✓</span>
+                        </button>
+                        {selected && cateringChoice !== "party-trays" && <div aria-label="Choose catering type" className="booking-catering-choices" role="group">
+                          <button aria-pressed={cateringChoice === "with-venue"} className={`booking-catering-choice ${cateringChoice === "with-venue" ? "is-selected" : ""}`} onClick={() => { setCateringChoice("with-venue"); chooseBookingService("Event"); }} type="button">
+                            <span className="booking-catering-choice__icon"><Icon name="building" size={19} /></span>
+                            <span className="booking-catering-choice__copy"><strong>Catering with Venue</strong><small>Enjoy catering services with an EVENTLY events place.</small></span>
+                            <span className="booking-catering-choice__check">✓</span>
+                          </button>
+                          <button aria-pressed={cateringChoice === "without-venue"} className={`booking-catering-choice ${cateringChoice === "without-venue" ? "is-selected" : ""}`} onClick={() => { setCateringChoice("without-venue"); chooseBookingService("Catering"); }} type="button">
+                            <span className="booking-catering-choice__icon"><Icon name="food" size={19} /></span>
+                            <span className="booking-catering-choice__copy"><strong>Catering Without Venue</strong><small>Enjoy catering services at your own event location.</small></span>
+                            <span className="booking-catering-choice__check">✓</span>
+                          </button>
+                        </div>}
+                        {selected && cateringChoice !== "party-trays" && <button className="booking-party-trays-link" onClick={() => { setCateringChoice("party-trays"); chooseBookingService("Food Orders & Party Trays"); }} type="button">Looking for ready-made food? Browse Food Orders &amp; Party Trays <Icon name="arrow" size={15} /></button>}
+                        {selected && cateringChoice === "party-trays" && <p className="booking-party-trays-selected">Food Orders &amp; Party Trays selected. <button onClick={() => { setCateringChoice(null); chooseBookingService("Catering"); }} type="button">Return to catering choices</button></p>}
+                      </article>
+                    );
+                    if (category === "Staycation") return (
+                      <article className={`choice-card choice-card--expandable ${selected ? "choice-card--selected" : ""}`} key={category}>
+                        <button aria-pressed={selected} className="choice-card__main" data-booking-cta="true" onClick={selectMainService} type="button">
+                          <PhotoPlaceholder context={serviceOption.imageContext} compact className="choice-card__photo" />
+                          <span className="choice-card__number">0{index + 1}</span>
+                          <span className="choice-card__icon"><Icon name="sun" /></span>
+                          <strong>Staycation</strong>
+                          <small>Choose a pool tour or room accommodation for your group.</small>
+                          <span className="choice-card__check">✓</span>
+                        </button>
+                        {selected && <div aria-label="Choose a Staycation option" className="booking-staycation-choices" role="group">
+                          {staycationTourOptions.map((option) => <button aria-pressed={staycationChoice === option.key} className={`booking-staycation-choice ${staycationChoice === option.key ? "is-selected" : ""}`} key={option.key} onClick={() => {
+                            setSelectedMainCategory("Staycation");
+                            setCateringChoice(null);
+                            setStaycationChoice(option.key);
+                            chooseBookingService("Swimming Pool");
+                          }} type="button">
+                            <span className="booking-staycation-choice__copy"><strong>{option.label}</strong><small>{option.schedule} · {option.price > 0 ? `${currency(option.price)} per guest` : "Rate unavailable"}{Number(option.packageRow?.cottage_fee) > 0 ? ` · Cottage ${currency(Number(option.packageRow?.cottage_fee))}` : ""}</small></span>
+                            <span className="booking-catering-choice__check">✓</span>
+                          </button>)}
+                          <button aria-pressed={staycationChoice === "rooms"} className={`booking-staycation-choice ${staycationChoice === "rooms" ? "is-selected" : ""}`} onClick={() => {
+                            setSelectedMainCategory("Staycation");
+                            setCateringChoice(null);
+                            setStaycationChoice("rooms");
+                            chooseBookingService("Room Accommodation");
+                          }} type="button">
+                            <span className="booking-staycation-choice__copy"><strong>Room Accommodation</strong><small>{staycationRoomRates || "Choose an active room package in the next step."}</small></span>
+                            <span className="booking-catering-choice__check">✓</span>
+                          </button>
+                        </div>}
+                      </article>
+                    );
+                    if (category === "Staycation") return (
+                      <article className={`choice-card choice-card--expandable ${selected ? "choice-card--selected" : ""}`} key={category}>
+                        <button aria-pressed={selected} className="choice-card__main" data-booking-cta="true" onClick={selectMainService} type="button">
+                          <PhotoPlaceholder context={serviceOption.imageContext} compact className="choice-card__photo" />
+                          <span className="choice-card__number">0{index + 1}</span>
+                          <span className="choice-card__icon"><Icon name="sun" /></span>
+                          <strong>Staycation</strong>
+                          <small>Choose a pool tour or room accommodation for your group.</small>
+                          <span className="choice-card__check">✓</span>
+                        </button>
+                        {selected && <div aria-label="Choose a Staycation option" className="booking-staycation-choices" role="group">
+                          {staycationTourOptions.map((option) => <button aria-pressed={staycationChoice === option.key} className={`booking-staycation-choice ${staycationChoice === option.key ? "is-selected" : ""}`} key={option.key} onClick={() => {
+                            setSelectedMainCategory("Staycation");
+                            setCateringChoice(null);
+                            setStaycationChoice(option.key);
+                            chooseBookingService("Swimming Pool");
+                          }} type="button">
+                            <span className="booking-staycation-choice__copy"><strong>{option.label}</strong><small>{option.schedule} · {option.price > 0 ? `${currency(option.price)} per guest` : "Rate unavailable"}{Number(option.packageRow?.cottage_fee) > 0 ? ` · Cottage ${currency(Number(option.packageRow?.cottage_fee))}` : ""}</small></span>
+                            <span className="booking-catering-choice__check">✓</span>
+                          </button>)}
+                          <button aria-pressed={staycationChoice === "rooms"} className={`booking-staycation-choice ${staycationChoice === "rooms" ? "is-selected" : ""}`} onClick={() => {
+                            setSelectedMainCategory("Staycation");
+                            setCateringChoice(null);
+                            setStaycationChoice("rooms");
+                            chooseBookingService("Room Accommodation");
+                          }} type="button">
+                            <span className="booking-staycation-choice__copy"><strong>Room Accommodation</strong><small>{staycationRoomRates || "Choose an active room package in the next step."}</small></span>
+                            <span className="booking-catering-choice__check">✓</span>
+                          </button>
+                        </div>}
+                      </article>
+                    );
+                    return (
                     <button
+                      aria-pressed={selected}
                       data-booking-cta="true"
-                      className={`choice-card ${service === serviceOption.id ? "choice-card--selected" : ""}`}
-                      key={serviceOption.id}
-                      onClick={() => {
-                        setService(serviceOption.id);
-                        setGuests(serviceOption.id === "Swimming Pool" ? 1 : serviceOption.id === "Room Accommodation" ? 4 : 50);
-                        setSelectedPackageId("");
-                        setSelectedVariantId("");
-                        setDatabaseVariants([]);
-                        setAddOns([]);
-                        setMenuSelections({});
-                        setStartTime("");
-                        setEndTime("");
-                      }}
+                      className={`choice-card ${selected ? "choice-card--selected" : ""}`}
+                      key={category}
+                      onClick={selectMainService}
                       type="button"
                     >
                       <PhotoPlaceholder context={serviceOption.imageContext} compact className="choice-card__photo" />
-                      <span className="choice-card__icon"><Icon name={serviceOption.label.includes("Stay") || serviceOption.label.includes("Resort") || serviceOption.label.includes("Room") ? "sun" : "sparkle"} /></span>
-                      <strong>{serviceOption.label}</strong>
+                      <span className="choice-card__number">0{index + 1}</span>
+                      <span className="choice-card__icon"><Icon name={category === "Staycation" ? "sun" : "sparkle"} /></span>
+                      <strong>{category}</strong>
                       <small>{serviceOption.description}</small>
                       <span className="choice-card__check">✓</span>
                     </button>
-                  ))}
+                  );})}
                 </div>
               </div>
             )}
@@ -2072,10 +2385,84 @@ function ReservationFlow({
               <div className="booking-step booking-step--enter">
                 <div className="booking-step__heading">
                   <span>Step 3 of {steps.length}</span>
-                  <h3>{service === "Swimming Pool" ? "Choose your tour time slot" : "Pick your package"}</h3>
+                  <h3>{service === "Swimming Pool" ? "Choose your tour time slot" : service === "Catering" ? "Choose your catering package" : "Pick your package"}</h3>
                   <p>{service === "Swimming Pool" ? "Tour hours are fixed and cannot be changed." : "Each package can be refined with our team after your reservation."}</p>
                 </div>
-                <div className="tier-grid">
+                {service === "Event" ? <>
+                  {!eventVenueGroup ? <div className="event-venue-package-grid">
+                    {eventVenueGroups.map((group) => {
+                      const records = packageOptions.filter((item) => eventVenueGroupFor(item) === group);
+                      if (!records.length) return null;
+                      const lead = records[0];
+                      const title = group === "1" ? "Daffodil Events Place" : "Amarillo Events Place";
+                      const parentDetail = group === "3" ? lead.detail.replace(/(?:Air-conditioned|Non-air-conditioned) event venue;?\s*/i, "") : lead.detail;
+                      const subtitle = group === "1" ? lead.detail : `${parentDetail} ${group === "2" ? "Choose between the 100-pax and 60-pax options." : "Choose an Aircon or Non-Aircon option."}`;
+                      const selected = records.some((item) => item.id === selectedPackageId);
+                      return <button aria-pressed={selected} className={`event-venue-package-card ${selected ? "is-selected" : ""}`} key={group} onClick={() => {
+                        if (group === "1" && selectedPackageId === lead.id) return;
+                        if (group === "1") {
+                          transitionEventVenueGroup("");
+                          setSelectedPackageId(lead.id);
+                          setSelectedVariantId("");
+                          setDatabaseVariants([]);
+                          setVariantLoading(true);
+                          setVariantError("");
+                          setBookingError("");
+                        } else {
+                          transitionEventVenueGroup(group);
+                          setSelectedPackageId("");
+                          setSelectedVariantId("");
+                          setDatabaseVariants([]);
+                          setVariantError("");
+                          setBookingError("");
+                        }
+                      }} type="button">
+                        <PhotoPlaceholder context={`${title} Event Venue`} compact className="event-venue-package-card__photo" />
+                        <span className="event-venue-package-card__number">Package {group}</span>
+                        <strong>{title}</strong>
+                        <small>{subtitle}</small>
+                        {group === "1" && lead.guest_capacity != null && <small>Up to {lead.guest_capacity} guests</small>}
+                        {group === "1" && <b>{packageDisplayPrice(lead.price, lead.priceLabel)}</b>}
+                        {group === "1" && <span className="event-venue-package-card__inclusions">{eventVenueInclusions.map((inclusion) => <span key={inclusion}>{inclusion}</span>)}</span>}
+                        <span className="event-venue-package-card__action">{group === "1" ? "Select this package" : "Choose an option"}</span>
+                      </button>;
+                    })}
+                  </div> : <section aria-labelledby="event-venue-options-title" className="event-venue-options">
+                    <div className="event-venue-options__heading">
+                      <div><span>Package {eventVenueGroup}</span><h4 id="event-venue-options-title">Choose Your Package {eventVenueGroup} Option</h4></div>
+                      <button className="event-venue-back" onClick={() => transitionEventVenueGroup("")} type="button">Back to packages</button>
+                    </div>
+                    <div className="event-venue-option-grid">
+                      {eventVenueOptions.map((tier) => {
+                        const name = tier.name;
+                        const displayName = eventVenueGroup === "2"
+                          ? (/\b60\s*(pax|persons?|guests?)\b/i.test(name) ? "60 pax" : /\b100\s*(pax|persons?|guests?)\b/i.test(name) ? "100 pax" : name)
+                          : /non.?air\s*con/i.test(name) ? "Non-Aircon" : /air\s*con/i.test(name) ? "Aircon" : name;
+                        const selected = packageChoice?.id === tier.id;
+                        const nonAircon = /non.?air\s*con/i.test(tier.name);
+                        return <article className={`event-venue-option-card ${selected ? "is-selected" : ""}`} key={tier.id}>
+                          <PhotoPlaceholder context={`${tier.name} Event Venue`} compact className="event-venue-option-card__photo" />
+                          <span className="event-venue-option-card__name">{displayName}</span>
+                          <strong className="event-venue-option-card__price">{packageDisplayPrice(tier.price, tier.priceLabel)}</strong>
+                          {tier.guest_capacity != null && <small>Up to {tier.guest_capacity} guests</small>}
+                          <p>{tier.detail}</p>
+                          {tier.inclusions.length > 0 && <ul>{tier.inclusions.map((inclusion) => <li key={inclusion}>{inclusion}</li>)}</ul>}
+                          <ul className="event-venue-option-card__inclusions">{eventVenueInclusions.map((inclusion) => <li key={inclusion}>{nonAircon && inclusion === "4-hour venue with air conditioning" ? "4-hour venue (Non-Aircon)" : inclusion}</li>)}</ul>
+                          <button aria-pressed={selected} className="event-venue-option-card__select" onClick={() => {
+                            if (selectedPackageId === tier.id) return;
+                            setSelectedPackageId(tier.id);
+                            setSelectedVariantId("");
+                            setDatabaseVariants([]);
+                            setVariantLoading(true);
+                            setVariantError("");
+                            setBookingError("");
+                          }} type="button">{selected ? "Selected" : "Select this option"}</button>
+                        </article>;
+                      })}
+                    </div>
+                  </section>}
+                  {ungroupedEventVenueOptions.length > 0 && <div className="tier-grid event-venue-other-options">{ungroupedEventVenueOptions.map((tier) => <button className={`tier-card ${packageChoice?.id === tier.id ? "tier-card--selected" : ""}`} key={tier.id} onClick={() => { setEventVenueGroup(""); setSelectedPackageId(tier.id); setSelectedVariantId(""); setDatabaseVariants([]); setVariantLoading(true); setVariantError(""); setBookingError(""); }} type="button"><PhotoPlaceholder context={`${tier.name} Package Photo`} compact className="tier-card__photo"/><span className="tier-card__number">Venue option</span><strong>{tier.name}</strong><small>{tier.detail}</small>{tier.guest_capacity != null && <small>Up to {tier.guest_capacity} guests</small>}<ul className="tier-card__inclusions">{tier.inclusions.map((inclusion) => <li key={inclusion}>✓ {inclusion}</li>)}</ul><b>{packageDisplayPrice(tier.price, tier.priceLabel)}</b></button>)}</div>}
+                </> : <div className="tier-grid">
                   {packageOptions.map((tier, index) => {
                     return (
                       <button
@@ -2096,19 +2483,21 @@ function ReservationFlow({
                         <span className="tier-card__number">0{index + 1}</span>
                         <strong>{tier.name}</strong>
                         <small>{tier.detail}</small>
-                        {tier.guest_capacity != null && <small>Up to {tier.guest_capacity} guests</small>}
+                        {tier.guest_capacity != null && service !== "Swimming Pool" && !(service === "Room Accommodation" && /kubo room/i.test(tier.name)) && <small>Up to {tier.guest_capacity} guests</small>}
                         <ul className="tier-card__inclusions">
                           {tier.inclusions.map((inclusion) => <li key={inclusion}>✓ {inclusion}</li>)}
                         </ul>
-                        <b>{tier.priceLabel ?? `from ${currency(tier.price)}`}</b>
+                        <b>{packageCardPrice(tier)}</b>
                       </button>
                     );
                   })}
-                </div>
+                </div>}
                 {catalogError && <div className="booking-inline-error" role="alert">{catalogError}</div>}
                 {!catalogError && !packageOptions.length && <div className="booking-inline-error" role="alert">No active {serviceLabel(service)} packages are configured in Supabase.</div>}
                 {packageChoice && variantLoading && <div className="package-variant-panel" aria-live="polite"><span>Loading package options…</span></div>}
                 {packageChoice && variantError && <div className="booking-inline-error" role="alert">{variantError}</div>}
+                {packageChoice && service === "Catering" && !packagePriceConfigured && !variantLoading && !variantError && <div className="catering-price-notice" role="status"><strong>Price to be announced</strong><span>Contact us for current catering-only pricing. Booking cannot continue until a valid price is configured.</span></div>}
+                {packageChoice && service === "Swimming Pool" && !poolPricingReady && <div className="catering-price-notice" role="status"><strong>Tour rate setup needs attention</strong><span>The active package row does not contain per-person pricing settings for the booking RPC. Booking is paused rather than submitting a mismatched total. Cottage charges are not added unless configured for the selected package.</span></div>}
                 {packageChoice && scheduleMode === "customer_select" && !operatingHoursConfigured && <div className="booking-inline-error" role="alert">This package has no configured operating hours. An administrator must configure them before timed bookings can be submitted.</div>}
                 {packageChoice && scheduleMode === "customer_select" && operatingHoursConfigured && validReservationTime && !withinOperatingHours && <div className="booking-inline-error" role="alert">Select a time within the configured operating hours of {operatingStart.slice(0, 5)}–{operatingEnd.slice(0, 5)}.</div>}
                 {packageChoice && !variantLoading && !variantError && packageVariants.length > 0 && (
@@ -2213,7 +2602,7 @@ function ReservationFlow({
                             type="radio"
                           />
                           <span className="ulam-choice-card__icon"><Icon name={key === "Drinks" ? "sun" : "sparkle"} size={17} /></span>
-                          <strong>{item.name}</strong>
+                          <strong>{cateringMenuDisplayName(item.name)}</strong>
                           <small>{Number(item.price) > 0 ? `${currency(Number(item.price))} per guest` : "Included in package"}</small>
                           <span className="ulam-choice-card__check">✓</span>
                         </label>
@@ -2224,7 +2613,7 @@ function ReservationFlow({
                 <aside className="menu-selection-summary">
                   <div><span>Live menu summary</span><strong>{Object.keys(menuSelections).length} of 8 selected</strong></div>
                   <ul>
-                    {requiredMenuCategories.map((category) => <li className={menuSelections[category] ? "menu-selection-complete" : ""} key={category}><span>{category}</span><strong>{menuSelections[category] || "Select an option"}</strong></li>)}
+                    {requiredMenuCategories.map((category) => <li className={menuSelections[category] ? "menu-selection-complete" : ""} key={category}><span>{category}</span><strong>{menuSelections[category] ? cateringMenuDisplayName(menuSelections[category]) : "Select an option"}</strong></li>)}
                     <li className="menu-selection-complete"><span>Rice</span><strong>Included</strong></li>
                   </ul>
                   {selectedMenuTotal > 0 && <p>Menu price: {currency(selectedMenuTotal)} for {guests} guests.</p>}
@@ -2246,8 +2635,8 @@ function ReservationFlow({
                     <input value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="Your full name" />
                   </label>
                   <label className="guest-form__wide">
-                    <span>Special requests</span>
-                    <textarea onChange={(event) => setSpecialRequests(event.target.value)} placeholder="Accessibility needs, setup notes, or other requests" rows={4} value={specialRequests} />
+                    <span>{cateringWithoutVenue ? "Customer venue location (required)" : "Special requests"}</span>
+                    <textarea onChange={(event) => setSpecialRequests(event.target.value)} placeholder={cateringWithoutVenue ? "Enter the event venue address and any access or setup details" : "Accessibility needs, setup notes, or other requests"} required={cateringWithoutVenue} rows={4} value={specialRequests} />
                   </label>
                   <label>
                     <span>Email address</span>
@@ -2260,7 +2649,7 @@ function ReservationFlow({
                   </label>
                   <label>
                     <span>Number of guests</span>
-                    <input max={effectiveGuestCapacity ?? undefined} min="1" type="number" value={guests} onChange={(event) => setGuests(Math.max(1, Number(event.target.value)))} />
+                    <input max={effectiveGuestCapacity ?? undefined} min={minimumGuests} type="number" value={guests} onChange={(event) => setGuests(Math.max(minimumGuests, Number(event.target.value)))} />
                     {effectiveGuestCapacity != null && <small>Maximum capacity for {selectedPackageLabel}: {effectiveGuestCapacity} guests.</small>}
                     {effectiveGuestCapacity != null && guests > effectiveGuestCapacity && <small role="alert">Reduce the guest count to continue with this package.</small>}
                   </label>
@@ -2276,17 +2665,18 @@ function ReservationFlow({
                   <p>Make your celebration even more memorable with these optional additions.</p>
                 </div>
                 {addonLoading && <p className="deposit-note" aria-live="polite">Loading available add-ons…</p>}
+                {isOutsideCateringPackage && <p className="deposit-note">Backdrop is included in this outside-catering package, so a separate backdrop add-on is not offered here.</p>}
                 <div className="booking-addon-grid">
                   {addOnOptions.map((item) => {
-                    const selected = addOns.includes(item.name);
+                        const selected = !item.pricePendingConfirmation && addOns.includes(item.name);
                     return (
                       <article className={`booking-addon-card ${selected ? "booking-addon-card--selected" : ""}`} key={item.name}>
                         <PhotoPlaceholder context={item.imageContext || `${item.name} Photo`} compact className="booking-addon-card__photo" />
-                        <div><span className="booking-addon-card__icon"><Icon name={item.name.includes("Sound") ? "sun" : "sparkle"} size={17} /></span><strong>{item.name}</strong></div>
+                        <div><span className="booking-addon-card__icon"><Icon name={item.name.includes("Sound") ? "sun" : "sparkle"} size={17} /></span><strong>{item.displayName}</strong></div>
                         <p>{item.description || "A thoughtful extra for your Venice experience."}</p>
                         <div className="booking-addon-card__action">
-                          <b>+ {currency(item.price)}</b>
-                          <button aria-pressed={selected} onClick={() => toggleAddOn(item.name)} type="button">{selected ? "Remove" : "Add to Booking"}</button>
+                          <b>{item.pricePendingConfirmation ? "Price to be confirmed" : `+ ${currency(item.price)}`}</b>
+                          <button aria-pressed={selected} disabled={item.pricePendingConfirmation} onClick={() => toggleAddOn(item.name)} type="button">{item.pricePendingConfirmation ? "Unavailable" : selected ? "Remove" : "Add to Booking"}</button>
                         </div>
                       </article>
                     );
@@ -2314,8 +2704,9 @@ function ReservationFlow({
                 <div className="review-details">
                   <div><span>Reserved for</span><strong>{guestName}</strong></div>
                   <div><span>Contact</span><strong>{email}</strong><small>{phone}</small></div>
-                  <div><span>Experience</span><strong>{serviceLabel(service)} · {selectedPackageLabel}</strong></div>
-                  <div><span>Schedule</span><strong>{reservationStartTime && reservationEndTime ? `${reservationStartTime}–${reservationEndTime}` : "Pending administrator assignment"}</strong></div>
+                  <div><span>Experience</span><strong>{bookingSummaryCategory(service, cateringChoice, staycationChoice)} · {selectedPackageLabel}</strong></div>
+                    <div><span>Schedule</span><strong>{reservationStartTime && reservationEndTime ? `${reservationStartTime}–${reservationEndTime}${service === "Swimming Pool" && reservationEndTime <= reservationStartTime ? " · following day" : ""}` : "Pending administrator assignment"}</strong></div>
+                    {cateringWithoutVenue && <div><span>Customer venue location</span><strong>{specialRequests}</strong></div>}
                   {selectedVariant && <div><span>Variant details</span><strong>{selectedVariant.guest_capacity == null ? "Capacity not specified" : `${selectedVariant.guest_capacity} guests`} · {selectedVariant.has_aircon == null ? "Aircon not specified" : selectedVariant.has_aircon ? "Air-conditioned" : "Non-aircon"}</strong></div>}
                   <div><span>Booking details</span><strong>
                     {activeService?.quantityMode === "items"
@@ -2330,16 +2721,17 @@ function ReservationFlow({
                 {service === "Catering" && (
                   <div className="review-menu">
                     <h4>Selected menu</h4>
-                    <div>{requiredMenuCategories.map((category) => <span key={category}><small>{category}</small><strong>{menuSelections[category]}</strong></span>)}</div>
+                    <div>{requiredMenuCategories.map((category) => <span key={category}><small>{category}</small><strong>{cateringMenuDisplayName(menuSelections[category])}</strong></span>)}</div>
                     <p>Rice included</p>
                   </div>
                 )}
                 <div className="review-menu review-addons">
                   <h4>Selected add-ons</h4>
-                  {validatedAddOns.length ? <div>{validatedAddOns.map((item) => <span key={item.id}><strong>{item.name}</strong><small>{currency(item.price)}</small></span>)}</div> : <p>No additional services selected</p>}
+                  {validatedAddOns.length ? <div>{validatedAddOns.map((item) => <span key={item.id}><strong>{item.displayName}</strong><small>{currency(item.price)}</small></span>)}</div> : <p>No additional services selected</p>}
                 </div>
                 <div className="review-price-summary">
-                  <div><span>Base package price</span><strong>{currency(packagePrice)}</strong></div>
+                  <div><span>{service === "Swimming Pool" ? "Entrance charge" : "Base package price"}</span><strong>{currency(packagePrice)}</strong></div>
+                  {cottageFee > 0 && <div><span>Cottage</span><strong>{currency(cottageFee)}</strong></div>}
                   <div><span>Add-on subtotal</span><strong>{currency(addOnTotal)}</strong></div>
                   {poolAccessFee > 0 && <div><span>Optional pool access</span><strong>{currency(poolAccessFee)}</strong></div>}
                   <div><span>Total booking amount</span><strong>{currency(subtotal)}</strong></div>
@@ -2360,7 +2752,7 @@ function ReservationFlow({
                 </div>
                 {demoPaymentMode && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>This capstone demonstration records sample payment information for administrator review only. Do not send real funds based on this demo screen.</span></div>}
                 <div className="booking-payment-summary">
-                  <div><span>Package or service</span><strong>{serviceLabel(service)} · {selectedPackageLabel}</strong></div>
+                  <div><span>Package or service</span><strong>{bookingSummaryCategory(service, cateringChoice, staycationChoice)} · {selectedPackageLabel}</strong></div>
                   <div><span>Booking date and time</span><strong>{selectedDate?.toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · {reservationStartTime && reservationEndTime ? `${reservationStartTime.slice(0, 5)}–${reservationEndTime.slice(0, 5)}` : "Time to be assigned by Admin"}</strong></div>
                   <div><span>Guest count</span><strong>{guests}</strong></div>
                   <div><span>Total booking price</span><strong>{currency(subtotal)}</strong></div>
@@ -2370,6 +2762,8 @@ function ReservationFlow({
                 {paymentOptionsLoading && <p className="booking-payment-message" role="status">Loading available payment destinations…</p>}
                 {paymentOptionsError && <p className="booking-payment-message is-error" role="alert">Payment destinations could not be loaded: {paymentOptionsError}</p>}
                 {!paymentOptionsLoading && !paymentOptionsError && !availablePaymentMethods.length && <p className="booking-payment-message is-error" role="alert">No active GCash, Maya, or Bank Transfer destination is configured. Please contact Venice before submitting.</p>}
+                <p className="evently-privacy-link"><a href="#evently-privacy-notice">Read the EVENTLY Privacy Notice</a></p>
+                <PrivacyNoticeDisclosure id="evently-privacy-notice" />
                 <div className="booking-payment-form">
                   <label><span>Payment method</span><select disabled={!availablePaymentMethods.length} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)} required value={paymentMethod}>{availablePaymentMethods.map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
                   {selectedPaymentAccount && <div className="booking-payment-destination"><strong>{selectedPaymentAccount.display_name}</strong>{selectedPaymentAccount.account_holder && <span>Account holder: {selectedPaymentAccount.account_holder}</span>}{selectedPaymentAccount.bank_name && <span>Bank: {selectedPaymentAccount.bank_name}</span>}{(selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number) && <span>Send to: {selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number}</span>}{selectedPaymentAccount.qr_code_url && <img alt={`${selectedPaymentAccount.display_name} payment QR code`} src={selectedPaymentAccount.qr_code_url} />}<p>{selectedPaymentInstructions}</p></div>}
@@ -2390,6 +2784,8 @@ function ReservationFlow({
                   }} required={!paymentProof} type="file" /></label>
                   {paymentProof && <div className="booking-receipt-preview"><img alt="Receipt screenshot preview" src={paymentProofPreview} /><div><strong>{paymentProof.name}</strong><span>{(paymentProof.size / (1024 * 1024)).toFixed(2)} MB · ready to upload</span><div><button onClick={() => paymentProofInput.current?.click()} type="button">Replace image</button><button onClick={() => { setPaymentProof(null); setPendingPaymentProofPath(""); if (paymentProofInput.current) paymentProofInput.current.value = ""; }} type="button">Remove image</button></div></div></div>}
                   <p className="booking-payment-privacy">Receipt files are stored in a private Supabase bucket. Only the submitting customer and authorized Owner/Admin accounts can access them.</p>
+                  <label className="privacy-acknowledgment"><input checked={privacyAcknowledged} onChange={(event) => setPrivacyAcknowledged(event.target.checked)} type="checkbox" /><span>I acknowledge that I have read the Privacy Notice. This acknowledgment is not optional marketing consent.</span></label>
+                  <p className="booking-payment-privacy">No optional marketing consent is requested as a condition of booking.</p>
                   {bookingSubmitting && <p className="booking-payment-message" aria-live="polite">{createdReservation ? "Uploading receipt securely and submitting payment proof…" : "Saving your reservation, then uploading and submitting payment proof…"}</p>}
                 </div>
               </div>
@@ -2443,7 +2839,7 @@ function ReservationFlow({
                 <strong>VENICE</strong>
               </div>
               <dl>
-                <div><dt>Selected Service</dt><dd>{service ? serviceLabel(service) : "Not selected"}</dd></div>
+                <div><dt>Selected Service</dt><dd>{service ? bookingSummaryCategory(service, cateringChoice, staycationChoice) : "Not selected"}</dd></div>
                 <div><dt>Reservation Date</dt><dd>{selectedDate ? selectedDate.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "Not selected"}</dd></div>
                 <div><dt>Schedule</dt><dd>{reservationStartTime && reservationEndTime ? `${reservationStartTime.slice(0, 5)}–${reservationEndTime.slice(0, 5)}${reservationEndTime <= reservationStartTime ? " · next day" : ""}` : "Pending admin assignment"}</dd></div>
                 <div><dt>Guest Count</dt><dd>{service ? guests : "—"}</dd></div>
@@ -2480,6 +2876,8 @@ function CustomerHeader() {
     ["/account/profile", "My Profile", "/account/profile"],
     ["/account/history", "Booking History", "/account/history"],
     ["/account/messages", "Messages", "/account/messages"],
+    ["/account/orders", "Purchase / Order History", "/account/orders"],
+    ["/account/payments", "Payment History", "/account/payments"],
     ["/#booking", "Booking", "/order"],
     ["/track-order", "Track Booking", "/track-order"],
     ["/account/settings", "Account Settings", "/account/settings"],
@@ -2529,22 +2927,86 @@ function CustomerFooter() {
       <Brand light />
       <span>Need help? Our Venice team is ready to assist.</span>
       <a href="tel:+630000000000">Contact support</a>
+      <a href="/#evently-privacy-notice-footer">Privacy Notice</a>
     </footer>
   );
 }
 
+function PrivacyNoticeDisclosure({ id }: { id?: string }) {
+  return (
+    <details className="evently-privacy-notice" id={id}>
+      <summary>EVENTLY Privacy Notice · Data Privacy Act of 2012</summary>
+      <div>
+        <p><strong>Information collected.</strong> Booking details may include your name, email address, mobile number, event date and time, guest count, selected service/package, menu selections, add-ons, event-location notes, and payment method, amount, transaction reference, and receipt image. Account authentication data is handled by Supabase Auth.</p>
+        <p><strong>Purposes and lawful basis.</strong> EVENTLY uses booking information to manage your request, check schedules and resources, communicate booking updates, and administer payment-proof review. Applicable lawful bases must be documented by the data controller; this acknowledgment is not treated as the sole basis for processing.</p>
+        <p><strong>Access and service providers.</strong> You can access your own protected booking information. Authorized Owner/Admin users and staff with relevant permissions may access information needed for their duties. Supabase provides authentication, database, and private receipt storage. Any additional hosting, payment, or communications recipients must be confirmed and listed by EVENTLY.</p>
+        <p><strong>Payment information.</strong> The system records payment details and proof submitted for review; it does not itself confirm a transfer. Payment destinations such as GCash, Maya, or bank accounts are shown to customers. EVENTLY should confirm what information those providers receive outside this application.</p>
+        <p><strong>Retention.</strong> A retention schedule is not configured in this application. EVENTLY must set and publish the applicable retention period before launch.</p>
+        <p><strong>Your rights and contact.</strong> You may ask to access or correct your information, exercise other rights available under applicable law, or raise a privacy concern. The designated privacy contact/Officer or DPO contact details have not been configured; EVENTLY must provide them before launch.</p>
+        <p className="evently-privacy-notice__draft">This notice contains business-completion items and is not a claim of legal compliance. Optional marketing consent is not requested as a condition of booking.</p>
+      </div>
+    </details>
+  );
+}
+
+type CustomerAccountSection = "profile" | "history" | "messages" | "orders" | "payments" | "settings";
+
+const customerAccountSections: Array<{ id: CustomerAccountSection; href: string; label: string; icon: typeof UserRound }> = [
+  { id: "profile", href: "/account/profile", label: "My Profile", icon: UserRound },
+  { id: "history", href: "/account/history", label: "Booking History", icon: CalendarDays },
+  { id: "messages", href: "/account/messages", label: "Messages", icon: MessageSquare },
+  { id: "orders", href: "/account/orders", label: "Purchase / Order History", icon: ShoppingBag },
+  { id: "payments", href: "/account/payments", label: "Payment History", icon: CreditCard },
+  { id: "settings", href: "/account/settings", label: "Account Settings", icon: Settings },
+];
+
+function CustomerAccountNavigation({ active, onNavigate }: { active: CustomerAccountSection; onNavigate?: () => void }) {
+  return <nav aria-label="Customer account navigation">{customerAccountSections.map((item) => {
+    const ItemIcon = item.icon;
+    return <a aria-current={active === item.id ? "page" : undefined} className={active === item.id ? "is-active" : ""} href={item.href} key={item.id} onClick={onNavigate}><ItemIcon aria-hidden="true" size={19} strokeWidth={1.9} /><span>{item.label}</span></a>;
+  })}</nav>;
+}
+
 function AccountLayout({ active, children, description, title }: {
-  active: "profile" | "history" | "messages" | "settings";
+  active: CustomerAccountSection;
   children: ReactNode;
   description: string;
   title: string;
 }) {
-  const items = [
-    ["profile", "/account/profile", "My Profile"],
-    ["history", "/account/history", "Booking History"],
-    ["messages", "/account/messages", "Messages"],
-    ["settings", "/account/settings", "Account Settings"],
-  ] as const;
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const mobileNavigationCloseRef = useRef<HTMLButtonElement | null>(null);
+  const mobileNavigationTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const closeMobileNavigation = () => {
+    setMobileNavigationOpen(false);
+    window.requestAnimationFrame(() => mobileNavigationTriggerRef.current?.focus());
+  };
+  useEffect(() => {
+    if (!mobileNavigationOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMobileNavigation();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const panel = mobileNavigationCloseRef.current?.closest("[role='dialog']");
+      const focusable = [...(panel?.querySelectorAll<HTMLElement>('button:not(:disabled),a[href]') ?? [])];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const frame = window.requestAnimationFrame(() => mobileNavigationCloseRef.current?.focus());
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [mobileNavigationOpen]);
   return (
     <main className="customer-page customer-account-page">
       <CustomerHeader />
@@ -2552,14 +3014,13 @@ function AccountLayout({ active, children, description, title }: {
         <span className="section-kicker">Customer account</span>
         <h1>{title}</h1>
         <p>{description}</p>
+        <button aria-controls="customer-account-mobile-menu" aria-expanded={mobileNavigationOpen} aria-haspopup="dialog" className="customer-account-menu-toggle" onClick={() => setMobileNavigationOpen(true)} ref={mobileNavigationTriggerRef} type="button"><Settings aria-hidden="true" size={18} /> Account Menu</button>
       </section>
       <section className="customer-account-shell">
-        <aside className="customer-account-nav">
-          <span>My Account</span>
-          <nav aria-label="Account navigation">{items.map(([id, href, label]) => <a aria-current={active === id ? "page" : undefined} className={active === id ? "is-active" : ""} href={href} key={id}>{label}<Icon name="chevron" size={15} /></a>)}</nav>
-        </aside>
+        <aside className="customer-account-nav customer-account-nav--desktop"><span>My Account</span><CustomerAccountNavigation active={active} /></aside>
         <div className="customer-account-main">{children}</div>
       </section>
+      {mobileNavigationOpen && <div className="customer-account-mobile-drawer"><button aria-label="Close account menu" className="customer-account-mobile-drawer__backdrop" onClick={closeMobileNavigation} type="button"/><aside aria-labelledby="customer-account-menu-title" aria-modal="true" className="customer-account-nav customer-account-mobile-drawer__panel" id="customer-account-mobile-menu" role="dialog"><header><strong id="customer-account-menu-title">My Account</strong><button aria-label="Close account menu" onClick={closeMobileNavigation} ref={mobileNavigationCloseRef} type="button">×</button></header><CustomerAccountNavigation active={active} onNavigate={() => setMobileNavigationOpen(false)} /></aside></div>}
       <CustomerFooter />
     </main>
   );
@@ -2582,7 +3043,7 @@ const rowNumber = (row: CustomerDataRow, keys: string[]) => Number(rowValue(row,
 const bookingPackageLabel = (row: CustomerDataRow, fallback?: CustomerDataRow | null) => {
   const packageName = rowValue(row, ["package_name", "_package_name"])
     ?? (fallback ? rowValue(fallback, ["package_name"]) : null)
-    ?? rowValue(row, ["package_id"]);
+    ?? "Package details unavailable";
   const packageVariant = rowValue(row, ["package_variant", "_package_variant"])
     ?? (fallback ? rowValue(fallback, ["package_variant"]) : null);
   const name = String(packageName ?? "Not provided");
@@ -2601,6 +3062,16 @@ const rowList = (row: CustomerDataRow, keys: string[]) => {
   return value ? [String(value)] : [];
 };
 const bookingReference = (row: CustomerDataRow) => rowText(row, ["reservation_code", "order_code", "booking_code", "code", "reference", "id"], "Unavailable");
+const customerBookingReference = (row: CustomerDataRow) => rowText(row, ["reservation_code", "order_code", "booking_code", "code", "reference"], "Reference pending");
+const customerServiceName = (value: unknown) => {
+  const raw = String(value ?? "").trim();
+  const normalized = normalizedService(raw);
+  if (normalized === "catering") return "Catering";
+  if (normalized === "event") return "Events Place";
+  if (normalized === "resort") return "Staycation";
+  if (normalized === "food") return "Catering · Food Orders & Party Trays";
+  return raw || "Service not provided";
+};
 const customerPaymentFor = (row: CustomerDataRow): CustomerDataRow | null => {
   const payment = rowValue(row, ["_latest_payment"]);
   return payment && typeof payment === "object" ? payment as CustomerDataRow : null;
@@ -2881,8 +3352,38 @@ function CustomerHistoryPage() {
   const [reviewSetupMessage, setReviewSetupMessage] = useState("");
   const [editingReviewIds, setEditingReviewIds] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<CustomerDataRow | null>(null);
+  const detailsCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const detailsOpenerRef = useRef<HTMLButtonElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const closeBookingDetails = () => {
+    setSelected(null);
+    window.requestAnimationFrame(() => detailsOpenerRef.current?.focus());
+  };
+  useEffect(() => {
+    if (!selected) return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); closeBookingDetails(); return; }
+      if (event.key !== "Tab") return;
+      const panel = detailsCloseButtonRef.current?.closest("[role='dialog']");
+      const focusable = [...(panel?.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled)') ?? [])];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const frame = window.requestAnimationFrame(() => detailsCloseButtonRef.current?.focus());
+    window.addEventListener("keydown", onEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", onEscape);
+    };
+  }, [selected?.id]);
 
   const loadHistory = useCallback(async (silent = false) => {
     if (!session) return;
@@ -2932,11 +3433,7 @@ function CustomerHistoryPage() {
         _order_status: linkedOrder ? rowText(linkedOrder, ["order_status", "status"], "Pending") : null,
       };
     });
-    const reservationIds = new Set(reservationRows.map((row) => String(row.id)));
-    const orderRows = orders.error ? [] : (orders.data ?? [])
-      .filter((row) => !row.reservation_id || !reservationIds.has(String(row.reservation_id)))
-      .map((row) => ({ ...row, _latest_payment: latestPaymentFor(row), _record_type: "Order" }));
-    const nextRecords = [...reservationRows, ...orderRows].sort((a, b) => {
+    const nextRecords = reservationRows.sort((a, b) => {
       const left = Date.parse(String(rowValue(a, ["reservation_date", "event_date", "created_at"]) ?? 0));
       const right = Date.parse(String(rowValue(b, ["reservation_date", "event_date", "created_at"]) ?? 0));
       return right - left;
@@ -3028,42 +3525,152 @@ function CustomerHistoryPage() {
   };
 
   return (
-    <AccountLayout active="history" description="View your reservations, track their progress, and review your past experiences." title="My Booking History">
+    <AccountLayout active="history" description="View your reservations, track their progress, and review your past experiences." title="Booking History">
       <section className="customer-history-content">
         <div className="history-toolbar">
          <div>{(["All", "Pending", "Confirmed", "Completed", "Cancelled"] as const).map((item) => <button className={filter === item ? "history-filter-active" : ""} key={item} onClick={() => setFilter(item)} type="button">{item === "All" ? "All Bookings" : item}</button>)}</div>
           <label><span>Search</span><input onChange={(event) => setSearch(event.target.value)} placeholder="Search reference…" value={search} /></label>
         </div>
-        {reviewSetupMessage && <p className="customer-review-setup-message" role="status">{reviewSetupMessage}</p>}
-        {loading ? <CustomerLoadingState /> : error ? <CustomerErrorState message={error} retry={loadHistory} /> : !visible.length ? <div className="customer-empty-state"><Icon name="calendar" size={24} /><h2>No bookings found</h2><p>{records.length ? "Try a different status or reference search." : "Your reservations will appear here after a booking is saved."}</p></div> : <div className="history-card-grid">{visible.map((record) => {
-          const status = bookingStatus(record);
-          const reference = bookingReference(record);
-          return (
-            <article className="customer-history-card" key={`${rowText(record, ["_record_type"])}-${rowText(record, ["id"], reference)}`}>
-              <div className="customer-history-card__top"><span>{rowText(record, ["_record_type"])}</span><strong>{reference}</strong><i className={`history-status history-status--${bookingTone(status)}`}>{status}</i></div>
-              <h2>{rowText(record, ["service", "service_type", "service_category"])}</h2><p>{bookingPackageLabel(record)}</p>
+         {loading ? <CustomerLoadingState /> : error ? <CustomerErrorState message={error} retry={loadHistory} /> : !visible.length ? <div className="customer-empty-state"><Icon name="calendar" size={24} /><h2>No bookings found</h2><p>{records.length ? "Try a different status or reference search." : "Your reservations will appear here after a booking is saved."}</p></div> : <div className="history-card-grid">{visible.map((record) => {
+           const status = bookingStatus(record);
+           const reference = bookingReference(record);
+           const visibleReference = customerBookingReference(record);
+           const hasReference = Boolean(rowValue(record, ["reservation_code", "order_code", "booking_code", "code", "reference"]));
+           return (
+             <article className="customer-history-card" key={`${rowText(record, ["_record_type"])}-${rowText(record, ["id"], reference)}`}>
+               <div className="customer-history-card__top"><span>Reservation</span><strong>{visibleReference}</strong><i className={`history-status history-status--${bookingTone(status)}`}>{status}</i></div>
+               <h2>{customerServiceName(rowValue(record, ["service", "service_type", "service_category"]))}</h2><p>{bookingPackageLabel(record)}</p>
               <dl><div><dt>Reservation Date</dt><dd>{bookingDate(record)}</dd></div><div><dt>Schedule</dt><dd>{bookingSchedule(record)}</dd></div><div><dt>Guests</dt><dd>{rowText(record, ["guest_count", "guests", "number_of_guests"], "—")}</dd></div>{Boolean(rowValue(record, ["resource_name", "resource_key"])) && <div><dt>Venue / Resource</dt><dd>{rowText(record, ["resource_name", "resource_key"])}</dd></div>}<div><dt>Total Booking Cost</dt><dd>{formatPhp(rowNumber(record, ["total_amount", "total", "amount"]))}</dd></div><div><dt>Required Deposit</dt><dd>{formatPhp(requiredDeposit(record))}</dd></div><div><dt>Verified Amount Paid</dt><dd>{formatPhp(rowNumber(record, ["amount_paid", "paid_amount"]))}</dd></div><div><dt>Remaining Balance</dt><dd>{formatPhp(remainingBalance(record))}</dd></div><div><dt>Payment Status</dt><dd>{paymentStatus(record)}</dd></div>{Boolean(rowValue(record, ["_order_status"])) && <div><dt>Order Status</dt><dd>{rowText(record, ["_order_status"])}</dd></div>}</dl>
-               <div className="history-card-actions"><button onClick={() => setSelected(record)} type="button">View Details</button><button onClick={() => navigate(`/track-order?ref=${encodeURIComponent(reference)}`)} type="button">Track Booking</button>{Boolean(rowValue(record, ["_order_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(record, ["_order_code"]))}`)} type="button">Payment Details</button>}</div>
+                <div className="history-card-actions"><button className="history-card-actions__primary" onClick={(event) => { detailsOpenerRef.current = event.currentTarget; setSelected(record); }} type="button">View Details</button>{hasReference && <button onClick={() => navigate(`/track-order?ref=${encodeURIComponent(reference)}`)} type="button">Track Booking</button>}{Boolean(rowValue(record, ["_order_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(record, ["_order_code"]))}`)} type="button">Payment Details</button>}</div>
                 {rowText(record, ["_record_type"]) === "Reservation" && status.toLowerCase() === "completed" && (submittedReviews[String(record.id)] && !editingReviewIds[String(record.id)] ? <div className="customer-review-state"><strong>Your review: {rowText(submittedReviews[String(record.id)], ["moderation_status"], "pending")}</strong><p>{rowText(submittedReviews[String(record.id)], ["review_text", "comment"])}</p><small>Sentiment: {rowText(submittedReviews[String(record.id)], ["sentiment_label"], "Pending analysis")}</small><button disabled={!reviewFeatureReady} onClick={() => editReview(String(record.id))} type="button">Edit and resubmit</button>{reviewFeedback[String(record.id)] && <p role="status">{reviewFeedback[String(record.id)]}</p>}</div> : reviewFeatureReady && <form className="customer-review-form" onSubmit={(event) => { event.preventDefault(); void submitReview(String(record.id)); }}><strong>{submittedReviews[String(record.id)] ? "Edit and resubmit your review" : "Share your experience"}</strong><label>Rating<select value={reviewDrafts[String(record.id)]?.rating ?? 5} onChange={(event) => setReviewDrafts((current) => ({ ...current, [String(record.id)]: { ...(current[String(record.id)] ?? { text: "", rating: 5 }), rating: Number(event.target.value) } }))}>{[5,4,3,2,1].map((rating) => <option key={rating} value={rating}>{rating} stars</option>)}</select></label><label>Your review<textarea minLength={10} maxLength={3000} required value={reviewDrafts[String(record.id)]?.text ?? ""} onChange={(event) => setReviewDrafts((current) => ({ ...current, [String(record.id)]: { ...(current[String(record.id)] ?? { text: "", rating: 5 }), text: event.target.value } }))} /></label><button type="submit">{submittedReviews[String(record.id)] ? "Save and resubmit" : "Submit review"}</button>{reviewFeedback[String(record.id)] && <p role="status">{reviewFeedback[String(record.id)]}</p>}</form>)}
             </article>
           );
         })}</div>}
       </section>
-      {selected && (
-        <><button className="detail-panel-overlay" aria-label="Close transaction details" onClick={() => setSelected(null)} type="button" /><aside className="reservation-detail-panel customer-history-detail">
-          <div className="detail-panel__header"><div><span>{rowText(selected, ["_record_type"])} details</span><h2>{bookingReference(selected)}</h2></div><button aria-label="Close details" onClick={() => setSelected(null)} type="button"><Icon name="close" /></button></div>
+       {selected && (() => {
+         const statusKey = rowText(selected, ["status"], "pending").trim().toLowerCase();
+         const readOnlyStatus = ["cancelled", "canceled", "rejected", "completed"].includes(statusKey);
+         return <><button className="detail-panel-overlay" aria-label="Close transaction details" onClick={closeBookingDetails} type="button" /><aside aria-labelledby="customer-reservation-details-title" aria-modal="true" className="reservation-detail-panel customer-history-detail" role="dialog">
+            <div className="detail-panel__header"><div><span>Reservation details</span><h2 id="customer-reservation-details-title">{customerBookingReference(selected)}</h2></div><button aria-label="Close details" onClick={closeBookingDetails} ref={detailsCloseButtonRef} type="button"><Icon name="close" /></button></div>
           <div className="detail-status-row"><span className={`history-status history-status--${bookingTone(bookingStatus(selected))}`}>{bookingStatus(selected)}</span><span>{paymentStatus(selected)}</span></div>
           <h3 className="customer-detail-section-title">Booking information</h3>
-          <dl className="detail-panel__facts"><div><dt>Service</dt><dd>{rowText(selected, ["service", "service_type"])}</dd></div><div><dt>Package / Tour Slot</dt><dd>{bookingPackageLabel(selected)}</dd></div><div><dt>Event Date</dt><dd>{bookingDate(selected)}</dd></div><div><dt>Schedule</dt><dd>{bookingSchedule(selected)}</dd></div><div><dt>Guests</dt><dd>{rowText(selected, ["guest_count", "guests"], "—")}</dd></div>{Boolean(rowValue(selected, ["resource_name", "resource_key"])) && <div><dt>Venue / Resource</dt><dd>{rowText(selected, ["resource_name", "resource_key"])}</dd></div>}<div><dt>Customer</dt><dd>{rowText(selected, ["customer_name", "full_name"], "Your account")}</dd></div><div><dt>Payment Status</dt><dd>{paymentStatus(selected)}</dd></div></dl>
+           <dl className="detail-panel__facts"><div><dt>Service</dt><dd>{customerServiceName(rowValue(selected, ["service", "service_type"]))}</dd></div><div><dt>Package / Tour Slot</dt><dd>{bookingPackageLabel(selected)}</dd></div><div><dt>Event Date</dt><dd>{bookingDate(selected)}</dd></div><div><dt>Schedule</dt><dd>{bookingSchedule(selected)}</dd></div><div><dt>Guests</dt><dd>{rowText(selected, ["guest_count", "guests"], "—")}</dd></div>{Boolean(rowValue(selected, ["resource_name", "resource_key"])) && <div><dt>Venue / Resource</dt><dd>{rowText(selected, ["resource_name", "resource_key"])}</dd></div>}<div><dt>Payment Status</dt><dd>{paymentStatus(selected)}</dd></div></dl>
+           {bookingStatus(selected).toLowerCase() === "completed" && reviewSetupMessage && <div className="detail-panel__section"><span>Customer reviews</span><p>{reviewSetupMessage}</p></div>}
           {selectedPayment && <div className="detail-panel__section"><span>Payment submission</span><dl className="detail-panel__facts"><div><dt>Method</dt><dd>{rowText(selectedPayment, ["method", "payment_method"])}</dd></div><div><dt>Reference</dt><dd>{rowText(selectedPayment, ["reference_number"], "Not recorded")}</dd></div><div><dt>Submitted amount</dt><dd>{formatPhp(rowNumber(selectedPayment, ["amount", "payment_amount"]))}</dd></div><div><dt>Submitted</dt><dd>{rowText(selectedPayment, ["submitted_at", "created_at"], "Not recorded")}</dd></div><div><dt>Receipt upload</dt><dd>{rowValue(selectedPayment, ["proof_url"]) ? "Private receipt received" : "No receipt attached"}</dd></div><div><dt>Administrator review</dt><dd>{paymentVerificationStatus(selectedPayment)}</dd></div>{Boolean(rowValue(selectedPayment, ["rejection_reason", "review_notes"])) && <div><dt>Review note</dt><dd>{rowText(selectedPayment, ["rejection_reason", "review_notes"])}</dd></div>}</dl>{selectedPayment.demo_mode === true && <p>Demo Payment — No Actual Money Transfer. This record is for demonstration and review only.</p>}{rowText(selectedPayment, ["verification_status", "status"], "").toLowerCase() === "rejected" && Boolean(rowValue(selected, ["_order_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(selected, ["_order_code"]))}`)} type="button">Resubmit payment proof</button>}</div>}
           {rowList(selected, ["menu_items", "selected_menu", "menu"]).length > 0 && <div className="detail-panel__section"><span>Catering Menu</span><p>{rowList(selected, ["menu_items", "selected_menu", "menu"]).join(" · ")}</p></div>}
-          {rowList(selected, ["addons", "selected_addons"]).length > 0 && <div className="detail-panel__section"><span>Selected Add-ons</span><p>{rowList(selected, ["addons", "selected_addons"]).join(" · ")}</p></div>}
-          {Boolean(rowValue(selected, ["special_requests", "requests", "notes"])) && <div className="detail-panel__section"><span>Special Requests</span><p>{rowText(selected, ["special_requests", "requests", "notes"])}</p></div>}
-          <div className="history-payment-summary"><div><span>Total Booking Cost</span><strong>{formatPhp(rowNumber(selected, ["total_amount", "total", "amount"]))}</strong></div><div><span>Required Deposit</span><strong>{formatPhp(requiredDeposit(selected))}</strong></div><div><span>Verified Amount Paid</span><strong>{formatPhp(rowNumber(selected, ["amount_paid", "paid_amount"]))}</strong></div><div><span>Remaining Balance</span><strong>{formatPhp(remainingBalance(selected))}</strong></div></div>
-        </aside></>
-      )}
+           {rowList(selected, ["addons", "selected_addons"]).length > 0 && <div className="detail-panel__section"><span>Selected Add-ons</span><p>{rowList(selected, ["addons", "selected_addons"]).join(" · ")}</p></div>}
+           {Boolean(rowValue(selected, ["special_requests", "requests", "notes"])) && <div className="detail-panel__section"><span>Special Requests</span><p>{rowText(selected, ["special_requests", "requests", "notes"])}</p></div>}
+           <div className="history-payment-summary"><div><span>Total Booking Cost</span><strong>{formatPhp(rowNumber(selected, ["total_amount", "total", "amount"]))}</strong></div><div><span>Required Deposit</span><strong>{formatPhp(requiredDeposit(selected))}</strong></div><div><span>Verified Amount Paid</span><strong>{formatPhp(rowNumber(selected, ["amount_paid", "paid_amount"]))}</strong></div><div><span>Remaining Balance</span><strong>{formatPhp(remainingBalance(selected))}</strong></div></div>
+           <section aria-labelledby="customer-manage-booking-title" className="customer-manage-booking">
+             <h3 id="customer-manage-booking-title">Manage Booking</h3>
+             <p>{readOnlyStatus ? `This reservation is ${statusKey} and can no longer be changed.` : "Schedule-change requests are not enabled for customer accounts yet. No reservation changes have been made."}</p>
+             <div><button disabled title={readOnlyStatus ? `Unavailable for ${statusKey} reservations` : "Secure rescheduling request service is not configured"} type="button"><CalendarClock aria-hidden="true" size={18} /> Reschedule Booking</button><button className="customer-manage-booking__cancel" disabled title={readOnlyStatus ? `Unavailable for ${statusKey} reservations` : "Secure customer cancellation request service is not configured"} type="button"><CalendarX aria-hidden="true" size={18} /> Cancel Booking</button></div>
+             <small>Cancellation terms and refund policy have not been configured here. This page does not submit cancellation or issue refunds.</small>
+           </section>
+         </aside></>;
+       })()}
     </AccountLayout>
   );
+}
+
+function CustomerOrderHistoryPage() {
+  const { session } = useAuth();
+  const [orders, setOrders] = useState<CustomerDataRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const loadOrders = useCallback(async (silent = false) => {
+    if (!session) return;
+    if (!silent) setLoading(true);
+    setError("");
+    const result = await supabase.from("orders").select("*").eq("customer_id", session.user.id).order("created_at", { ascending: false });
+    if (!silent) setLoading(false);
+    if (result.error) { setError(result.error.message); return; }
+    setOrders((result.data ?? []) as CustomerDataRow[]);
+  }, [session]);
+  useEffect(() => {
+    void loadOrders();
+    const refresh = () => { void loadOrders(true); };
+    window.addEventListener(customerBookingsChangedEvent, refresh);
+    const channel = session ? supabase.channel(`customer-orders-page-${session.user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `customer_id=eq.${session.user.id}` }, refresh)
+      .subscribe() : null;
+    return () => {
+      window.removeEventListener(customerBookingsChangedEvent, refresh);
+      if (channel) void supabase.removeChannel(channel);
+    };
+  }, [loadOrders, session]);
+
+  return <AccountLayout active="orders" description="Review your food orders and other purchases separately from reservations." title="Purchase / Order History">
+    {loading ? <CustomerLoadingState /> : error ? <CustomerErrorState message={error} retry={loadOrders} /> : !orders.length ? <div className="customer-empty-state"><ShoppingBag size={25}/><h2>No orders yet</h2><p>Your food orders and purchases will appear here after they are saved.</p></div> : <div className="customer-account-record-list">{orders.map((order) => {
+      const reference = bookingReference(order);
+      const status = rowText(order, ["order_status", "status"], "Pending");
+      return <article className="customer-account-card customer-order-record" key={String(order.id)}>
+        <div className="customer-order-record__header"><div><span>Order</span><h2>{reference}</h2></div><span className={`history-status history-status--${bookingTone(status)}`}>{status}</span></div>
+        <dl><div><dt>Service</dt><dd>{rowText(order, ["service_type", "service"])}</dd></div><div><dt>Order details</dt><dd>{bookingPackageLabel(order)}</dd></div><div><dt>Date</dt><dd>{bookingDate(order)}</dd></div><div><dt>Quantity</dt><dd>{rowValue(order, ["item_quantity"]) ? `${rowText(order, ["item_quantity"])} item(s)` : `${rowText(order, ["guest_count"], "—")} guests`}</dd></div><div><dt>Order amount</dt><dd>{formatPhp(rowNumber(order, ["total_amount", "amount"]))}</dd></div><div><dt>Payment</dt><dd>{rowText(order, ["payment_status"], "See payment details")}</dd></div></dl>
+        <a className="customer-record-link" href={`/order?ref=${encodeURIComponent(reference)}`}>View Order Details <Icon name="arrow" size={16}/></a>
+      </article>;
+    })}</div>}
+  </AccountLayout>;
+}
+
+function CustomerPaymentHistoryPage() {
+  const { session } = useAuth();
+  const [payments, setPayments] = useState<CustomerDataRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
+  const [receiptErrors, setReceiptErrors] = useState<Record<string, string>>({});
+  const [openingReceipt, setOpeningReceipt] = useState("");
+  const loadPayments = useCallback(async (silent = false) => {
+    if (!session) return;
+    if (!silent) setLoading(true);
+    setError("");
+    const result = await supabase.from("payments").select("*").eq("customer_id", session.user.id).order("submitted_at", { ascending: false });
+    if (!silent) setLoading(false);
+    if (result.error) { setError(result.error.message); return; }
+    setPayments((result.data ?? []) as CustomerDataRow[]);
+  }, [session]);
+  useEffect(() => {
+    void loadPayments();
+    const refresh = () => { void loadPayments(true); };
+    window.addEventListener(customerBookingsChangedEvent, refresh);
+    const channel = session ? supabase.channel(`customer-payments-page-${session.user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "payments", filter: `customer_id=eq.${session.user.id}` }, refresh)
+      .subscribe() : null;
+    return () => {
+      window.removeEventListener(customerBookingsChangedEvent, refresh);
+      if (channel) void supabase.removeChannel(channel);
+    };
+  }, [loadPayments, session]);
+  const getReceipt = async (payment: CustomerDataRow) => {
+    const id = String(payment.id ?? "");
+    const path = String(payment.proof_url ?? "");
+    if (!id || !path) return;
+    setOpeningReceipt(id);
+    setReceiptErrors((current) => ({ ...current, [id]: "" }));
+    const { data, error: signedUrlError } = await supabase.storage.from("payment-proofs").createSignedUrl(path, 300);
+    setOpeningReceipt("");
+    if (signedUrlError || !data?.signedUrl) {
+      setReceiptErrors((current) => ({ ...current, [id]: signedUrlError?.message ?? "The private receipt is unavailable." }));
+      return;
+    }
+    setReceiptUrls((current) => ({ ...current, [id]: data.signedUrl }));
+  };
+
+  return <AccountLayout active="payments" description="Review payment submissions and verification separately from bookings and orders." title="Payment History">
+    {loading ? <CustomerLoadingState /> : error ? <CustomerErrorState message={error} retry={loadPayments} /> : !payments.length ? <div className="customer-empty-state"><CreditCard size={25}/><h2>No payments found</h2><p>Payment submissions connected to your account will appear here.</p></div> : <div className="customer-account-record-list">{payments.map((payment) => {
+      const id = String(payment.id ?? "");
+      const status = paymentVerificationStatus(payment);
+      const receiptUrl = receiptUrls[id];
+      const receiptPath = String(payment.proof_url ?? "");
+      return <article className="customer-account-card customer-payment-record" key={id}>
+        <div className="customer-order-record__header"><div><span>Payment submission</span><h2>{rowText(payment, ["reference_number"], "Reference not provided")}</h2></div><span className={`history-status history-status--${bookingTone(rowText(payment, ["verification_status", "status"], "Pending"))}`}>{status}</span></div>
+        <dl><div><dt>Submitted</dt><dd>{bookingDate(payment)}</dd></div><div><dt>Method</dt><dd>{rowText(payment, ["method", "payment_method"], "Not recorded")}</dd></div><div><dt>Amount</dt><dd>{formatPhp(rowNumber(payment, ["amount", "payment_amount"]))}</dd></div><div><dt>Booking / Order</dt><dd>{rowText(payment, ["reservation_code", "order_code", "reservation_id", "order_id"], "Not linked")}</dd></div><div><dt>Review status</dt><dd>{status}</dd></div></dl>
+        {payment.demo_mode === true && <p className="customer-payment-record__demo">Demo payment record — no funds were transferred.</p>}
+        {receiptPath && <div className="customer-payment-record__receipt">{receiptUrl ? <a className="customer-record-link" href={receiptUrl} rel="noreferrer" target="_blank">Open private receipt <ExternalLink size={15}/></a> : <button disabled={openingReceipt === id} onClick={() => void getReceipt(payment)} type="button">{openingReceipt === id ? "Preparing secure receipt…" : "View private receipt"}</button>}{receiptErrors[id] && <small role="alert">{receiptErrors[id]}</small>}</div>}
+      </article>;
+    })}</div>}
+  </AccountLayout>;
 }
 
 type CustomerPaymentMethod = "gcash" | "maya" | "bank_transfer" | "other" | "cash";
@@ -3817,6 +4424,10 @@ function Homepage() {
   const [customerProfile, setCustomerProfile] = useState<CustomerAccountProfile | null>(() => readCustomerProfile());
   const [loginPurpose, setLoginPurpose] = useState<"booking" | "account">("booking");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [accountMenuClosing, setAccountMenuClosing] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
+  const accountTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const accountMenuCloseTimer = useRef<number | null>(null);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [requestedService, setRequestedService] = useState("");
   const [staycationOptionsOpen, setStaycationOptionsOpen] = useState(false);
@@ -3830,6 +4441,52 @@ function Homepage() {
     localStorage.setItem("venice-customer-profile", JSON.stringify(customer));
     setCustomerProfile(customer);
   }, [authProfile]);
+
+  const closeAccountMenu = () => {
+    if (accountMenuCloseTimer.current !== null) window.clearTimeout(accountMenuCloseTimer.current);
+    setAccountMenuOpen(false);
+    setAccountMenuClosing(true);
+    accountMenuCloseTimer.current = window.setTimeout(() => {
+      setAccountMenuClosing(false);
+      accountMenuCloseTimer.current = null;
+    }, 170);
+  };
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    const closeOnOutside = (event: PointerEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) closeAccountMenu();
+    };
+    const handleMenuKeys = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeAccountMenu();
+        accountTriggerRef.current?.focus();
+        return;
+      }
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+      const items = [...(accountMenuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+      if (!items.length) return;
+      event.preventDefault();
+      const current = items.indexOf(document.activeElement as HTMLElement);
+      const next = event.key === "Home" ? 0
+        : event.key === "End" ? items.length - 1
+          : event.key === "ArrowDown" ? (current + 1 + items.length) % items.length
+            : (current - 1 + items.length) % items.length;
+      items[next].focus();
+    };
+    const focusFrame = window.requestAnimationFrame(() => accountMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus());
+    document.addEventListener("pointerdown", closeOnOutside);
+    document.addEventListener("keydown", handleMenuKeys);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("pointerdown", closeOnOutside);
+      document.removeEventListener("keydown", handleMenuKeys);
+    };
+  }, [accountMenuOpen]);
+  useEffect(() => () => {
+    if (accountMenuCloseTimer.current !== null) window.clearTimeout(accountMenuCloseTimer.current);
+  }, []);
 
   useEffect(() => {
     const revealItems = document.querySelectorAll<HTMLElement>(
@@ -3949,7 +4606,18 @@ function Homepage() {
     setLogoutConfirmOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-  const profileInitials = (customerProfile?.fullName || "Venice Customer").split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();
+  const accountName = authProfile?.full_name || customerProfile?.fullName || "Venice Customer";
+  const accountEmail = authProfile?.email || customerProfile?.email || "Customer account";
+  const accountAvatarUrl = authProfile?.avatar_url || customerProfile?.avatarUrl || "";
+  const profileInitials = accountName.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();
+  const accountMenuItems = [
+    { label: "My Profile", href: "/account/profile", icon: UserRound, active: pathname === "/account/profile" },
+    { label: "Booking History", href: "/account/history", icon: CalendarDays, active: pathname === "/account/history" },
+    { label: "Messages", href: "/account/messages", icon: MessageSquare, active: pathname === "/account/messages" },
+    { label: "Purchase / Order History", href: "/account/orders", icon: ShoppingBag, active: pathname === "/account/orders" },
+    { label: "Payment History", href: "/account/payments", icon: CreditCard, active: pathname === "/account/payments" },
+    { label: "Account Settings", href: "/account/settings", icon: Settings, active: pathname === "/account/settings" },
+  ];
   const chooseService = (serviceId: string) => {
     setRequestedService(serviceId);
     setServicesMenuOpen(false);
@@ -3965,7 +4633,7 @@ function Homepage() {
     ["Contact", "#contact"],
   ];
   const serviceLinks = [
-    ["Catering", "#catering"],
+    ["Catering & Events Place", "#catering"],
     ["Resort", "#resort"],
     ["Staycation", "#services"],
   ];
@@ -3987,22 +4655,35 @@ function Homepage() {
         </nav>
         <div className="nav-actions">
           <a className="track-link" href="/track-order">Track Order</a>
-          <div className="public-account">
+          <div className="public-account" ref={accountMenuRef}>
             {authLoading ? (
               <span className="public-account__loading" aria-label="Checking account session"><span className="state-spinner" /></span>
             ) : authenticated ? (
               <>
-                <button className="public-account__avatar" aria-expanded={accountMenuOpen} aria-label="Open account menu" onClick={() => setAccountMenuOpen((open) => !open)} type="button">{profileInitials || <Icon name="people" size={18} />}</button>
-                {accountMenuOpen && (
-                  <div className="account-dropdown">
-                    <div><span>{profileInitials}</span><p><strong>{customerProfile?.fullName || "Venice Customer"}</strong><small>{customerProfile?.email || "Customer account"}</small></p></div>
-                    <a href="/account/profile"><span>👤</span> My Profile</a>
-                    <a href="/account/history"><span>📋</span> Booking History</a>
-                    <a href="/account/messages"><span>💬</span> Messages</a>
-                    <a href="/account/history?view=orders"><span>🛍️</span> Purchase / Order History</a>
-                    <a href="/account/history?view=payments"><span>💳</span> Payment History</a>
-                    <a href="/account/settings"><span>⚙️</span> Account Settings</a>
-                    <button onClick={() => setLogoutConfirmOpen(true)} type="button"><span>🚪</span> Log Out</button>
+                <button aria-controls="customer-account-dropdown" aria-expanded={accountMenuOpen} aria-haspopup="menu" aria-label={`${accountMenuOpen ? "Close" : "Open"} account menu for ${accountName}`} className="public-account__avatar" onClick={() => {
+                  if (accountMenuOpen) closeAccountMenu();
+                  else {
+                    if (accountMenuCloseTimer.current !== null) window.clearTimeout(accountMenuCloseTimer.current);
+                    accountMenuCloseTimer.current = null;
+                    setAccountMenuClosing(false);
+                    setAccountMenuOpen(true);
+                  }
+                }} ref={accountTriggerRef} type="button">
+                  {accountAvatarUrl ? <img alt="" src={accountAvatarUrl} /> : profileInitials || <Icon name="people" size={18} />}
+                </button>
+                {(accountMenuOpen || accountMenuClosing) && (
+                  <div aria-label="Customer account" className={`account-dropdown ${accountMenuClosing ? "is-closing" : ""}`} id="customer-account-dropdown" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closeAccountMenu(); }} role="menu">
+                    <div className="account-dropdown__profile">
+                      <span className="account-dropdown__avatar">{accountAvatarUrl ? <img alt="" src={accountAvatarUrl} /> : profileInitials || <UserRound aria-hidden="true" size={19} />}</span>
+                      <p><strong>{accountName}</strong><small>{accountEmail}</small></p>
+                    </div>
+                    <nav aria-label="Account menu items">
+                      {accountMenuItems.map((item) => {
+                        const ItemIcon = item.icon;
+                        return <a aria-current={item.active ? "page" : undefined} className={item.active ? "is-active" : ""} href={item.href} key={item.label} onClick={closeAccountMenu} role="menuitem"><ItemIcon aria-hidden="true" className="account-menu-icon" size={19} strokeWidth={1.9} /><span>{item.label}</span></a>;
+                      })}
+                    </nav>
+                    <button className="account-dropdown__logout" onClick={() => { closeAccountMenu(); setLogoutConfirmOpen(true); }} role="menuitem" type="button"><LogOut aria-hidden="true" className="account-menu-icon" size={19} strokeWidth={1.9} /><span>Log Out</span></button>
                   </div>
                 )}
               </>
@@ -4031,11 +4712,14 @@ function Homepage() {
               <span className="mobile-account-loading">Checking account…</span>
             ) : authenticated ? (
               <>
-                <a href="/account/profile" onClick={closeMenu}>My Profile</a>
-                <a href="/account/history" onClick={closeMenu}>My History</a>
-                <a href="/account/messages" onClick={closeMenu}>Messages</a>
-                <a href="/account/settings" onClick={closeMenu}>Account Settings</a>
-                <button className="mobile-account-action" onClick={() => { closeMenu(); setLogoutConfirmOpen(true); }} type="button">Log Out</button>
+                <div className="mobile-account-menu">
+                  <div className="mobile-account-menu__profile">{accountAvatarUrl ? <img alt="" src={accountAvatarUrl} /> : <span>{profileInitials}</span>}<p><strong>{accountName}</strong><small>{accountEmail}</small></p></div>
+                  {accountMenuItems.map((item) => {
+                    const ItemIcon = item.icon;
+                    return <a aria-current={item.active ? "page" : undefined} className={item.active ? "is-active" : ""} href={item.href} key={item.label} onClick={closeMenu}><ItemIcon aria-hidden="true" size={19} strokeWidth={1.9} /><span>{item.label}</span></a>;
+                  })}
+                  <button className="mobile-account-action" onClick={() => { closeMenu(); setLogoutConfirmOpen(true); }} type="button"><LogOut aria-hidden="true" size={19} strokeWidth={1.9} /><span>Log Out</span></button>
+                </div>
               </>
             ) : (
               <button className="mobile-account-action" onClick={() => { closeMenu(); setLoginPurpose("account"); setBookingLoginOpen(true); }} type="button">Sign In / Account</button>
@@ -4088,8 +4772,8 @@ function Homepage() {
         <div className="services-overview__grid stagger-group" data-reveal>
           {[
             { label: "Catering", description: "A complete six-dish buffet with rice, dessert, drinks, and your preferred menu selections.", imageContext: "Food & Catering Photo", serviceId: "Catering" },
-            { label: "Resort", description: "A welcoming tropical venue for gatherings, celebrations, and relaxed group experiences.", imageContext: "Pool & Resort Facilities Photo", serviceId: "Event" },
             { label: "Staycation", description: "Stay close to the good times with flexible day and overnight options for your group.", imageContext: "Overnight Resort Stay Photo", serviceId: "staycation" },
+            { label: "Events Place", description: "Explore Daffodil and Amarillo venues for your next celebration.", imageContext: "Event & Venue Photo", serviceId: "Event" },
           ].map((experience, index) => (
             <article className={`service-overview-card service-overview-card--${index + 1}`} key={experience.label}>
               <PhotoPlaceholder context={experience.imageContext} compact className="service-overview-card__photo" />
@@ -4174,6 +4858,7 @@ function Homepage() {
             <span><Icon name="people" /> Made for groups</span>
             <span><Icon name="sun" /> Tropical open spaces</span>
           </div>
+          <div className="resort-highlights"><strong>Resort Highlights</strong><ul>{["Beach Front", "Swimming Pool with Slides", "Big Rooms", "Stone Hut Cottage", "Bahay Kubo", "Events Room", "Videoke", "Parking Area"].map((highlight) => <li key={highlight}>{highlight}</li>)}</ul></div>
           <button className="button button--booking inline-service-button" data-booking-cta="true" onClick={() => chooseService("Swimming Pool")} type="button"><span>Reserve Your Stay</span><Icon name="arrow" size={18} /></button>
         </div>
       </section>
@@ -4187,11 +4872,21 @@ function Homepage() {
           <p>Start with a package, then make it personal with the help of our Venice team.</p>
         </div>
         <div className="package-grid stagger-group" data-reveal>
-          {serviceCatalog.map((serviceOption, index) => {
+          <article className="package-card package-card--1 catering-events-package-card" key="catering-events-place">
+            <PhotoPlaceholder context="Event + Catering Photo" compact className="package-card__photo" />
+            <span className="package-card__type">Catering &amp; Events Place</span>
+            <h3>Celebrate Your Way</h3>
+            <p>Book one of our existing venue packages with catering, or order catering for your own venue.</p>
+            <div className="catering-events-package-card__choices">
+              <button data-booking-cta="true" onClick={() => chooseService("Event")} type="button"><strong>Catering with Venue</strong><small>View Daffodil and Amarillo venue packages</small><span>Explore packages <Icon name="arrow" size={15} /></span></button>
+              <button data-booking-cta="true" onClick={() => chooseService("Catering")} type="button"><strong>Catering Only (Without Venue)</strong><small>For a customer-provided venue</small><span>Order Catering Without Venue <Icon name="arrow" size={15} /></span><b>Price to be announced</b></button>
+            </div>
+          </article>
+          {serviceCatalog.filter((serviceOption) => !["Catering", "Event"].includes(serviceOption.id)).map((serviceOption, index) => {
             const firstPackage = serviceOption.packages[0];
             const lowestPrice = Math.min(...serviceOption.packages.map((item) => item.price).filter((price) => price > 0));
             return (
-            <article className={`package-card package-card--${index + 1}`} key={serviceOption.id}>
+            <article className={`package-card package-card--${index + 2}`} key={serviceOption.id}>
               <PhotoPlaceholder context={serviceOption.imageContext} compact className="package-card__photo" />
               <span className="package-card__type">{serviceOption.label}</span>
               <h3>{firstPackage.name}</h3>
@@ -4307,12 +5002,14 @@ function Homepage() {
             <a href="#packages">Packages</a>
             <a href="#gallery">Gallery</a>
             <a href="#contact">Contact</a>
+            <a href="#evently-privacy-notice-footer">Privacy Notice</a>
           </nav>
           <div className="footer__socials">
             <a href="#facebook" aria-label="Facebook"><Icon name="facebook" /></a>
             <a href="#instagram" aria-label="Instagram"><Icon name="instagram" /></a>
           </div>
         </div>
+        <PrivacyNoticeDisclosure id="evently-privacy-notice-footer" />
         <div className="footer__bottom">
           <span>© {new Date().getFullYear()} Venice Catering Services &amp; Events Place</span>
           <div><span>Bulacan, Philippines</span><a href="tel:+630000000000">Call our team</a><a href="/track-order">Track an existing order</a></div>
@@ -4479,10 +5176,13 @@ function ProtectedCustomerRoute({ children }: { children: ReactNode }) {
   return session ? children : <Navigate replace to="/" />;
 }
 
-function AppRoute({ pathname }: { pathname: string }) {
+function AppRoute({ pathname, search }: { pathname: string; search: string }) {
+  const accountView = new URLSearchParams(search).get("view");
   if (pathname === "/order") return <ProtectedCustomerRoute><PublicPage><OrderPage /></PublicPage></ProtectedCustomerRoute>;
   if (pathname === "/track-order") return <PublicPage><TrackOrderPage /></PublicPage>;
   if (pathname === "/account/profile") return <ProtectedCustomerRoute><PublicPage><CustomerProfilePage /></PublicPage></ProtectedCustomerRoute>;
+  if (pathname === "/account/orders" || (pathname === "/account/history" && accountView === "orders")) return <ProtectedCustomerRoute><PublicPage><CustomerOrderHistoryPage /></PublicPage></ProtectedCustomerRoute>;
+  if (pathname === "/account/payments" || (pathname === "/account/history" && accountView === "payments")) return <ProtectedCustomerRoute><PublicPage><CustomerPaymentHistoryPage /></PublicPage></ProtectedCustomerRoute>;
   if (pathname === "/account/history") return <ProtectedCustomerRoute><PublicPage><CustomerHistoryPage /></PublicPage></ProtectedCustomerRoute>;
   if (pathname === "/account/messages") return <ProtectedCustomerRoute><PublicPage><CustomerMessagesPage /></PublicPage></ProtectedCustomerRoute>;
   if (pathname === "/account/settings") return <ProtectedCustomerRoute><PublicPage><CustomerAccountSettingsPage /></PublicPage></ProtectedCustomerRoute>;
@@ -4522,7 +5222,7 @@ export default function App() {
   return (
     <NavigationContext.Provider value={{ location, navigate }}>
       <AuthProvider>
-        <AppRoute pathname={location.pathname} />
+        <AppRoute pathname={location.pathname} search={location.search} />
       </AuthProvider>
     </NavigationContext.Provider>
   );

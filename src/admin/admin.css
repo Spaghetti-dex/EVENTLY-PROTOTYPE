@@ -726,3 +726,61 @@
 @media (max-width: 350px) {
   .admin-overview-stats,.admin-overview-secondary-stats { grid-template-columns: 1fr; }
 }
+
+/* Final usability pass shared by administrator and staff workspaces. */
+.evently-admin {
+  min-width: 0;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+}
+.admin-content > *,
+.admin-card,
+.admin-detail-drawer,
+.staff-portal .admin-workspace { min-width: 0; }
+.admin-card-heading h2 { color: var(--admin-ink); line-height: 1.3; }
+.admin-card-heading p,.admin-page-heading p { line-height: 1.55; }
+.admin-table-scroll { overscroll-behavior-x: contain; scrollbar-color: #b7c9c7 transparent; scrollbar-width: thin; }
+.admin-table-scroll::-webkit-scrollbar { height: 8px; }
+.admin-table-scroll::-webkit-scrollbar-thumb { background: #b7c9c7; border: 2px solid var(--admin-surface); border-radius: 99px; }
+.admin-table-scroll::-webkit-scrollbar-track { background: var(--admin-surface-muted); }
+.admin-status { line-height: 1.35; }
+.admin-row-action,.admin-inline-actions button,.admin-workflow-actions button,
+.admin-payment-review-actions button,.admin-payment-review-card .admin-proof-button,
+.admin-editor-modal__actions > button { min-height: 40px; }
+.admin-detail-drawer button,.admin-editor-modal button,.admin-action-menu__items button,
+.staff-portal button { -webkit-tap-highlight-color: transparent; }
+.admin-detail-drawer dd,.admin-payment-review-card dd,.staff-portal p { overflow-wrap: anywhere; }
+.staff-portal .admin-stat-card,.staff-portal .staff-stat-card { box-shadow: 0 5px 18px rgba(16,35,63,.04); }
+.staff-portal .admin-card-heading { gap: 12px; }
+.staff-portal .admin-card-heading h2 { font-size: 16px; }
+.staff-portal .staff-table-tools select:focus-visible,
+.staff-portal .staff-table-tools input:focus-visible,
+.admin-reservation-tools select:focus-visible,
+.admin-reservation-tools input:focus-visible,
+.admin-catalog-tools select:focus-visible { outline: 2px solid #38a6a1; outline-offset: 2px; }
+.admin-sidebar nav button,.staff-portal .admin-nav-group > button { line-height: 1.35; }
+.admin-sidebar nav button:focus-visible,.staff-portal .admin-nav-group > button:focus-visible,
+.admin-profile-menu > button:focus-visible,.admin-header-actions > button:focus-visible,
+.admin-calendar-heading button:focus-visible,.admin-pagination button:focus-visible {
+  outline: 2px solid #52b8b3;
+  outline-offset: 2px;
+}
+@media (max-width: 680px) {
+  .admin-card { border-radius: 12px; }
+  .admin-card-heading { align-items: flex-start; }
+  .admin-recent-grid,.admin-chart-grid { min-width: 0; }
+  .staff-portal .admin-content { padding-inline: 12px; }
+  .staff-table-tools { padding-inline: 12px; }
+  .staff-reservation-scroll { max-width: 100%; }
+  .staff-portal .admin-detail-drawer { max-height: 100dvh; }
+}
+@media (max-width: 420px) {
+  .admin-page-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .admin-filter-tabs,.admin-payment-tabs { max-width: calc(100vw - 24px); }
+  .admin-calendar-actions { align-items: stretch; flex-wrap: wrap; }
+  .staff-stat-grid { gap: 9px; }
+  .staff-stat-card { min-width: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin-sidebar,.admin-workspace,.admin-stat-grid button,.staff-quick-actions > div:last-child > button { transition-duration: .01ms !important; }
+}
