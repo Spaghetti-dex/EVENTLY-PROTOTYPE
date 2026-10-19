@@ -656,11 +656,7 @@ function packageDescriptionTimes(description: string) {
 
 function poolUnitRate(packageRow: BookingPackageRow | undefined) {
   if (!packageRow) return 0;
-  const minimumMatch = packageRow.description.match(/base price.{0,60}?minimum\s+(\d+)\s+guests/i);
-  const minimum = Number(minimumMatch?.[1]);
-  return minimum > 0 && Number(packageRow.price) > 0
-    ? Number(packageRow.price) / minimum
-    : Number(packageRow.price) || 0;
+  return packageRow.pricing_mode === "per_guest" ? Number(packageRow.price) || 0 : 0;
 }
 
 function normalizedService(value: string) {
@@ -992,9 +988,9 @@ const serviceCatalog: VeniceService[] = [
     imageContext: "Pool & Resort Facilities Photo",
     quantityMode: "tour",
     packages: [
-      { name: "Day Tour", detail: "8:00 AM – 3:00 PM", inclusions: ["₱100 per guest", "Optional cottage ₱700"], price: 100, priceLabel: "₱100 / guest" },
-      { name: "Night Tour", detail: "4:00 PM – 10:00 PM", inclusions: ["₱150 per guest", "Optional cottage ₱700"], price: 150, priceLabel: "₱150 / guest" },
-      { name: "Overnight Tour", detail: "7:00 PM – 4:00 AM the following day", inclusions: ["₱200 per guest", "Minimum 20 guests", "Optional cottage ₱1,000"], price: 200, priceLabel: "₱200 / guest" },
+      { name: "Day Tour", detail: "8:00 AM – 3:00 PM · minimum 1 guest", inclusions: ["₱100 per guest", "Minimum 1 guest", "Optional cottage ₱700"], price: 100, priceLabel: "₱100 / guest" },
+      { name: "Night Tour", detail: "4:00 PM – 10:00 PM · minimum 1 guest", inclusions: ["₱150 per guest", "Minimum 1 guest", "Optional cottage ₱700"], price: 150, priceLabel: "₱150 / guest" },
+      { name: "Overnight Tour", detail: "7:00 PM – 4:00 AM the following day · minimum 20 guests", inclusions: ["₱200 per guest", "Minimum 20 guests", "Optional cottage ₱1,000"], price: 200, priceLabel: "₱200 / guest" },
     ],
     extras: [],
   },
@@ -1004,13 +1000,24 @@ const serviceCatalog: VeniceService[] = [
     description: "Comfortable rooms for guests who want to stay close.",
     imageContext: "Resort Room Accommodation Photo",
     packages: [
-      { name: "Standard Room", detail: "For 4–5 guests", inclusions: ["Configured check-in and checkout required"], price: 3000, priceLabel: "₱3,000" },
-      { name: "Kubo Room", detail: "Capacity pending business confirmation", inclusions: ["Configured check-in and checkout required"], price: 1500, priceLabel: "₱1,500" },
+      { name: "Standard Room", detail: "4–5 guests per room · ₱3,000 per room/night", inclusions: ["Configured check-in and checkout required", "Optional Pool Access ₱5,000"], price: 3000, priceLabel: "₱3,000 / room / night" },
+      { name: "Kubo Room", detail: "₱1,500 per room/night · no capacity limit configured", inclusions: ["Configured check-in and checkout required", "Optional Pool Access ₱5,000"], price: 1500, priceLabel: "₱1,500 / room / night" },
     ],
     extras: [
       { name: "Extra mattress", price: 800 },
       { name: "Breakfast per room", price: 1200 },
     ],
+  },
+  {
+    id: "Resort Venue Only",
+    label: "Venue Only",
+    description: "Reserve the resort venue without catering or bundled activities.",
+    imageContext: "Pool & Resort Facilities Photo",
+    packages: [
+      { name: "Non-Air-Conditioned Venue", detail: "Venue-only access for 5 hours", inclusions: ["Venue access only", "Optional Pool Access ₱5,000"], price: 10000, priceLabel: "₱10,000" },
+      { name: "Air-Conditioned Venue", detail: "Venue-only access for 4 hours", inclusions: ["Venue access only", "Optional Pool Access ₱5,000"], price: 15000, priceLabel: "₱15,000" },
+    ],
+    extras: [],
   },
 ];
 
@@ -1018,14 +1025,14 @@ const serviceById = (id: string) => serviceCatalog.find((item) => item.id === id
 const serviceLabel = (id: string) => serviceById(id)?.label ?? id;
 const bookingCategoryLabel = (serviceId: string) => {
   if (["Catering", "Food Orders & Party Trays"].includes(serviceId)) return "Catering";
-  if (["Swimming Pool", "Room Accommodation"].includes(serviceId)) return "Staycation";
+  if (["Swimming Pool", "Room Accommodation", "Resort Venue Only"].includes(serviceId)) return "Staycation";
   if (serviceId === "Event") return "Events Place";
   return serviceLabel(serviceId);
 };
 type BookingMainCategory = "Catering" | "Staycation" | "Events Place";
 type CateringChoice = "with-venue" | "without-venue" | "party-trays" | null;
-type StaycationChoice = "day" | "night" | "overnight" | "rooms" | null;
-const staycationTourKey = (name: string): Exclude<StaycationChoice, "rooms" | null> | null => {
+type StaycationChoice = "day" | "night" | "overnight" | "rooms" | "venue" | null;
+const staycationTourKey = (name: string): Exclude<StaycationChoice, "rooms" | "venue" | null> | null => {
   const normalized = name.trim().toLowerCase();
   if (normalized.includes("overnight")) return "overnight";
   if (normalized.includes("night")) return "night";
@@ -1034,7 +1041,7 @@ const staycationTourKey = (name: string): Exclude<StaycationChoice, "rooms" | nu
 };
 const mainCategoryForService = (serviceId: string): BookingMainCategory | null => {
   if (["Catering", "Food Orders & Party Trays"].includes(serviceId)) return "Catering";
-  if (["Swimming Pool", "Room Accommodation"].includes(serviceId)) return "Staycation";
+  if (["Swimming Pool", "Room Accommodation", "Resort Venue Only"].includes(serviceId)) return "Staycation";
   if (serviceId === "Event") return "Events Place";
   return null;
 };
@@ -1043,15 +1050,23 @@ const bookingSummaryCategory = (serviceId: string, cateringChoice: CateringChoic
   if (cateringChoice === "without-venue" && serviceId === "Catering") return "Catering Only";
   if (serviceId === "Swimming Pool" && staycationChoice) return `Staycation · ${staycationChoice === "day" ? "Day Tour" : staycationChoice === "night" ? "Night Tour" : "Overnight Tour"}`;
   if (serviceId === "Room Accommodation") return "Staycation · Room Accommodation";
+  if (serviceId === "Resort Venue Only") return "Staycation · Venue Only";
   return bookingCategoryLabel(serviceId);
 };
 const roomPackageNames = new Set(["standard room", "kubo room"]);
+const resortVenueTier = (name: string) => {
+  const normalized = name.trim().toLowerCase();
+  if (/non[\s-]*air/.test(normalized)) return "non_aircon";
+  if (/air[\s-]*(conditioned|con)/.test(normalized)) return "aircon";
+  return null;
+};
 const swimmingPackageNames = new Set(["day tour", "day tour admission", "resort day tour", "day tour swimming — per person", "night tour", "night tour admission", "resort night tour", "night tour swimming — per person", "overnight tour", "overnight resort stay", "resort overnight tour", "overnight swimming — minimum 20 guests"]);
-type ScheduleMode = "untimed" | "fixed" | "customer_select" | "admin_assign";
+type ScheduleMode = "untimed" | "fixed" | "customer_select" | "admin_assign" | "timed";
 const serviceScheduleDefaults: Record<string, { mode: ScheduleMode; start?: string; end?: string; durationMinutes?: number }> = {
   Catering: { mode: "customer_select", durationMinutes: 240 },
   "Swimming Pool": { mode: "fixed" },
   "Room Accommodation": { mode: "admin_assign" },
+  "Resort Venue Only": { mode: "admin_assign" },
 };
 const timeMinutes = (value: string) => {
   const [hours, minutes] = value.slice(0, 5).split(":").map(Number);
@@ -1203,6 +1218,11 @@ type BookingPackageRow = {
   deposit_percentage: number | null;
   description: string;
   guest_capacity: number | null;
+  max_guest_count?: number | null;
+  pool_capacity_verified?: boolean | null;
+  pool_capacity_verified_at?: string | null;
+  pool_capacity_verified_by?: string | null;
+  pool_capacity_audit_id?: string | null;
   id: string;
   menu_items: string[] | null;
   name: string;
@@ -1221,6 +1241,7 @@ type BookingPackageRow = {
   cottage_fee?: number | null;
   min_guest_count?: number | null;
   pool_access_fee?: number | null;
+  cottage_addon_id?: string | null;
   pricing_mode?: "fixed" | "per_guest" | "per_night" | null;
   resource_mode?: "exclusive" | "shared_capacity" | "admin_assign" | null;
 };
@@ -1322,11 +1343,13 @@ function ReservationFlow({
   const chooseBookingService = (serviceId: string) => {
     setService(serviceId);
     setPrivacyAcknowledged(false);
-    setGuests(serviceId === "Swimming Pool" ? 1 : serviceId === "Room Accommodation" ? 4 : 50);
+    setGuests(serviceId === "Swimming Pool" || serviceId === "Resort Venue Only" ? 1 : serviceId === "Room Accommodation" ? 4 : 50);
     setSelectedPackageId("");
     setSelectedVariantId("");
     setDatabaseVariants([]);
     setAddOns([]);
+    setCottageSelected(false);
+    setPoolAccessSelected(false);
     setMenuSelections({});
     setStartTime("");
     setEndTime("");
@@ -1352,7 +1375,7 @@ function ReservationFlow({
   const [activeMenuCategory, setActiveMenuCategory] = useState("Beef");
   const [conflictReason, setConflictReason] = useState("");
   const [confirmationCode, setConfirmationCode] = useState("");
-  const [createdReservation, setCreatedReservation] = useState<{ id: string; code: string } | null>(null);
+  const [createdReservation, setCreatedReservation] = useState<{ id: string; code: string; paymentDueAt?: string } | null>(null);
   const [confirmationStatuses, setConfirmationStatuses] = useState({ payment: "Status unavailable", booking: "Status unavailable" });
   const [confirmationReceiptSaved, setConfirmationReceiptSaved] = useState(false);
   const [pendingPaymentProofPath, setPendingPaymentProofPath] = useState("");
@@ -1429,6 +1452,8 @@ function ReservationFlow({
   useEffect(() => {
     let active = true;
     const loadPackages = () => {
+      // Keep install-specific catalog columns while including the fields needed
+      // to validate the verified timed/exclusive pool configuration.
       void supabase.from("packages").select("*").eq("is_active", true).then((packages) => {
         if (!active) return;
         setCatalogError(packages.error?.message ?? "");
@@ -1518,8 +1543,8 @@ function ReservationFlow({
     setPrivacyAcknowledged(false);
     setSelectedMainCategory(mainCategoryForService(requestedService));
     setCateringChoice(requestedService === "Food Orders & Party Trays" ? "party-trays" : null);
-    setStaycationChoice(requestedService === "Room Accommodation" ? "rooms" : null);
-    setGuests(requestedService === "Swimming Pool" ? 1 : requestedService === "Room Accommodation" ? 4 : 50);
+    setStaycationChoice(requestedService === "Room Accommodation" ? "rooms" : requestedService === "Resort Venue Only" ? "venue" : null);
+    setGuests(requestedService === "Swimming Pool" || requestedService === "Resort Venue Only" ? 1 : requestedService === "Room Accommodation" ? 4 : 50);
     setSelectedPackageId("");
     setSelectedVariantId("");
     setAddOns([]);
@@ -1532,6 +1557,7 @@ function ReservationFlow({
   useEffect(() => {
     if (addonLoading || addonError) return;
     const compatibleNames = new Set(databaseAddons
+      .filter((item) => !/pool\s*access/i.test(item.name))
       .map((item) => item.name));
     setAddOns((current) => {
       const compatible = current.filter((name) => compatibleNames.has(name));
@@ -1619,7 +1645,13 @@ function ReservationFlow({
         && (item.package_category?.trim().toLowerCase() === "pool_tour" || swimmingPackageNames.has(item.name.trim().toLowerCase()))
         && (!staycationChoice || staycationChoice === "rooms" || staycationTourKey(item.name) === staycationChoice);
       if (service === "Event") {
-        return item.package_category?.trim().toLowerCase() === "event_venue";
+        return item.package_category?.trim().toLowerCase() === "event_venue"
+          && normalizedService(item.service_type) !== "resort";
+      }
+      if (service === "Resort Venue Only") {
+        return normalizedService(item.service_type) === "resort"
+          && item.package_category?.trim().toLowerCase() === "event_venue"
+          && resortVenueTier(item.name) !== null;
       }
       if (service === "Catering") {
         return normalizedService(item.service_type) === "catering";
@@ -1650,6 +1682,9 @@ function ReservationFlow({
         popular: useDatabaseRoomDetails ? false : designPackage?.popular,
       };
     });
+  const orderedPackageOptions = service === "Resort Venue Only"
+    ? [...packageOptions].sort((left, right) => Number(resortVenueTier(left.name) === "aircon") - Number(resortVenueTier(right.name) === "aircon"))
+    : packageOptions;
   const staycationTourOptions = ([
     { key: "day", label: "Day Tour" },
     { key: "night", label: "Night Tour" },
@@ -1668,9 +1703,13 @@ function ReservationFlow({
     && (item.package_category?.trim().toLowerCase().includes("room") || roomPackageNames.has(item.name.trim().toLowerCase())));
   const staycationRoomRates = staycationRoomPackages.map((item) => {
     const occupancy = item.description.match(/(\d+)\s*to\s*(\d+)\s*guests/i);
-    const occupancyLabel = /kubo/i.test(item.name) ? "" : occupancy ? ` · ${occupancy[1]}–${occupancy[2]} guests` : item.guest_capacity ? ` · up to ${item.guest_capacity} guests` : "";
-    return `${/kubo/i.test(item.name) ? "Kubo Room" : "Regular Room"} ${formatPhp(Number(item.price) || 0)}${occupancyLabel}`;
+    const occupancyLabel = occupancy ? ` · ${occupancy[1]}–${occupancy[2]} guests` : item.guest_capacity ? ` · up to ${item.guest_capacity} guests per room` : " · no capacity limit configured";
+    return `${/kubo/i.test(item.name) ? "Kubo Room" : "Standard Room"} ${formatPhp(Number(item.price) || 0)} per room/night${occupancyLabel} · optional Pool Access ₱5,000`;
   }).join(" · ");
+  const staycationVenueRates = packageOptions
+    .filter((item) => normalizedService(item.service_type) === "resort" && item.package_category?.trim().toLowerCase() === "event_venue")
+    .map((item) => `${resortVenueTier(item.name) === "non_aircon" ? "Non-Aircon" : "Aircon"} ${formatPhp(Number(item.price) || 0)} / ${Number(item.duration_minutes) ? `${Number(item.duration_minutes) / 60} hours` : "configured duration"}`)
+    .join(" · ");
   const eventVenueGroupFor = (item: BookingPackageRow) => {
     const name = item.name.trim().toLowerCase();
     if (name.includes("daffodil") || /\bpackage\s*1\b/.test(name)) return "1";
@@ -1693,8 +1732,10 @@ function ReservationFlow({
     return service === "Catering" ? "Price to be announced" : `from ${currency(Number(price) || 0)}`;
   };
   const packageCardPrice = (item: BookingPackageRow) => service === "Swimming Pool"
-    ? `${currency(poolUnitRate(item))} per person`
-    : packageDisplayPrice(item.price, item.priceLabel);
+    ? poolUnitRate(item) > 0 ? `${currency(poolUnitRate(item))} per person` : "Rate unavailable"
+    : service === "Room Accommodation"
+      ? `${currency(Number(item.price) || 0)} / room / night`
+      : packageDisplayPrice(item.price, item.priceLabel);
   useEffect(() => {
     if (packageChoice && selectedPackageId !== packageChoice.id) {
       setSelectedPackageId(packageChoice.id);
@@ -1750,7 +1791,8 @@ function ReservationFlow({
   const variantRequired = packageVariants.length > 1;
   const packagePriceConfigured = Boolean(packageChoice && Number.isFinite(Number(selectedVariant?.price ?? packageChoice.price)) && Number(selectedVariant?.price ?? packageChoice.price) > 0);
   const serviceSchedule = serviceScheduleDefaults[service] ?? { mode: "admin_assign" as const };
-  const scheduleMode = service === "Swimming Pool" ? "fixed" : selectedVariant?.schedule_mode ?? packageChoice?.schedule_mode ?? serviceSchedule.mode;
+  const catalogScheduleMode = selectedVariant?.schedule_mode ?? packageChoice?.schedule_mode ?? serviceSchedule.mode;
+  const scheduleMode = service === "Swimming Pool" ? "fixed" : catalogScheduleMode === "timed" ? "admin_assign" : catalogScheduleMode;
   const descriptionTimes = packageDescriptionTimes(packageChoice?.description ?? "");
   const configuredStartTime = selectedVariant?.fixed_start_time ?? packageChoice?.fixed_start_time ?? packageChoice?.operating_start_time ?? (service === "Swimming Pool" ? descriptionTimes[0] : undefined) ?? serviceSchedule.start ?? "";
   const configuredEndTime = selectedVariant?.fixed_end_time ?? packageChoice?.fixed_end_time ?? packageChoice?.operating_end_time ?? (service === "Swimming Pool" ? descriptionTimes[1] : undefined) ?? serviceSchedule.end ?? "";
@@ -1777,19 +1819,94 @@ function ReservationFlow({
   const selectedPackageLabel = packageChoice
     ? selectedVariant ? `${packageChoice.name} · ${selectedVariant.name}` : packageChoice.name
     : "";
-  const effectiveGuestCapacity = service === "Swimming Pool" || (service === "Room Accommodation" && /kubo room/i.test(packageChoice?.name ?? ""))
-    ? null
-    : selectedVariant?.guest_capacity ?? packageChoice?.guest_capacity ?? null;
+  const packageGuestCapacity = selectedVariant?.guest_capacity ?? packageChoice?.guest_capacity ?? null;
+  const isStandardRoom = service === "Room Accommodation" && /standard room/i.test(packageChoice?.name ?? "");
   const effectiveUnitPrice = selectedVariant?.price ?? (service === "Swimming Pool" ? poolUnitRate(packageChoice) : packageChoice?.price) ?? 0;
-  const minimumGuests = packageChoice?.min_guest_count
+  const minimumGuests = service === "Room Accommodation" && isStandardRoom
+    ? (packageChoice?.min_guest_count ?? 4) * rooms
+    : packageChoice?.min_guest_count
     ?? (service === "Swimming Pool" && /minimum\s*20\s*guests/i.test(packageChoice?.description ?? "")
       ? 20
       : service === "Room Accommodation" && /4\s*to\s*5\s*guests/i.test(packageChoice?.description ?? "") ? 4 : 1);
-  const poolPricingReady = service !== "Swimming Pool" || (packageChoice?.pricing_mode === "per_guest"
-    && (!/base price.{0,60}?minimum\s+(\d+)\s+guests/i.test(packageChoice.description)
-      || Number(packageChoice.price) === poolUnitRate(packageChoice)));
+  const poolCapacityRecordReady = service !== "Swimming Pool" || Boolean(
+    packageChoice?.pool_capacity_verified === true
+    && Boolean(packageChoice.pool_capacity_verified_at)
+    && Boolean(packageChoice.pool_capacity_verified_by)
+    && Boolean(packageChoice.pool_capacity_audit_id)
+    && typeof packageChoice.max_guest_count === "number"
+    && Number.isInteger(packageChoice.max_guest_count)
+    && packageChoice.max_guest_count >= minimumGuests
+  );
+  const effectiveGuestCapacity = service === "Swimming Pool"
+    ? poolCapacityRecordReady ? packageChoice?.max_guest_count ?? null : null
+    : service === "Room Accommodation" && packageGuestCapacity !== null
+      ? packageGuestCapacity * rooms
+      : packageGuestCapacity;
+  useEffect(() => {
+    if ((service === "Swimming Pool" || isStandardRoom) && packageChoice && guests < minimumGuests) setGuests(minimumGuests);
+  }, [service, packageChoice?.id, guests, isStandardRoom, minimumGuests]);
+  const verifiedPoolRates: Record<string, { minimumGuests: number; rate: number }> = {
+    "4ae972a8-6503-4776-90c9-899246cbc4dc": { rate: 100, minimumGuests: 1 },
+    "5afda244-a615-4bd3-98eb-d360d000100b": { rate: 150, minimumGuests: 1 },
+    "925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8": { rate: 200, minimumGuests: 20 },
+  };
+  const verifiedPoolRate = packageChoice ? verifiedPoolRates[packageChoice.id] : undefined;
+  const poolPricingReady = service !== "Swimming Pool" || Boolean(
+    packageChoice?.pricing_mode === "per_guest"
+    && verifiedPoolRate
+    && Number(packageChoice.price) === verifiedPoolRate.rate
+    && minimumGuests === verifiedPoolRate.minimumGuests,
+  );
+  const poolCapacityReady = service !== "Swimming Pool" || Boolean(
+    poolCapacityRecordReady
+    && effectiveGuestCapacity !== null
+    && guests <= effectiveGuestCapacity,
+  );
+  const roomPricingReady = service !== "Room Accommodation" || Boolean(
+    packageChoice
+    && normalizedService(packageChoice.service_type) === "resort"
+    && packageChoice.package_category?.trim().toLowerCase() === "room"
+    && packageChoice.pricing_mode === "per_night"
+    && packageChoice.deposit_percentage === 30
+    && packageChoice.pool_access_fee === 5000
+    && ((/standard room/i.test(packageChoice.name)
+      && Number(packageChoice.price) === 3000
+      && packageChoice.min_guest_count === 4
+      && packageChoice.guest_capacity === 5)
+      || (/kubo room/i.test(packageChoice.name)
+        && Number(packageChoice.price) === 1500))
+  );
+  const venueOnlyPricingReady = service !== "Resort Venue Only" || Boolean(
+    packageChoice
+    && normalizedService(packageChoice.service_type) === "resort"
+    && packageChoice.package_category?.trim().toLowerCase() === "event_venue"
+    && packageChoice.pricing_mode === "fixed"
+    && packageChoice.pool_access_fee === 5000
+    && packageChoice.deposit_percentage === 30
+    && ((resortVenueTier(packageChoice.name) === "non_aircon"
+      && Number(packageChoice.price) === 10000
+      && packageChoice.duration_minutes === 300)
+      || (resortVenueTier(packageChoice.name) === "aircon"
+        && Number(packageChoice.price) === 15000
+        && packageChoice.duration_minutes === 240))
+  );
+  const poolScheduleStart = selectedVariant?.fixed_start_time ?? packageChoice?.fixed_start_time ?? packageChoice?.operating_start_time;
+  const poolScheduleEnd = selectedVariant?.fixed_end_time ?? packageChoice?.fixed_end_time ?? packageChoice?.operating_end_time;
+  const poolAvailabilityReady = service !== "Swimming Pool" || Boolean(
+    packageChoice?.resource_key === "venice-main-pool"
+    && packageChoice.resource_mode === "exclusive"
+    && (packageChoice.schedule_mode === "timed" || packageChoice.schedule_mode === "fixed")
+    && poolScheduleStart
+    && poolScheduleEnd
+    && validReservationTime,
+  );
   const cottageFee = cottageSelected ? packageChoice?.cottage_fee ?? 0 : 0;
-  const poolAccessFee = poolAccessSelected ? packageChoice?.pool_access_fee ?? 0 : 0;
+  const cottageAddonConfigured = Boolean(packageChoice?.cottage_addon_id && Number(packageChoice.cottage_fee) > 0);
+  const cottageSelectionReady = !cottageSelected || cottageAddonConfigured;
+  const poolAccessEligibleService = service === "Room Accommodation" || service === "Resort Venue Only";
+  const poolAccessPricingReady = !poolAccessEligibleService || packageChoice?.pool_access_fee === 5000;
+  const paymentSubmissionStarted = Boolean(paymentProof);
+  const poolAccessFee = poolAccessSelected && poolAccessEligibleService ? packageChoice?.pool_access_fee ?? 0 : 0;
   const packagePrice = !packageChoice
     ? 0
     : activeService?.quantityMode === "items"
@@ -1802,6 +1919,7 @@ function ReservationFlow({
   const isOutsideCateringPackage = packageChoice?.package_category?.trim().toLowerCase() === "outside_catering";
   const cateringWithoutVenue = service === "Catering" && Boolean(packageChoice) && !packageChoice?.resource_key;
   const addOnOptions = databaseAddons
+    .filter((item) => !/pool\s*access/i.test(item.name))
     .filter((item) => !(isOutsideCateringPackage && item.name.trim().toLowerCase() === "wedding backdrop"))
     .map((item) => ({
       ...item,
@@ -1831,7 +1949,7 @@ function ReservationFlow({
       }))
       : databaseMenuItems.filter((item) => normalizeMenuCategory(item.category) === normalizeMenuCategory(key) && item.is_active === true && item.is_available === true),
   }));
-  const depositPercentage = normalizeDepositPercentage(packageChoice?.deposit_percentage);
+  const depositPercentage = 30;
   const deposit = calculateRequiredDeposit(subtotal, depositPercentage);
   const requiredPaymentAmount = deposit > 0 ? deposit : subtotal;
   const remaining = Math.max(0, subtotal - deposit);
@@ -1898,13 +2016,13 @@ function ReservationFlow({
     (step === 2 && Boolean(selectedDate) && !conflictReason && (
       scheduleMode !== "customer_select" || Boolean(startTime && reservationEndTime)
     )) ||
-    (step === 3 && Boolean(packageChoice) && (service !== "Catering" || packagePriceConfigured) && poolPricingReady && !variantLoading && !variantError && scheduleReady && (
+    (step === 3 && Boolean(packageChoice) && (service !== "Catering" || packagePriceConfigured) && poolPricingReady && poolCapacityReady && poolAvailabilityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && cottageSelectionReady && !variantLoading && !variantError && scheduleReady && (
       !variantRequired || Boolean(selectedVariant)
     ) && (
       activeService?.quantityMode !== "tour" || guests >= minimumGuests
     )) ||
     (step === 4 && service === "Catering" && menuComplete) ||
-    (step === 5 && Boolean(guestName && email && normalizePhilippineMobile(phone)) && (!cateringWithoutVenue || Boolean(specialRequests.trim())) && guests >= minimumGuests && (
+    (step === 5 && Boolean(guestName && email && normalizePhilippineMobile(phone)) && (!cateringWithoutVenue || Boolean(specialRequests.trim())) && guests >= minimumGuests && poolCapacityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && (
       effectiveGuestCapacity == null || guests <= effectiveGuestCapacity
     )) ||
     step === 6 ||
@@ -1912,18 +2030,25 @@ function ReservationFlow({
     (step === 8 && Boolean(
       (service !== "Catering" || packagePriceConfigured)
       && poolPricingReady
+      && poolCapacityReady
+      && poolAvailabilityReady
+      && roomPricingReady
+      && venueOnlyPricingReady
+      && poolAccessPricingReady
+      && cottageSelectionReady
       && privacyAcknowledged
-      &&
-      paymentMethod
-      && availablePaymentMethods.includes(paymentMethod)
-      && paymentReference.trim()
-      && Number.isFinite(Number(paymentAmount))
-      && Number(paymentAmount) > 0
-      && Number(paymentAmount) <= subtotal
       && subtotal > 0
-      && paymentProof
-      && !paymentOptionsLoading
-      && !paymentOptionsError
+      && (!paymentSubmissionStarted || (
+        paymentMethod
+        && availablePaymentMethods.includes(paymentMethod)
+        && paymentReference.trim()
+        && Number.isFinite(Number(paymentAmount))
+        && Number(paymentAmount) > 0
+        && Number(paymentAmount) <= subtotal
+        && paymentProof
+        && !paymentOptionsLoading
+        && !paymentOptionsError
+      ))
     ));
 
   const nextStep = async () => {
@@ -1934,6 +2059,20 @@ function ReservationFlow({
     }
     if (step === 3 && service === "Swimming Pool" && !poolPricingReady) {
       setBookingError("This tour’s active database record is missing the per-person pricing configuration required to match the booking total. Please contact EVENTLY before booking.");
+      return;
+    }
+    if (step === 3 && service === "Swimming Pool" && !poolCapacityReady) {
+      setBookingError(poolCapacityRecordReady && effectiveGuestCapacity !== null
+        ? `Guest count exceeds the verified maximum of ${effectiveGuestCapacity} guests.`
+        : "Pool bookings are paused until an Administrator verifies and audits the actual physical maximum capacity.");
+      return;
+    }
+    if (step === 3 && service === "Swimming Pool" && !poolAvailabilityReady) {
+      setBookingError("The exclusive pool resource and fixed tour schedule are not configured. EVENTLY cannot verify availability yet.");
+      return;
+    }
+    if (step === 3 && !cottageSelectionReady) {
+      setBookingError("The cottage add-on for this package is not configured. No cottage charge can be submitted.");
       return;
     }
     if (step === 3 && packageChoice && selectedDate) {
@@ -1969,22 +2108,36 @@ function ReservationFlow({
           return;
         }
         if (!packageChoice || !selectedDate) throw new Error("Select an available database package and reservation date.");
+        if (guests < minimumGuests || (effectiveGuestCapacity !== null && guests > effectiveGuestCapacity)) {
+          throw new Error(`Guest count must be ${minimumGuests}${effectiveGuestCapacity !== null ? `–${effectiveGuestCapacity}` : " or more"} for this booking.`);
+        }
+        if (service === "Room Accommodation" && (rooms < 1 || rooms > 100 || nights < 1 || nights > 365)) {
+          throw new Error("Room count must be 1–100 and nights must be 1–365.");
+        }
         if (!privacyAcknowledged) throw new Error("Review and acknowledge the Privacy Notice before submitting.");
         if (cateringWithoutVenue && !specialRequests.trim()) throw new Error("Enter the customer-provided event location before submitting catering without an EVENTLY venue.");
         if (service === "Catering" && !packagePriceConfigured) throw new Error("Catering-only pricing is not configured yet. Contact us for pricing before continuing.");
         if (service === "Swimming Pool" && !poolPricingReady) throw new Error("This tour’s active database record is missing per-person pricing configuration.");
+        if (service === "Swimming Pool" && !poolCapacityReady) throw new Error("Pool booking is paused until its physical capacity is verified and the selected guest count is within that limit.");
+        if (service === "Swimming Pool" && !poolAvailabilityReady) throw new Error("Pool availability is not configured for this tour.");
+        if (service === "Room Accommodation" && !roomPricingReady) throw new Error("The room rate, occupancy, deposit, or optional Pool Access settings do not match the verified rate sheet.");
+        if (service === "Resort Venue Only" && !venueOnlyPricingReady) throw new Error("The Venue Only rate, duration, deposit, or optional Pool Access settings do not match the verified rate sheet.");
+        if (!poolAccessPricingReady) throw new Error("Optional Pool Access is not configured at the verified ₱5,000 rate.");
+        if (!cottageSelectionReady) throw new Error("The selected cottage add-on does not have a verified package mapping.");
         if (!normalizePhilippineMobile(phone)) throw new Error("Enter a valid Philippine mobile number in 09XXXXXXXXX format.");
-        if (!paymentProof) throw new Error("Upload a JPG, PNG, or WebP payment receipt.");
-        if (!supportedPaymentMethods.includes(paymentMethod) || !availablePaymentMethods.includes(paymentMethod)) {
-          throw new Error("Select an active GCash, Maya, or Bank Transfer method.");
-        }
-        const amount = Number(paymentAmount);
-        if (!Number.isFinite(amount) || amount <= 0 || amount > subtotal) throw new Error("Enter the amount you actually paid. It must be greater than zero and no more than the booking total.");
-        if (!paymentReference.trim() || paymentReference.trim().length > 160) {
-          throw new Error("Enter a transaction reference number (160 characters or fewer).");
-        }
-        if (!["image/jpeg", "image/png", "image/webp"].includes(paymentProof.type) || paymentProof.size > 5 * 1024 * 1024) {
-          throw new Error("Receipt must be a JPG, PNG, or WebP image no larger than 5 MB.");
+        if (paymentSubmissionStarted) {
+          if (!paymentProof) throw new Error("Upload a JPG, PNG, or WebP payment receipt, or clear the optional payment fields to reserve the schedule first.");
+          if (!supportedPaymentMethods.includes(paymentMethod) || !availablePaymentMethods.includes(paymentMethod)) {
+            throw new Error("Select an active GCash, Maya, or Bank Transfer method.");
+          }
+          const amount = Number(paymentAmount);
+          if (!Number.isFinite(amount) || amount <= 0 || amount > subtotal) throw new Error("Enter the amount you actually paid. It must be greater than zero and no more than the booking total.");
+          if (!paymentReference.trim() || paymentReference.trim().length > 160) {
+            throw new Error("Enter a transaction reference number (160 characters or fewer).");
+          }
+          if (!["image/jpeg", "image/png", "image/webp"].includes(paymentProof.type) || paymentProof.size > 5 * 1024 * 1024) {
+            throw new Error("Receipt must be a JPG, PNG, or WebP image no larger than 5 MB.");
+          }
         }
         if (["fixed", "customer_select"].includes(scheduleMode) && !validReservationTime) {
           throw new Error(scheduleMode === "fixed"
@@ -2008,7 +2161,8 @@ function ReservationFlow({
               reservation_date: dateKey(selectedDate),
               start_time: reservationStartTime ? `${reservationStartTime.slice(0, 5)}:00` : null,
               end_time: reservationEndTime ? `${reservationEndTime.slice(0, 5)}:00` : null,
-              cottage_selected: cottageSelected,
+               cottage_selected: cottageSelected,
+              cottage_addon_id: cottageSelected ? packageChoice.cottage_addon_id : null,
               pool_access_selected: poolAccessSelected,
               item_quantity: itemQuantity,
               rooms,
@@ -2017,35 +2171,37 @@ function ReservationFlow({
             },
           });
           if (error) throw error;
-          const result = data as { reservation_id?: string; reservation_code?: string } | null;
+          const result = data as { reservation_id?: string; reservation_code?: string; payment_due_at?: string } | null;
           if (!result?.reservation_id || !result.reservation_code) {
             throw new Error("The reservation was not confirmed by the database.");
           }
-          reservation = { id: result.reservation_id, code: result.reservation_code };
+          reservation = { id: result.reservation_id, code: result.reservation_code, paymentDueAt: result.payment_due_at };
           reservationForRetry = reservation;
           setCreatedReservation(reservation);
         }
 
-        let proofPath = pendingPaymentProofPath;
-        if (!proofPath) {
-          const proofExtension = paymentProof.type === "image/jpeg" ? "jpg" : paymentProof.type === "image/png" ? "png" : "webp";
-          proofPath = `${authData.session.user.id}/${crypto.randomUUID()}.${proofExtension}`;
-          const upload = await supabase.storage.from("payment-proofs").upload(proofPath, paymentProof, {
-            contentType: paymentProof.type,
-            upsert: false,
-          });
-          if (upload.error) throw upload.error;
-          setPendingPaymentProofPath(proofPath);
-        }
+        if (paymentSubmissionStarted && paymentProof) {
+          let proofPath = pendingPaymentProofPath;
+          if (!proofPath) {
+            const proofExtension = paymentProof.type === "image/jpeg" ? "jpg" : paymentProof.type === "image/png" ? "png" : "webp";
+            proofPath = `${authData.session.user.id}/${crypto.randomUUID()}.${proofExtension}`;
+            const upload = await supabase.storage.from("payment-proofs").upload(proofPath, paymentProof, {
+              contentType: paymentProof.type,
+              upsert: false,
+            });
+            if (upload.error) throw upload.error;
+            setPendingPaymentProofPath(proofPath);
+          }
 
-        const { error: paymentError } = await supabase.rpc("evently_submit_payment_proof", {
-          p_reservation_id: reservation.id,
-          p_amount: amount,
-          p_method: paymentMethod,
-          p_reference_number: paymentReference.trim(),
-          p_proof_path: proofPath,
-        });
-        if (paymentError) throw paymentError;
+          const { error: paymentError } = await supabase.rpc("evently_submit_payment_proof", {
+            p_reservation_id: reservation.id,
+            p_amount: Number(paymentAmount),
+            p_method: paymentMethod,
+            p_reference_number: paymentReference.trim(),
+            p_proof_path: proofPath,
+          });
+          if (paymentError) throw paymentError;
+        }
 
         try {
           const [savedReservation, savedPayment] = await Promise.all([
@@ -2059,13 +2215,12 @@ function ReservationFlow({
               : "Status unavailable",
             payment: savedPayment.data
               ? rowText(savedPayment.data as CustomerDataRow, ["verification_status", "payment_status", "status"], "Status unavailable")
-              : "Status unavailable",
+              : "Unpaid",
           });
         } catch {
           setConfirmationStatuses({ payment: "Status unavailable", booking: "Status unavailable" });
         }
-        // The receipt upload and payment-proof RPC both succeeded before this point.
-        setConfirmationReceiptSaved(true);
+        setConfirmationReceiptSaved(paymentSubmissionStarted && Boolean(paymentProof));
 
         setConfirmationCode(reservation.code);
         setBookingError("");
@@ -2232,7 +2387,7 @@ function ReservationFlow({
                             setStaycationChoice(option.key);
                             chooseBookingService("Swimming Pool");
                           }} type="button">
-                            <span className="booking-staycation-choice__copy"><strong>{option.label}</strong><small>{option.schedule} · {option.price > 0 ? `${currency(option.price)} per guest` : "Rate unavailable"}{Number(option.packageRow?.cottage_fee) > 0 ? ` · Cottage ${currency(Number(option.packageRow?.cottage_fee))}` : ""}</small></span>
+                            <span className="booking-staycation-choice__copy"><strong>{option.label}</strong><small>{option.schedule} · Minimum {option.packageRow?.min_guest_count ?? (option.key === "overnight" ? 20 : 1)} guests · {option.price > 0 ? `${currency(option.price)} per guest` : "Rate unavailable"}{option.packageRow?.cottage_addon_id && Number(option.packageRow.cottage_fee) > 0 ? ` · Cottage ${currency(Number(option.packageRow.cottage_fee))}` : " · Cottage selection not configured"}</small></span>
                             <span className="booking-catering-choice__check">✓</span>
                           </button>)}
                           <button aria-pressed={staycationChoice === "rooms"} className={`booking-staycation-choice ${staycationChoice === "rooms" ? "is-selected" : ""}`} onClick={() => {
@@ -2244,36 +2399,13 @@ function ReservationFlow({
                             <span className="booking-staycation-choice__copy"><strong>Room Accommodation</strong><small>{staycationRoomRates || "Choose an active room package in the next step."}</small></span>
                             <span className="booking-catering-choice__check">✓</span>
                           </button>
-                        </div>}
-                      </article>
-                    );
-                    if (category === "Staycation") return (
-                      <article className={`choice-card choice-card--expandable ${selected ? "choice-card--selected" : ""}`} key={category}>
-                        <button aria-pressed={selected} className="choice-card__main" data-booking-cta="true" onClick={selectMainService} type="button">
-                          <PhotoPlaceholder context={serviceOption.imageContext} compact className="choice-card__photo" />
-                          <span className="choice-card__number">0{index + 1}</span>
-                          <span className="choice-card__icon"><Icon name="sun" /></span>
-                          <strong>Staycation</strong>
-                          <small>Choose a pool tour or room accommodation for your group.</small>
-                          <span className="choice-card__check">✓</span>
-                        </button>
-                        {selected && <div aria-label="Choose a Staycation option" className="booking-staycation-choices" role="group">
-                          {staycationTourOptions.map((option) => <button aria-pressed={staycationChoice === option.key} className={`booking-staycation-choice ${staycationChoice === option.key ? "is-selected" : ""}`} key={option.key} onClick={() => {
+                          <button aria-pressed={staycationChoice === "venue"} className={`booking-staycation-choice ${staycationChoice === "venue" ? "is-selected" : ""}`} onClick={() => {
                             setSelectedMainCategory("Staycation");
                             setCateringChoice(null);
-                            setStaycationChoice(option.key);
-                            chooseBookingService("Swimming Pool");
+                            setStaycationChoice("venue");
+                            chooseBookingService("Resort Venue Only");
                           }} type="button">
-                            <span className="booking-staycation-choice__copy"><strong>{option.label}</strong><small>{option.schedule} · {option.price > 0 ? `${currency(option.price)} per guest` : "Rate unavailable"}{Number(option.packageRow?.cottage_fee) > 0 ? ` · Cottage ${currency(Number(option.packageRow?.cottage_fee))}` : ""}</small></span>
-                            <span className="booking-catering-choice__check">✓</span>
-                          </button>)}
-                          <button aria-pressed={staycationChoice === "rooms"} className={`booking-staycation-choice ${staycationChoice === "rooms" ? "is-selected" : ""}`} onClick={() => {
-                            setSelectedMainCategory("Staycation");
-                            setCateringChoice(null);
-                            setStaycationChoice("rooms");
-                            chooseBookingService("Room Accommodation");
-                          }} type="button">
-                            <span className="booking-staycation-choice__copy"><strong>Room Accommodation</strong><small>{staycationRoomRates || "Choose an active room package in the next step."}</small></span>
+                            <span className="booking-staycation-choice__copy"><strong>Venue Only</strong><small>{staycationVenueRates || "Non-Aircon ₱10,000 / 5 hours · Aircon ₱15,000 / 4 hours"} · optional Pool Access ₱5,000</small></span>
                             <span className="booking-catering-choice__check">✓</span>
                           </button>
                         </div>}
@@ -2376,7 +2508,7 @@ function ReservationFlow({
                     {requiredDuration && <small>{requiredDuration / 60} hour venue duration. The end time is calculated automatically.</small>}
                     {!operatingHoursConfigured && packageChoice && <small className="booking-schedule-error" role="alert">This package does not have configured operating hours. Contact the administrator before booking.</small>}
                   </>}
-                  {scheduleMode === "admin_assign" && <p>The administrator will assign and verify the time and physical venue/resource before approval.</p>}
+                  {scheduleMode === "admin_assign" && <p>Choose your package next. If a venue or event time needs confirmation, the package details will explain what EVENTLY will verify before approval.</p>}
                 </div>
               </div>
             )}
@@ -2388,6 +2520,8 @@ function ReservationFlow({
                   <h3>{service === "Swimming Pool" ? "Choose your tour time slot" : service === "Catering" ? "Choose your catering package" : "Pick your package"}</h3>
                   <p>{service === "Swimming Pool" ? "Tour hours are fixed and cannot be changed." : "Each package can be refined with our team after your reservation."}</p>
                 </div>
+                {service === "Catering" && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Customers must request any cancellation or rescheduling at least 3 days (72 hours) before their scheduled catering event. Rescheduling requests are subject to Administrator approval.</p></div>}
+                {selectedMainCategory === "Staycation" && <div className="booking-policy-notice"><strong>Payment Policy</strong><p>Customers must submit the required 30% down payment within 24 hours after creating their reservation. Payment is subject to Administrator verification. Reservations without timely payment submission may be automatically cancelled.</p></div>}
                 {service === "Event" ? <>
                   {!eventVenueGroup ? <div className="event-venue-package-grid">
                     {eventVenueGroups.map((group) => {
@@ -2463,7 +2597,7 @@ function ReservationFlow({
                   </section>}
                   {ungroupedEventVenueOptions.length > 0 && <div className="tier-grid event-venue-other-options">{ungroupedEventVenueOptions.map((tier) => <button className={`tier-card ${packageChoice?.id === tier.id ? "tier-card--selected" : ""}`} key={tier.id} onClick={() => { setEventVenueGroup(""); setSelectedPackageId(tier.id); setSelectedVariantId(""); setDatabaseVariants([]); setVariantLoading(true); setVariantError(""); setBookingError(""); }} type="button"><PhotoPlaceholder context={`${tier.name} Package Photo`} compact className="tier-card__photo"/><span className="tier-card__number">Venue option</span><strong>{tier.name}</strong><small>{tier.detail}</small>{tier.guest_capacity != null && <small>Up to {tier.guest_capacity} guests</small>}<ul className="tier-card__inclusions">{tier.inclusions.map((inclusion) => <li key={inclusion}>✓ {inclusion}</li>)}</ul><b>{packageDisplayPrice(tier.price, tier.priceLabel)}</b></button>)}</div>}
                 </> : <div className="tier-grid">
-                  {packageOptions.map((tier, index) => {
+                  {orderedPackageOptions.map((tier, index) => {
                     return (
                       <button
                         className={`tier-card ${packageChoice?.id === tier.id ? "tier-card--selected" : ""}`}
@@ -2483,7 +2617,7 @@ function ReservationFlow({
                         <span className="tier-card__number">0{index + 1}</span>
                         <strong>{tier.name}</strong>
                         <small>{tier.detail}</small>
-                        {tier.guest_capacity != null && service !== "Swimming Pool" && !(service === "Room Accommodation" && /kubo room/i.test(tier.name)) && <small>Up to {tier.guest_capacity} guests</small>}
+                        {tier.guest_capacity != null && service !== "Swimming Pool" && <small>Up to {tier.guest_capacity} guests</small>}
                         <ul className="tier-card__inclusions">
                           {tier.inclusions.map((inclusion) => <li key={inclusion}>✓ {inclusion}</li>)}
                         </ul>
@@ -2492,12 +2626,26 @@ function ReservationFlow({
                     );
                   })}
                 </div>}
+                {packageChoice && scheduleMode === "customer_select" && (
+                  <div className="booking-date-time-panel booking-package-schedule">
+                    <label><span>Event start time</span><input aria-label="Event start time" onChange={(event) => { const nextStart = event.target.value; setStartTime(nextStart); setEndTime(requiredDuration ? addScheduleMinutes(nextStart, requiredDuration) : ""); setBookingError(""); }} type="time" value={startTime} /></label>
+                    <label><span>Event end time</span><input aria-label="Event end time" disabled={Boolean(requiredDuration)} onChange={(event) => setEndTime(event.target.value)} type="time" value={reservationEndTime} /></label>
+                    <div><span>Venue schedule</span><strong>{requiredDuration ? `${requiredDuration / 60}-hour duration` : "Select an event time"}{operatingHoursConfigured ? ` · ${operatingStart.slice(0, 5)}–${operatingEnd.slice(0, 5)}` : ""}</strong></div>
+                    {!operatingHoursConfigured && <small className="booking-schedule-error" role="alert">Event hours are not configured for this package. EVENTLY must confirm them before booking.</small>}
+                    {startTime && !validReservationTime && <small className="booking-schedule-error" role="alert">Choose a valid start time for the configured venue duration.</small>}
+                    {validReservationTime && !withinOperatingHours && <small className="booking-schedule-error" role="alert">Choose a time within the venue’s operating hours.</small>}
+                  </div>
+                )}
                 {catalogError && <div className="booking-inline-error" role="alert">{catalogError}</div>}
                 {!catalogError && !packageOptions.length && <div className="booking-inline-error" role="alert">No active {serviceLabel(service)} packages are configured in Supabase.</div>}
                 {packageChoice && variantLoading && <div className="package-variant-panel" aria-live="polite"><span>Loading package options…</span></div>}
                 {packageChoice && variantError && <div className="booking-inline-error" role="alert">{variantError}</div>}
                 {packageChoice && service === "Catering" && !packagePriceConfigured && !variantLoading && !variantError && <div className="catering-price-notice" role="status"><strong>Price to be announced</strong><span>Contact us for current catering-only pricing. Booking cannot continue until a valid price is configured.</span></div>}
                 {packageChoice && service === "Swimming Pool" && !poolPricingReady && <div className="catering-price-notice" role="status"><strong>Tour rate setup needs attention</strong><span>The active package row does not contain per-person pricing settings for the booking RPC. Booking is paused rather than submitting a mismatched total. Cottage charges are not added unless configured for the selected package.</span></div>}
+                {packageChoice && service === "Room Accommodation" && !roomPricingReady && <div className="catering-price-notice" role="status"><strong>Room rate setup needs attention</strong><span>New room bookings require the confirmed per-room, per-night price, Standard Room occupancy of 4–5, and separately selectable ₱5,000 Pool Access. Kubo capacity remains unspecified.</span></div>}
+                {packageChoice && service === "Resort Venue Only" && !venueOnlyPricingReady && <div className="catering-price-notice" role="status"><strong>Venue Only setup needs attention</strong><span>New bookings require Non-Aircon ₱10,000 / 5 hours or Aircon ₱15,000 / 4 hours, with ₱5,000 Pool Access kept optional.</span></div>}
+                {packageChoice && poolAccessEligibleService && !poolAccessPricingReady && <div className="booking-inline-error" role="alert">Optional Pool Access is unavailable until the package has the configured ₱5,000 fee.</div>}
+                {packageChoice && service === "Swimming Pool" && !poolAvailabilityReady && <div className="catering-price-notice" role="status"><strong>Pool availability is not configured</strong><span>The selected tour must resolve to the verified venice-main-pool resource, exclusive mode, and an existing timed schedule before EVENTLY can confirm availability.</span></div>}
                 {packageChoice && scheduleMode === "customer_select" && !operatingHoursConfigured && <div className="booking-inline-error" role="alert">This package has no configured operating hours. An administrator must configure them before timed bookings can be submitted.</div>}
                 {packageChoice && scheduleMode === "customer_select" && operatingHoursConfigured && validReservationTime && !withinOperatingHours && <div className="booking-inline-error" role="alert">Select a time within the configured operating hours of {operatingStart.slice(0, 5)}–{operatingEnd.slice(0, 5)}.</div>}
                 {packageChoice && !variantLoading && !variantError && packageVariants.length > 0 && (
@@ -2536,23 +2684,30 @@ function ReservationFlow({
                 )}
                 {packageChoice && activeService?.quantityMode === "tour" && (
                   <div className="booking-quantity-panel">
+                    {service === "Swimming Pool" && !poolCapacityRecordReady && <div className="booking-inline-error" role="status">Pool bookings are paused until the Administrator verifies and audits the physical maximum capacity. The legacy guest_capacity value is not treated as a confirmed pool maximum.</div>}
                     <div><strong>Tour guests</strong><span>{configuredStartTime.slice(0, 5)}–{configuredEndTime.slice(0, 5)}{configuredEndTime <= configuredStartTime ? " · ends the following day" : ""} · {currency(effectiveUnitPrice)} per guest</span></div>
-                    <label><span>Guests</span><input aria-label="Number of tour guests" min={minimumGuests} onChange={(event) => setGuests(Math.max(1, Number(event.target.value)))} type="number" value={guests} /></label>
-                    {(packageChoice.cottage_fee ?? 0) > 0 && <label className="booking-option-toggle"><input checked={cottageSelected} onChange={(event) => setCottageSelected(event.target.checked)} type="checkbox" /><span>Add cottage · {currency(packageChoice.cottage_fee ?? 0)}</span></label>}
+                    <label><span>Guests</span><input aria-label="Number of tour guests" max={effectiveGuestCapacity ?? undefined} min={minimumGuests} onChange={(event) => setGuests(Math.max(1, Number(event.target.value)))} type="number" value={guests} /><small>{effectiveGuestCapacity == null ? "Guest bookings stay paused until the Administrator confirms and audits the actual physical maximum." : `Verified maximum: ${effectiveGuestCapacity} guests.`}</small></label>
+                    {cottageAddonConfigured && <label className="booking-option-toggle"><input checked={cottageSelected} onChange={(event) => setCottageSelected(event.target.checked)} type="checkbox" /><span>Add cottage · {currency(packageChoice.cottage_fee ?? 0)}</span></label>}
+                    {!cottageAddonConfigured && Number(packageChoice.cottage_fee) > 0 && <small>Cottage selection is not available until its existing add-on is linked to this package.</small>}
                     {guests < minimumGuests && <small className="booking-schedule-error" role="alert">This tour requires at least {minimumGuests} guests.</small>}
+                    {effectiveGuestCapacity != null && guests > effectiveGuestCapacity && <small className="booking-schedule-error" role="alert">This tour is limited to {effectiveGuestCapacity} guests.</small>}
                   </div>
                 )}
                 {packageChoice && activeService?.quantityMode === "rooms" && (
                   <div className="booking-quantity-panel">
                     <div><strong>Accommodation details</strong><span>Enter the rooms and nights required.</span></div>
-                    <label><span>Rooms</span><input aria-label="Number of rooms" min="1" onChange={(event) => setRooms(Math.max(1, Number(event.target.value)))} type="number" value={rooms} /></label>
-                    <label><span>Nights</span><input aria-label="Number of nights" min="1" onChange={(event) => setNights(Math.max(1, Number(event.target.value)))} type="number" value={nights} /></label>
+                    <label><span>Rooms</span><input aria-label="Number of rooms" max="100" min="1" onChange={(event) => setRooms(Math.min(100, Math.max(1, Number(event.target.value))))} type="number" value={rooms} /></label>
+                    <label><span>Nights</span><input aria-label="Number of nights" max="365" min="1" onChange={(event) => setNights(Math.min(365, Math.max(1, Number(event.target.value))))} type="number" value={nights} /></label>
                   </div>
                 )}
                 {packageChoice && scheduleMode === "admin_assign" && (
-                  <p className="deposit-note">This package requires an administrator to assign and verify the venue or resource and time slot before approval.</p>
+                  <p className="deposit-note">{packageChoice.resource_key
+                    ? "Your selected package is linked to the Events Place shown in its details. EVENTLY will confirm the event time before approval."
+                    : service === "Room Accommodation"
+                      ? "EVENTLY will confirm an available room and check-in/check-out schedule before approving your reservation."
+                      : "EVENTLY will confirm the appropriate venue or resource and event schedule before approving your reservation."}</p>
                 )}
-                {packageChoice && service === "Event" && (packageChoice.pool_access_fee ?? 0) > 0 && (
+                {packageChoice && poolAccessEligibleService && packageChoice.pool_access_fee === 5000 && (
                   <label className="booking-pool-access"><input checked={poolAccessSelected} onChange={(event) => setPoolAccessSelected(event.target.checked)} type="checkbox" /><span>Add optional pool access</span><strong>{currency(packageChoice.pool_access_fee ?? 0)}</strong></label>
                 )}
                 {packageChoice && service === "Catering" && (
@@ -2694,6 +2849,8 @@ function ReservationFlow({
                   <h3>Everything look right?</h3>
                   <p>Review your booking before reserving the schedule.</p>
                 </div>
+                {service === "Catering" && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Customers must request any cancellation or rescheduling at least 3 days (72 hours) before their scheduled catering event. Rescheduling requests are subject to Administrator approval.</p></div>}
+                {selectedMainCategory === "Staycation" && <div className="booking-policy-notice"><strong>Payment Policy</strong><p>Submit the required 30% down payment within 24 hours after creating your reservation. Payment is subject to Administrator verification. Reservations without timely payment submission may be automatically cancelled.</p></div>}
                 <div className="review-banner">
                   <PhotoPlaceholder context={`${selectedPackageLabel || "Selected"} Package Photo`} compact className="review-booking-photo" />
                   <div>
@@ -2747,9 +2904,10 @@ function ReservationFlow({
               <div className="booking-step booking-step--enter booking-payment-step">
                 <div className="booking-step__heading">
                   <span>Step {progressIndex + 1} of {steps.length}</span>
-                  <h3>Submit payment proof</h3>
-                  <p>We save your reservation first, then securely upload and submit the receipt you provide. A receipt or reference is not confirmation that money was received.</p>
+                  <h3>Reserve your schedule</h3>
+                  <p>Your schedule can be reserved now. Submit payment proof here, or finish booking first and pay from Booking History within 24 hours.</p>
                 </div>
+                {selectedMainCategory === "Staycation" && <div className="booking-policy-notice"><strong>Payment Policy</strong><p>Submit the required 30% down payment within 24 hours after creating your reservation. Payment is subject to Administrator verification. Timely submitted proof remains subject to Administrator review. Reservations without timely payment submission may be automatically cancelled.</p></div>}
                 {demoPaymentMode && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>This capstone demonstration records sample payment information for administrator review only. Do not send real funds based on this demo screen.</span></div>}
                 <div className="booking-payment-summary">
                   <div><span>Package or service</span><strong>{bookingSummaryCategory(service, cateringChoice, staycationChoice)} · {selectedPackageLabel}</strong></div>
@@ -2767,8 +2925,8 @@ function ReservationFlow({
                 <div className="booking-payment-form">
                   <label><span>Payment method</span><select disabled={!availablePaymentMethods.length} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)} required value={paymentMethod}>{availablePaymentMethods.map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
                   {selectedPaymentAccount && <div className="booking-payment-destination"><strong>{selectedPaymentAccount.display_name}</strong>{selectedPaymentAccount.account_holder && <span>Account holder: {selectedPaymentAccount.account_holder}</span>}{selectedPaymentAccount.bank_name && <span>Bank: {selectedPaymentAccount.bank_name}</span>}{(selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number) && <span>Send to: {selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number}</span>}{selectedPaymentAccount.qr_code_url && <img alt={`${selectedPaymentAccount.display_name} payment QR code`} src={selectedPaymentAccount.qr_code_url} />}<p>{selectedPaymentInstructions}</p></div>}
-                  <label><span>Actual amount paid (PHP)</span><input autoComplete="off" max={subtotal} min="0.01" onChange={(event) => setPaymentAmount(event.target.value)} required step="0.01" type="number" value={paymentAmount} /><small>Enter what you actually transferred. The required deposit is {currency(requiredPaymentAmount)}; payment proof will remain pending until an administrator reviews it.</small></label>
-                  <label><span>Payment reference / transaction number</span><input autoComplete="off" maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} placeholder={demoPaymentMode ? "Example: DEMO-GCASH-2026-001" : "Enter your transaction reference"} required value={paymentReference} /></label>
+                  <label><span>Actual amount paid (PHP) · optional</span><input autoComplete="off" max={subtotal} min="0.01" onChange={(event) => setPaymentAmount(event.target.value)} step="0.01" type="number" value={paymentAmount} /><small>Required deposit: {currency(requiredPaymentAmount)}. Timely payment proof is held for Administrator review.</small></label>
+                  <label><span>Payment reference / transaction number · optional</span><input autoComplete="off" maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} placeholder={demoPaymentMode ? "Example: DEMO-GCASH-2026-001" : "Enter your transaction reference"} value={paymentReference} /></label>
                   <label><span>Receipt screenshot (JPG, PNG, or WebP · max 5 MB)</span><input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" ref={paymentProofInput} onChange={(event) => {
                     const file = event.target.files?.[0] ?? null;
                     if (file && (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024)) {
@@ -2781,12 +2939,12 @@ function ReservationFlow({
                     setBookingError("");
                     setPendingPaymentProofPath("");
                     setPaymentProof(file);
-                  }} required={!paymentProof} type="file" /></label>
+                  }} type="file" /></label>
                   {paymentProof && <div className="booking-receipt-preview"><img alt="Receipt screenshot preview" src={paymentProofPreview} /><div><strong>{paymentProof.name}</strong><span>{(paymentProof.size / (1024 * 1024)).toFixed(2)} MB · ready to upload</span><div><button onClick={() => paymentProofInput.current?.click()} type="button">Replace image</button><button onClick={() => { setPaymentProof(null); setPendingPaymentProofPath(""); if (paymentProofInput.current) paymentProofInput.current.value = ""; }} type="button">Remove image</button></div></div></div>}
                   <p className="booking-payment-privacy">Receipt files are stored in a private Supabase bucket. Only the submitting customer and authorized Owner/Admin accounts can access them.</p>
                   <label className="privacy-acknowledgment"><input checked={privacyAcknowledged} onChange={(event) => setPrivacyAcknowledged(event.target.checked)} type="checkbox" /><span>I acknowledge that I have read the Privacy Notice. This acknowledgment is not optional marketing consent.</span></label>
                   <p className="booking-payment-privacy">No optional marketing consent is requested as a condition of booking.</p>
-                  {bookingSubmitting && <p className="booking-payment-message" aria-live="polite">{createdReservation ? "Uploading receipt securely and submitting payment proof…" : "Saving your reservation, then uploading and submitting payment proof…"}</p>}
+                  {bookingSubmitting && <p className="booking-payment-message" aria-live="polite">{createdReservation ? "Submitting payment proof…" : "Reserving your schedule…"}</p>}
                 </div>
               </div>
             )}
@@ -2797,22 +2955,24 @@ function ReservationFlow({
                   <div className="confirmation__mark" aria-hidden="true">✓</div>
                   {confirmationReceiptSaved && <span className="section-kicker">Payment proof received</span>}
                   <h3>Your Venice moment is on its way.</h3>
-                  <p>Your reservation has been submitted. Payment review and booking approval are handled separately; the reservation is not confirmed until an authorized administrator approves it.</p>
+                  <p>Your schedule has been reserved. Please submit your 30% deposit within 24 hours to secure your booking.</p>
                 </header>
-                {demoPaymentMode && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>Your sample reference and receipt are demonstration data only.</span></div>}
+                {service === "Catering" && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Customers must request any cancellation or rescheduling at least 3 days (72 hours) before their scheduled catering event. Rescheduling requests are subject to Administrator approval.</p></div>}
+                {selectedMainCategory === "Staycation" && <div className="booking-policy-notice"><strong>Payment Policy</strong><p>Submit the required 30% down payment within 24 hours after creating your reservation. Payment is subject to Administrator verification. Timely submitted proof remains subject to Administrator review. Reservations without timely payment submission may be automatically cancelled.</p></div>}
+                {demoPaymentMode && confirmationReceiptSaved && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>Your sample reference and receipt are demonstration data only.</span></div>}
                 <div className="confirmation__status-grid" aria-label="Current payment and booking status">
-                  <article className="confirmation__status-card"><span>Payment Status</span><strong>{confirmationStatusLabel(confirmationStatuses.payment, "Pending Verification")}</strong></article>
-                  <article className="confirmation__status-card"><span>Booking Status</span><strong>{confirmationStatusLabel(confirmationStatuses.booking, "Pending Admin Approval")}</strong></article>
+                  <article className="confirmation__status-card"><span>Payment Status</span><strong>{confirmationStatusLabel(confirmationStatuses.payment, "Unpaid · deposit due")}</strong></article>
+                  <article className="confirmation__status-card"><span>Booking Status</span><strong>{confirmationStatusLabel(confirmationStatuses.booking, "Schedule Reserved · Payment Pending")}</strong></article>
                 </div>
                 <dl className="confirmation__summary">
                   <div><dt>Booking Reference</dt><dd>{confirmationCode || "Unavailable"}</dd></div>
                   <div><dt>Selected Package</dt><dd>{selectedPackageLabel || "Package unavailable"}</dd></div>
                   <div><dt>Reservation Date</dt><dd>{selectedDate?.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" }) ?? "Date unavailable"}</dd></div>
                   <div><dt>Schedule</dt><dd>{reservationStartTime && reservationEndTime ? `${reservationStartTime.slice(0, 5)}–${reservationEndTime.slice(0, 5)}${reservationEndTime <= reservationStartTime ? " · ends the following day" : ""}` : "Pending administrator assignment"}</dd></div>
-                  <div><dt>Payment Method</dt><dd>{customerPaymentMethodLabels[paymentMethod]}</dd></div>
-                  <div><dt>Submitted Amount</dt><dd>{currency(Number(paymentAmount))}</dd></div>
+                  <div><dt>Required Deposit</dt><dd>{currency(requiredPaymentAmount)}</dd></div>
+                  {createdReservation?.paymentDueAt && <div><dt>Payment Deadline · Asia/Manila</dt><dd><PaymentDeadline awaitingReview={confirmationStatuses.payment.toLowerCase() === "pending"} dueAt={createdReservation.paymentDueAt} /></dd></div>}
                 </dl>
-                <button className="booking-primary confirmation__another" type="button" onClick={resetBooking}>Make Another Booking <Icon name="arrow" size={18} /></button>
+                <button className="booking-primary confirmation__another" type="button" onClick={() => { window.location.href = "/account/history"; }}>View Booking Details <Icon name="arrow" size={18} /></button>
               </div>
             )}
 
@@ -2825,7 +2985,7 @@ function ReservationFlow({
                 </button>
                 {step === 6 && <button className="skip-offer-button" onClick={() => setStep(7)} type="button">Skip This Offer</button>}
                 <button className="booking-primary" data-booking-cta="true" disabled={!canContinue || Boolean(conflictReason) || bookingSubmitting} type="button" onClick={nextStep}>
-                  {step === 8 ? bookingSubmitting ? "Submitting Payment Proof…" : createdReservation ? "Retry Payment Proof" : "Submit Booking & Payment Proof" : step === 7 ? "Continue to Payment" : step === 6 ? "Continue to Review" : "Continue"} <Icon name="arrow" size={18} />
+                  {step === 8 ? bookingSubmitting ? "Reserving Schedule…" : createdReservation ? "Retry Booking" : "Reserve Schedule" : step === 7 ? "Continue to Payment" : step === 6 ? "Continue to Review" : "Continue"} <Icon name="arrow" size={18} />
                 </button>
               </div>
               </>
@@ -3040,6 +3200,15 @@ const rowValue = (row: CustomerDataRow, keys: string[]) => {
 };
 const rowText = (row: CustomerDataRow, keys: string[], fallback = "Not provided") => String(rowValue(row, keys) ?? fallback);
 const rowNumber = (row: CustomerDataRow, keys: string[]) => Number(rowValue(row, keys) ?? 0);
+const roomStayLabel = (row: CustomerDataRow) => {
+  if (!/room/i.test(rowText(row, ["package_name"], ""))) return "";
+  const savedRooms = rowValue(row, ["room_count"]);
+  const savedNights = rowValue(row, ["stay_nights"]);
+  if (savedRooms == null || savedNights == null) return "";
+  const rooms = Math.max(1, rowNumber(row, ["room_count"]));
+  const nights = Math.max(1, rowNumber(row, ["stay_nights"]));
+  return `${rooms} room${rooms === 1 ? "" : "s"} · ${nights} night${nights === 1 ? "" : "s"}`;
+};
 const bookingPackageLabel = (row: CustomerDataRow, fallback?: CustomerDataRow | null) => {
   const packageName = rowValue(row, ["package_name", "_package_name"])
     ?? (fallback ? rowValue(fallback, ["package_name"]) : null)
@@ -3339,6 +3508,94 @@ function CustomerProfilePage() {
   );
 }
 
+function PaymentDeadline({ dueAt, expired = false, awaitingReview = false, paymentVerified = false }: { dueAt: string; expired?: boolean; awaitingReview?: boolean; paymentVerified?: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const deadline = Date.parse(dueAt);
+  if (!Number.isFinite(deadline)) return <>Deadline unavailable</>;
+  const formatted = new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short", hour12: true,
+  }).format(deadline);
+  const seconds = Math.max(0, Math.floor((deadline - now) / 1000));
+  const remaining = `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m ${seconds % 60}s`;
+  if ((expired || seconds === 0) && !awaitingReview) {
+    if (paymentVerified) return <>{formatted}<br /><strong>Your deposit is verified. The reserved schedule is awaiting resolution.</strong></>;
+    return <>{formatted}<br /><strong>Your booking has expired because payment was not submitted within 24 hours. The schedule has been released. Please create a new booking.</strong></>;
+  }
+  return <>{formatted}<br /><strong>{awaitingReview ? "Timely payment proof is awaiting Administrator review." : `Time remaining: ${remaining}`}</strong></>;
+}
+
+function BookingReviewControls({
+  bookingReferenceText,
+  feedback,
+  onSubmit,
+  ready,
+  review,
+  setupMessage,
+  serviceName,
+  submitting,
+}: {
+  bookingReferenceText: string;
+  feedback: string;
+  onSubmit: (rating: number, text: string) => Promise<boolean>;
+  ready: boolean;
+  review?: CustomerDataRow;
+  setupMessage: string;
+  serviceName: string;
+  submitting: boolean;
+}) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [reviewText, setReviewText] = useState("");
+  const [localMessage, setLocalMessage] = useState("");
+
+  const startReview = (edit = false) => {
+    setRating(edit ? Number(review?.rating ?? 0) : 0);
+    setReviewText(edit ? String(review?.review_text ?? "") : "");
+    setLocalMessage("");
+    setFormOpen(true);
+    setReviewOpen(false);
+  };
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!rating || submitting) return;
+    const saved = await onSubmit(rating, reviewText);
+    if (saved) {
+      setFormOpen(false);
+      setReviewOpen(true);
+      setLocalMessage("Your review was saved. The moderation status shown here comes from EVENTLY.");
+    }
+  };
+
+  return <section className="booking-review-controls" aria-label="Service review">
+    {!review && !formOpen && ready && <button className="booking-review-controls__primary" onClick={() => startReview()} type="button">Write Review</button>}
+    {!review && !formOpen && !ready && <p className="booking-review-form__message" role="status">{setupMessage || "Review status could not be checked, so duplicate submissions are disabled."}</p>}
+    {review && !formOpen && <div className="booking-review-controls__actions">
+      <button className="booking-review-controls__primary" onClick={() => setReviewOpen((open) => !open)} type="button">{reviewOpen ? "Hide Review" : "View Review"}</button>
+      <button className="booking-review-controls__secondary" onClick={() => startReview(true)} type="button">Edit Review</button>
+    </div>}
+    {reviewOpen && review && <article className="booking-review-controls__view">
+      <div><strong>{serviceName} · {bookingReferenceText}</strong><span className={`booking-review-controls__status booking-review-controls__status--${String(review.moderation_status ?? "pending").toLowerCase()}`}>{rowText(review, ["moderation_status"], "pending")}</span></div>
+      <div aria-label={`${Number(review.rating ?? 0)} out of 5 stars`} className="booking-review-controls__rating">{"★".repeat(Math.max(0, Math.min(5, Number(review.rating ?? 0))))}{"☆".repeat(Math.max(0, 5 - Number(review.rating ?? 0)))}</div>
+      <p>{rowText(review, ["review_text"], "Rating submitted without written feedback.")}</p>
+      <small>Verified completed booking · Sentiment: {rowText(review, ["sentiment_status"], "pending") === "unavailable" ? "Unavailable (star-only rating)" : rowText(review, ["sentiment_label"], "Pending analysis")}</small>
+    </article>}
+    {formOpen && <form className="booking-review-form" onSubmit={(event) => void submit(event)}>
+      <div className="booking-review-form__heading"><strong>{serviceName}</strong><span>Booking {bookingReferenceText}</span></div>
+      <fieldset className="review-star-picker"><legend>Choose a rating (required)</legend>{[1,2,3,4,5].map((value) => <button aria-label={`${value} star${value === 1 ? "" : "s"}`} aria-pressed={rating >= value} className={rating >= value ? "is-selected" : ""} key={value} onClick={() => setRating(value)} type="button">★</button>)}</fieldset>
+      <label>Written feedback (optional)<textarea maxLength={3000} onChange={(event) => setReviewText(event.target.value)} placeholder="Tell us about your experience" value={reviewText} /></label>
+      <small>Please do not include your name, email, phone number, username, or private booking details.</small>
+      {(feedback || localMessage) && <p className="booking-review-form__message" role="status">{feedback || localMessage}</p>}
+      <div className="booking-review-form__actions"><button className="booking-review-controls__secondary" onClick={() => { setFormOpen(false); setLocalMessage(""); }} type="button">Cancel</button><button className="booking-review-controls__primary" disabled={!rating || submitting || !ready} type="submit">{submitting ? "Submitting Review…" : "Submit Review"}</button></div>
+    </form>}
+    {!formOpen && (feedback || localMessage) && <p className="booking-review-form__message" role="status">{feedback || localMessage}</p>}
+  </section>;
+}
+
 function CustomerHistoryPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
@@ -3348,9 +3605,18 @@ function CustomerHistoryPage() {
   const [submittedReviews, setSubmittedReviews] = useState<Record<string, CustomerDataRow>>({});
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, { rating: number; text: string }>>({});
   const [reviewFeedback, setReviewFeedback] = useState<Record<string, string>>({});
+  const [reviewSubmitting, setReviewSubmitting] = useState<Record<string, boolean>>({});
   const [reviewFeatureReady, setReviewFeatureReady] = useState(false);
   const [reviewSetupMessage, setReviewSetupMessage] = useState("");
   const [editingReviewIds, setEditingReviewIds] = useState<Record<string, boolean>>({});
+  const [reviewFormOpen, setReviewFormOpen] = useState<Record<string, boolean>>({});
+  const [cateringRequestAction, setCateringRequestAction] = useState<"cancel" | "reschedule">("cancel");
+  const [cateringRequestReason, setCateringRequestReason] = useState("");
+  const [cateringRequestDate, setCateringRequestDate] = useState("");
+  const [cateringRequestStart, setCateringRequestStart] = useState("");
+  const [cateringRequestEnd, setCateringRequestEnd] = useState("");
+  const [cateringRequestFeedback, setCateringRequestFeedback] = useState("");
+  const [cateringRequestSubmitting, setCateringRequestSubmitting] = useState(false);
   const [selected, setSelected] = useState<CustomerDataRow | null>(null);
   const detailsCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   const detailsOpenerRef = useRef<HTMLButtonElement | null>(null);
@@ -3404,23 +3670,25 @@ function CustomerHistoryPage() {
     const latestPaymentFor = (record: CustomerDataRow) => allPayments
       .filter((payment) => String(payment.reservation_id ?? "") === String(record.id ?? "") || String(payment.order_id ?? "") === String(record.id ?? ""))
       .sort((left, right) => Date.parse(String(right.submitted_at ?? right.created_at ?? 0)) - Date.parse(String(left.submitted_at ?? left.created_at ?? 0)))[0] ?? null;
-    const { data: reviewReady, error: readinessError } = await supabase.rpc("evently_review_features_ready");
-    if (readinessError || reviewReady !== true) {
+    const [readiness, reviewRows] = await Promise.all([
+      supabase.rpc("evently_review_features_ready"),
+      supabase.from("reviews")
+        .select("id,reservation_id,rating,review_text,moderation_status,sentiment_label")
+        .eq("customer_id", session.user.id),
+    ]);
+    if (reviewRows.error) {
       setReviewFeatureReady(false);
-      setReviewSetupMessage("Customer reviews are temporarily unavailable until the Supabase review migration is applied and verified.");
+      setReviewSetupMessage(`Your review status could not be loaded, so duplicate submissions are disabled: ${reviewRows.error.message}`);
       setSubmittedReviews({});
     } else {
+      // Eligibility and duplicate state come from authenticated rows/RLS. The
+      // readiness RPC is diagnostic, not a UI gate that can hide the action
+      // when the actual submit/edit RPCs are installed and usable.
       setReviewFeatureReady(true);
-      setReviewSetupMessage("");
-      const reviewRows = await supabase.from("reviews")
-        .select("id,reservation_id,rating,review_text,moderation_status,sentiment_label")
-        .eq("customer_id", session.user.id);
-      if (reviewRows.error) {
-        setReviewFeatureReady(false);
-        setReviewSetupMessage("Your review status could not be loaded. Refresh the page or contact support.");
-      } else {
-        setSubmittedReviews(Object.fromEntries(((reviewRows.data ?? []) as CustomerDataRow[]).map((review) => [String(review.reservation_id), review])));
-      }
+      setSubmittedReviews(Object.fromEntries(((reviewRows.data ?? []) as CustomerDataRow[]).map((review) => [String(review.reservation_id), review])));
+      setReviewSetupMessage(readiness.error || readiness.data !== true
+        ? `Review readiness check reports an incomplete schema${readiness.error ? `: ${readiness.error.message}` : ". Submission will be checked by Supabase."}`
+        : "");
     }
     const reservationRows = (reservations.data ?? []).map((row) => {
       const linkedOrder = allOrders.find((order) => String(order.reservation_id) === String(row.id));
@@ -3472,46 +3740,105 @@ function CustomerHistoryPage() {
     return matchesFilter && bookingReference(record).toLowerCase().includes(search.trim().toLowerCase());
   });
   const selectedPayment = selected ? customerPaymentFor(selected) : null;
-  const submitReview = async (reservationId: string) => {
+  const selectedIsCatering = Boolean(selected && String(rowValue(selected, ["service", "service_type", "service_category"]) ?? "").toLowerCase().includes("cater"));
+  const submitCateringChangeRequest = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selected || !selectedIsCatering || cateringRequestSubmitting) return;
+    setCateringRequestSubmitting(true);
+    setCateringRequestFeedback("");
+    const { data, error: requestError } = await supabase.rpc("evently_customer_request_catering_change", {
+      p_reservation_id: String(selected.id),
+      p_action: cateringRequestAction,
+      p_reason: cateringRequestReason.trim(),
+      p_proposed_reservation_date: cateringRequestAction === "reschedule" ? cateringRequestDate : null,
+      p_proposed_start_time: cateringRequestAction === "reschedule" ? cateringRequestStart : null,
+      p_proposed_end_time: cateringRequestAction === "reschedule" ? cateringRequestEnd : null,
+    });
+    setCateringRequestSubmitting(false);
+    if (requestError) {
+      setCateringRequestFeedback(requestError.message);
+      return;
+    }
+    setCateringRequestReason("");
+    setCateringRequestFeedback(`Your request was sent to an Administrator (request ${String(data).slice(0, 8)}).`);
+    window.dispatchEvent(new Event(customerBookingsChangedEvent));
+    window.dispatchEvent(new Event("evently-admin-data-changed"));
+  };
+  const submitReview = async (reservationId: string, suppliedDraft?: { rating: number; text: string }): Promise<boolean> => {
     if (!reviewFeatureReady) {
       setReviewFeedback((current) => ({ ...current, [reservationId]: "Review features are not enabled yet. Please try again later." }));
-      return;
+      return false;
     }
-    const draft = reviewDrafts[reservationId] ?? { rating: 5, text: "" };
+    if (reviewSubmitting[reservationId]) return false;
+    const draft = suppliedDraft ?? reviewDrafts[reservationId] ?? { rating: 0, text: "" };
+    if (!Number.isInteger(draft.rating) || draft.rating < 1 || draft.rating > 5) {
+      setReviewFeedback((current) => ({ ...current, [reservationId]: "Choose a star rating from 1 to 5." }));
+      return false;
+    }
+    setReviewSubmitting((current) => ({ ...current, [reservationId]: true }));
+    setReviewFeedback((current) => ({ ...current, [reservationId]: "Submitting your review…" }));
     const existingReview = submittedReviews[reservationId];
-    const { data: reviewId, error: reviewError } = existingReview
-      ? await supabase.rpc("evently_update_customer_review", {
-          p_review_id: String(existingReview.id), p_rating: draft.rating, p_review_text: draft.text,
-        })
-      : await supabase.rpc("evently_submit_customer_review", {
-          p_reservation_id: reservationId, p_rating: draft.rating, p_review_text: draft.text,
-        });
-    if (reviewError) {
-      setReviewFeedback((current) => ({ ...current, [reservationId]: reviewError.message }));
-      return;
-    }
-    setEditingReviewIds((current) => ({ ...current, [reservationId]: false }));
-    setReviewFeedback((current) => ({ ...current, [reservationId]: "Review saved. Sentiment analysis is pending." }));
-    await loadHistory(true);
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (!sessionData.session?.access_token) return;
+    let reviewId: unknown;
     try {
+      const result = existingReview
+        ? await supabase.rpc("evently_update_customer_review", {
+            p_review_id: String(existingReview.id), p_rating: draft.rating, p_review_text: draft.text.trim() || null,
+          })
+        : await supabase.rpc("evently_submit_customer_review", {
+            p_reservation_id: reservationId, p_rating: draft.rating, p_review_text: draft.text.trim() || null,
+          });
+      reviewId = result.data;
+      if (result.error) {
+        const detail = result.error.message;
+        const rpcMissing = result.error.code === "PGRST202" || result.error.code === "42883" || /could not find the function|function .* does not exist/i.test(detail);
+        setReviewFeedback((current) => ({
+          ...current,
+          [reservationId]: rpcMissing
+            ? `Supabase review RPC is missing or unavailable (${detail}). Check EXECUTE permission for authenticated users and the exact RPC signature.`
+            : detail,
+        }));
+        return false;
+      }
+      if (typeof reviewId !== "string" || !reviewId) {
+        setReviewFeedback((current) => ({ ...current, [reservationId]: "Supabase did not return a review ID. The saved review could not be confirmed; refresh before retrying." }));
+        return false;
+      }
+      setEditingReviewIds((current) => ({ ...current, [reservationId]: false }));
+      setReviewFeedback((current) => ({ ...current, [reservationId]: "Review saved. Refreshing your moderation status…" }));
+      window.dispatchEvent(new Event(customerBookingsChangedEvent));
+      window.dispatchEvent(new Event("evently-admin-data-changed"));
+      await loadHistory(true);
+
+      if (!draft.text.trim()) {
+        setReviewFeedback((current) => ({ ...current, [reservationId]: "Rating saved. Sentiment is unavailable because no written feedback was provided." }));
+        return true;
+      }
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session?.access_token) {
+        setReviewFeedback((current) => ({ ...current, [reservationId]: "Review saved. Sentiment analysis remains pending because the authenticated session could not be refreshed." }));
+        return true;
+      }
       const response = await fetch(`${eventlyFunctionBaseUrl}/reviews/analyze`, {
         method: "POST",
         headers: { Authorization: `Bearer ${sessionData.session.access_token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ review_id: reviewId }),
       });
-      const result = await response.json().catch(() => ({}));
+      const analysisResult = await response.json().catch(() => ({}));
       if (response.ok) {
-        setReviewFeedback((current) => ({ ...current, [reservationId]: `Review saved for moderation. Sentiment analysis completed: ${result.sentiment}.` }));
+        setReviewFeedback((current) => ({ ...current, [reservationId]: `Review saved. Sentiment analysis completed: ${analysisResult.sentiment}. Moderation status is shown on your review.` }));
       } else {
-        setReviewFeedback((current) => ({ ...current, [reservationId]: `Review saved for moderation. Sentiment analysis remains pending: ${String(result.error ?? "service unavailable")}` }));
+        setReviewFeedback((current) => ({ ...current, [reservationId]: `Review saved. Sentiment analysis remains pending: ${String(analysisResult.error ?? "service unavailable")}` }));
       }
+      await loadHistory(true);
+      return true;
     } catch {
-      setReviewFeedback((current) => ({ ...current, [reservationId]: "Review saved for moderation. Sentiment analysis is pending and can be retried later." }));
+      setReviewFeedback((current) => ({ ...current, [reservationId]: reviewId
+        ? "Review saved. Sentiment analysis is pending and can be retried later."
+        : "The review could not be submitted. Check your connection and try again." }));
+      return Boolean(reviewId);
+    } finally {
+      setReviewSubmitting((current) => ({ ...current, [reservationId]: false }));
     }
-    await loadHistory(true);
   };
   const editReview = (reservationId: string) => {
     const review = submittedReviews[reservationId];
@@ -3540,32 +3867,57 @@ function CustomerHistoryPage() {
              <article className="customer-history-card" key={`${rowText(record, ["_record_type"])}-${rowText(record, ["id"], reference)}`}>
                <div className="customer-history-card__top"><span>Reservation</span><strong>{visibleReference}</strong><i className={`history-status history-status--${bookingTone(status)}`}>{status}</i></div>
                <h2>{customerServiceName(rowValue(record, ["service", "service_type", "service_category"]))}</h2><p>{bookingPackageLabel(record)}</p>
-              <dl><div><dt>Reservation Date</dt><dd>{bookingDate(record)}</dd></div><div><dt>Schedule</dt><dd>{bookingSchedule(record)}</dd></div><div><dt>Guests</dt><dd>{rowText(record, ["guest_count", "guests", "number_of_guests"], "—")}</dd></div>{Boolean(rowValue(record, ["resource_name", "resource_key"])) && <div><dt>Venue / Resource</dt><dd>{rowText(record, ["resource_name", "resource_key"])}</dd></div>}<div><dt>Total Booking Cost</dt><dd>{formatPhp(rowNumber(record, ["total_amount", "total", "amount"]))}</dd></div><div><dt>Required Deposit</dt><dd>{formatPhp(requiredDeposit(record))}</dd></div><div><dt>Verified Amount Paid</dt><dd>{formatPhp(rowNumber(record, ["amount_paid", "paid_amount"]))}</dd></div><div><dt>Remaining Balance</dt><dd>{formatPhp(remainingBalance(record))}</dd></div><div><dt>Payment Status</dt><dd>{paymentStatus(record)}</dd></div>{Boolean(rowValue(record, ["_order_status"])) && <div><dt>Order Status</dt><dd>{rowText(record, ["_order_status"])}</dd></div>}</dl>
+                <dl><div><dt>Reservation Date</dt><dd>{bookingDate(record)}</dd></div><div><dt>Schedule</dt><dd>{bookingSchedule(record)}</dd></div>{roomStayLabel(record) && <div><dt>Stay</dt><dd>{roomStayLabel(record)}</dd></div>}<div><dt>Guests</dt><dd>{rowText(record, ["guest_count", "guests", "number_of_guests"], "—")}</dd></div>{Boolean(rowValue(record, ["resource_name", "resource_key"])) && <div><dt>Venue / Resource</dt><dd>{rowText(record, ["resource_name", "resource_key"])}</dd></div>}<div><dt>Total Booking Cost</dt><dd>{formatPhp(rowNumber(record, ["total_amount", "total", "amount"]))}</dd></div><div><dt>Required Deposit</dt><dd>{formatPhp(requiredDeposit(record))}</dd></div><div><dt>Verified Amount Paid</dt><dd>{formatPhp(rowNumber(record, ["amount_paid", "paid_amount"]))}</dd></div><div><dt>Remaining Balance</dt><dd>{formatPhp(remainingBalance(record))}</dd></div><div><dt>Payment Status</dt><dd>{paymentStatus(record)}</dd></div></dl>
                 <div className="history-card-actions"><button className="history-card-actions__primary" onClick={(event) => { detailsOpenerRef.current = event.currentTarget; setSelected(record); }} type="button">View Details</button>{hasReference && <button onClick={() => navigate(`/track-order?ref=${encodeURIComponent(reference)}`)} type="button">Track Booking</button>}{Boolean(rowValue(record, ["_order_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(record, ["_order_code"]))}`)} type="button">Payment Details</button>}</div>
-                {rowText(record, ["_record_type"]) === "Reservation" && status.toLowerCase() === "completed" && (submittedReviews[String(record.id)] && !editingReviewIds[String(record.id)] ? <div className="customer-review-state"><strong>Your review: {rowText(submittedReviews[String(record.id)], ["moderation_status"], "pending")}</strong><p>{rowText(submittedReviews[String(record.id)], ["review_text", "comment"])}</p><small>Sentiment: {rowText(submittedReviews[String(record.id)], ["sentiment_label"], "Pending analysis")}</small><button disabled={!reviewFeatureReady} onClick={() => editReview(String(record.id))} type="button">Edit and resubmit</button>{reviewFeedback[String(record.id)] && <p role="status">{reviewFeedback[String(record.id)]}</p>}</div> : reviewFeatureReady && <form className="customer-review-form" onSubmit={(event) => { event.preventDefault(); void submitReview(String(record.id)); }}><strong>{submittedReviews[String(record.id)] ? "Edit and resubmit your review" : "Share your experience"}</strong><label>Rating<select value={reviewDrafts[String(record.id)]?.rating ?? 5} onChange={(event) => setReviewDrafts((current) => ({ ...current, [String(record.id)]: { ...(current[String(record.id)] ?? { text: "", rating: 5 }), rating: Number(event.target.value) } }))}>{[5,4,3,2,1].map((rating) => <option key={rating} value={rating}>{rating} stars</option>)}</select></label><label>Your review<textarea minLength={10} maxLength={3000} required value={reviewDrafts[String(record.id)]?.text ?? ""} onChange={(event) => setReviewDrafts((current) => ({ ...current, [String(record.id)]: { ...(current[String(record.id)] ?? { text: "", rating: 5 }), text: event.target.value } }))} /></label><button type="submit">{submittedReviews[String(record.id)] ? "Save and resubmit" : "Submit review"}</button>{reviewFeedback[String(record.id)] && <p role="status">{reviewFeedback[String(record.id)]}</p>}</form>)}
+                {rowText(record, ["_record_type"]) === "Reservation" && status.trim().toLowerCase() === "completed" && <BookingReviewControls bookingReferenceText={visibleReference} feedback={reviewFeedback[String(record.id)] ?? ""} onSubmit={(rating, text) => submitReview(String(record.id), { rating, text })} ready={reviewFeatureReady} review={submittedReviews[String(record.id)]} setupMessage={reviewSetupMessage} serviceName={customerServiceName(rowValue(record, ["service", "service_type", "service_category"]))} submitting={Boolean(reviewSubmitting[String(record.id)])} />}
+                {rowText(record, ["_record_type"]) === "Reservation" && status.toLowerCase() === "completed" && (submittedReviews[String(record.id)] && !editingReviewIds[String(record.id)] ? <div className="customer-review-state"><strong>Your review: {rowText(submittedReviews[String(record.id)], ["moderation_status"], "pending")}</strong><p>{rowText(submittedReviews[String(record.id)], ["review_text", "comment"], "Rating submitted without written feedback.")}</p><small>Sentiment: {rowText(submittedReviews[String(record.id)], ["sentiment_status"], "pending") === "unavailable" ? "Unavailable (no written feedback)" : rowText(submittedReviews[String(record.id)], ["sentiment_label"], "Pending analysis")}</small><button disabled={!reviewFeatureReady} onClick={() => { editReview(String(record.id)); setReviewFormOpen((current) => ({ ...current, [String(record.id)]: true })); }} type="button">Edit and resubmit</button>{reviewFeedback[String(record.id)] && <p role="status">{reviewFeedback[String(record.id)]}</p>}</div> : reviewFeatureReady && <>{!reviewFormOpen[String(record.id)] && <button className="history-card-actions__primary" onClick={() => { setReviewDrafts((current) => ({ ...current, [String(record.id)]: current[String(record.id)] ?? { rating: 0, text: "" } })); setReviewFormOpen((current) => ({ ...current, [String(record.id)]: true })); }} type="button">Rate Service</button>}{reviewFormOpen[String(record.id)] && <form className="customer-review-form" onSubmit={(event) => { event.preventDefault(); void submitReview(String(record.id)); }}><strong>{customerServiceName(rowValue(record, ["service", "service_type", "service_category"]))} · {visibleReference}</strong><span>Verified completed booking</span><fieldset className="review-star-picker"><legend>Your rating</legend>{[1,2,3,4,5].map((rating) => <button aria-label={`${rating} star${rating === 1 ? "" : "s"}`} aria-pressed={(reviewDrafts[String(record.id)]?.rating ?? 0) >= rating} className={(reviewDrafts[String(record.id)]?.rating ?? 0) >= rating ? "is-selected" : ""} key={rating} onClick={() => setReviewDrafts((current) => ({ ...current, [String(record.id)]: { ...(current[String(record.id)] ?? { text: "", rating: 0 }), rating } }))} type="button">★</button>)}</fieldset><label>Written feedback (optional)<textarea maxLength={3000} placeholder="Share what you liked about your experience" value={reviewDrafts[String(record.id)]?.text ?? ""} onChange={(event) => setReviewDrafts((current) => ({ ...current, [String(record.id)]: { ...(current[String(record.id)] ?? { text: "", rating: 0 }), text: event.target.value } }))} /></label><small>Please do not include personal information such as names, phone numbers, email addresses, or booking details.</small><button disabled={!reviewDrafts[String(record.id)]?.rating} type="submit">Submit Review</button>{reviewFeedback[String(record.id)] && <p role="status">{reviewFeedback[String(record.id)]}</p>}</form>}</>)}
             </article>
           );
         })}</div>}
       </section>
-       {selected && (() => {
-         const statusKey = rowText(selected, ["status"], "pending").trim().toLowerCase();
-         const readOnlyStatus = ["cancelled", "canceled", "rejected", "completed"].includes(statusKey);
+        {selected && (() => {
+          const statusKey = rowText(selected, ["status"], "pending").trim().toLowerCase();
+          const dueAt = rowText(selected, ["payment_due_at"], "");
+          const timelyPaymentPending = Boolean(selectedPayment
+            && rowText(selectedPayment, ["verification_status", "status"], "").toLowerCase() === "pending"
+            && selectedPayment.demo_mode !== true
+            && rowNumber(selectedPayment, ["amount", "payment_amount"]) >= requiredDeposit(selected)
+            && Boolean(rowValue(selectedPayment, ["reference_number"]) && rowValue(selectedPayment, ["proof_url"]))
+            && dueAt
+            && Date.parse(rowText(selectedPayment, ["submitted_at"], "")) <= Date.parse(dueAt));
+          const deadlinePassed = Boolean(dueAt && Date.parse(dueAt) <= Date.now());
+          const verifiedDepositReached = rowNumber(selected, ["amount_paid", "paid_amount"]) >= requiredDeposit(selected);
+          const expiredBooking = Boolean(rowValue(selected, ["expired_at"]) || (deadlinePassed && !timelyPaymentPending && !verifiedDepositReached && statusKey !== "confirmed"));
+          const readOnlyStatus = expiredBooking || ["cancelled", "canceled", "rejected", "completed"].includes(statusKey);
+          const paymentCanBeSubmitted = Boolean(!expiredBooking && !timelyPaymentPending && !verifiedDepositReached && statusKey === "pending" && (!dueAt || !deadlinePassed));
          return <><button className="detail-panel-overlay" aria-label="Close transaction details" onClick={closeBookingDetails} type="button" /><aside aria-labelledby="customer-reservation-details-title" aria-modal="true" className="reservation-detail-panel customer-history-detail" role="dialog">
             <div className="detail-panel__header"><div><span>Reservation details</span><h2 id="customer-reservation-details-title">{customerBookingReference(selected)}</h2></div><button aria-label="Close details" onClick={closeBookingDetails} ref={detailsCloseButtonRef} type="button"><Icon name="close" /></button></div>
           <div className="detail-status-row"><span className={`history-status history-status--${bookingTone(bookingStatus(selected))}`}>{bookingStatus(selected)}</span><span>{paymentStatus(selected)}</span></div>
           <h3 className="customer-detail-section-title">Booking information</h3>
-           <dl className="detail-panel__facts"><div><dt>Service</dt><dd>{customerServiceName(rowValue(selected, ["service", "service_type"]))}</dd></div><div><dt>Package / Tour Slot</dt><dd>{bookingPackageLabel(selected)}</dd></div><div><dt>Event Date</dt><dd>{bookingDate(selected)}</dd></div><div><dt>Schedule</dt><dd>{bookingSchedule(selected)}</dd></div><div><dt>Guests</dt><dd>{rowText(selected, ["guest_count", "guests"], "—")}</dd></div>{Boolean(rowValue(selected, ["resource_name", "resource_key"])) && <div><dt>Venue / Resource</dt><dd>{rowText(selected, ["resource_name", "resource_key"])}</dd></div>}<div><dt>Payment Status</dt><dd>{paymentStatus(selected)}</dd></div></dl>
+           <dl className="detail-panel__facts"><div><dt>Service</dt><dd>{customerServiceName(rowValue(selected, ["service", "service_type"]))}</dd></div><div><dt>Package / Tour Slot</dt><dd>{bookingPackageLabel(selected)}</dd></div><div><dt>Event Date</dt><dd>{bookingDate(selected)}</dd></div><div><dt>Schedule</dt><dd>{bookingSchedule(selected)}</dd></div><div><dt>Guests</dt><dd>{rowText(selected, ["guest_count", "guests"], "—")}</dd></div>{Boolean(rowValue(selected, ["resource_name", "resource_key"])) && <div><dt>Venue / Resource</dt><dd>{rowText(selected, ["resource_name", "resource_key"])}</dd></div>}<div><dt>Payment Status</dt><dd>{paymentStatus(selected)}</dd></div><div><dt>Payment deadline · Asia/Manila</dt><dd>{dueAt ? <PaymentDeadline awaitingReview={timelyPaymentPending} dueAt={dueAt} expired={expiredBooking} paymentVerified={verifiedDepositReached} /> : "Legacy booking — no automatic deadline until an Administrator starts one"}</dd></div></dl>
+           {statusKey === "pending" && !expiredBooking && <div className="detail-panel__section"><strong>{timelyPaymentPending ? "Your schedule is reserved and your timely payment proof is awaiting Administrator review." : verifiedDepositReached ? "Your deposit is verified. EVENTLY is resolving the remaining schedule details." : dueAt ? "Your schedule has been reserved. Please submit your 30% deposit within 24 hours to secure your booking." : "This is a legacy reservation. Its prior payment terms remain in effect until an Administrator starts a deadline."}</strong></div>}
+           {expiredBooking && <div className="detail-panel__section" role="status"><strong>Your booking has expired because payment was not submitted within 24 hours. The schedule has been released. Please create a new booking.</strong></div>}
            {bookingStatus(selected).toLowerCase() === "completed" && reviewSetupMessage && <div className="detail-panel__section"><span>Customer reviews</span><p>{reviewSetupMessage}</p></div>}
           {selectedPayment && <div className="detail-panel__section"><span>Payment submission</span><dl className="detail-panel__facts"><div><dt>Method</dt><dd>{rowText(selectedPayment, ["method", "payment_method"])}</dd></div><div><dt>Reference</dt><dd>{rowText(selectedPayment, ["reference_number"], "Not recorded")}</dd></div><div><dt>Submitted amount</dt><dd>{formatPhp(rowNumber(selectedPayment, ["amount", "payment_amount"]))}</dd></div><div><dt>Submitted</dt><dd>{rowText(selectedPayment, ["submitted_at", "created_at"], "Not recorded")}</dd></div><div><dt>Receipt upload</dt><dd>{rowValue(selectedPayment, ["proof_url"]) ? "Private receipt received" : "No receipt attached"}</dd></div><div><dt>Administrator review</dt><dd>{paymentVerificationStatus(selectedPayment)}</dd></div>{Boolean(rowValue(selectedPayment, ["rejection_reason", "review_notes"])) && <div><dt>Review note</dt><dd>{rowText(selectedPayment, ["rejection_reason", "review_notes"])}</dd></div>}</dl>{selectedPayment.demo_mode === true && <p>Demo Payment — No Actual Money Transfer. This record is for demonstration and review only.</p>}{rowText(selectedPayment, ["verification_status", "status"], "").toLowerCase() === "rejected" && Boolean(rowValue(selected, ["_order_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(selected, ["_order_code"]))}`)} type="button">Resubmit payment proof</button>}</div>}
           {rowList(selected, ["menu_items", "selected_menu", "menu"]).length > 0 && <div className="detail-panel__section"><span>Catering Menu</span><p>{rowList(selected, ["menu_items", "selected_menu", "menu"]).join(" · ")}</p></div>}
            {rowList(selected, ["addons", "selected_addons"]).length > 0 && <div className="detail-panel__section"><span>Selected Add-ons</span><p>{rowList(selected, ["addons", "selected_addons"]).join(" · ")}</p></div>}
            {Boolean(rowValue(selected, ["special_requests", "requests", "notes"])) && <div className="detail-panel__section"><span>Special Requests</span><p>{rowText(selected, ["special_requests", "requests", "notes"])}</p></div>}
            <div className="history-payment-summary"><div><span>Total Booking Cost</span><strong>{formatPhp(rowNumber(selected, ["total_amount", "total", "amount"]))}</strong></div><div><span>Required Deposit</span><strong>{formatPhp(requiredDeposit(selected))}</strong></div><div><span>Verified Amount Paid</span><strong>{formatPhp(rowNumber(selected, ["amount_paid", "paid_amount"]))}</strong></div><div><span>Remaining Balance</span><strong>{formatPhp(remainingBalance(selected))}</strong></div></div>
-           <section aria-labelledby="customer-manage-booking-title" className="customer-manage-booking">
+            {String(rowValue(selected, ["service", "service_type", "service_category"]) ?? "").toLowerCase().includes("cater") && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Customers must request any cancellation or rescheduling at least 3 days (72 hours) before their scheduled catering event. Rescheduling requests are subject to Administrator approval.</p></div>}
+            {Boolean(dueAt) && <div className="booking-policy-notice"><strong>Staycation payment deadline · Asia/Manila</strong><p>Submit the required 30% down payment by <PaymentDeadline awaitingReview={timelyPaymentPending} dueAt={dueAt} expired={expiredBooking} paymentVerified={verifiedDepositReached} />. Timely submitted payment proof remains subject to Administrator review. A rejected proof does not reset the original deadline.</p></div>}
+            <section aria-labelledby="customer-manage-booking-title" className="customer-manage-booking">
              <h3 id="customer-manage-booking-title">Manage Booking</h3>
-             <p>{readOnlyStatus ? `This reservation is ${statusKey} and can no longer be changed.` : "Schedule-change requests are not enabled for customer accounts yet. No reservation changes have been made."}</p>
-             <div><button disabled title={readOnlyStatus ? `Unavailable for ${statusKey} reservations` : "Secure rescheduling request service is not configured"} type="button"><CalendarClock aria-hidden="true" size={18} /> Reschedule Booking</button><button className="customer-manage-booking__cancel" disabled title={readOnlyStatus ? `Unavailable for ${statusKey} reservations` : "Secure customer cancellation request service is not configured"} type="button"><CalendarX aria-hidden="true" size={18} /> Cancel Booking</button></div>
-             <small>Cancellation terms and refund policy have not been configured here. This page does not submit cancellation or issue refunds.</small>
+              <p>{readOnlyStatus ? `This reservation is ${expiredBooking ? "expired" : statusKey} and can no longer be changed.` : selectedIsCatering ? "Send a cancellation or rescheduling request for Administrator review." : "Schedule changes require Administrator assistance."}</p>
+              {paymentCanBeSubmitted && Boolean(rowValue(selected, ["_order_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(selected, ["_order_code"]))}`)} type="button">Submit 30% Deposit</button>}
+              {selectedIsCatering && !readOnlyStatus ? <form className="catering-change-request-form" onSubmit={(event) => void submitCateringChangeRequest(event)}>
+                <label><span>Request type</span><select value={cateringRequestAction} onChange={(event) => setCateringRequestAction(event.target.value as "cancel" | "reschedule")}><option value="cancel">Cancel this booking</option><option value="reschedule">Request a new schedule</option></select></label>
+                {cateringRequestAction === "reschedule" && <><label><span>Proposed event date</span><input required type="date" value={cateringRequestDate} onChange={(event) => setCateringRequestDate(event.target.value)} /></label><div><label><span>Proposed start time</span><input required type="time" value={cateringRequestStart} onChange={(event) => setCateringRequestStart(event.target.value)} /></label><label><span>Proposed end time</span><input required type="time" value={cateringRequestEnd} onChange={(event) => setCateringRequestEnd(event.target.value)} /></label></div></>}
+                <label><span>Reason for your request</span><textarea required maxLength={2000} value={cateringRequestReason} onChange={(event) => setCateringRequestReason(event.target.value)} /></label>
+                <small>Submit at least 72 hours before the event. Exactly 72 hours is eligible. Rescheduling takes effect only after Administrator approval.</small>
+                <button disabled={cateringRequestSubmitting} type="submit">{cateringRequestSubmitting ? "Sending request…" : "Send to Administrator"}</button>
+                {cateringRequestFeedback && <p role="status">{cateringRequestFeedback}</p>}
+              </form> : !selectedIsCatering && <div><button disabled title={readOnlyStatus ? `Unavailable for ${statusKey} reservations` : "Contact an Administrator to request a schedule change"} type="button"><CalendarClock aria-hidden="true" size={18} /> Reschedule Booking</button><button className="customer-manage-booking__cancel" disabled title={readOnlyStatus ? `Unavailable for ${statusKey} reservations` : "Contact an Administrator to cancel this reservation"} type="button"><CalendarX aria-hidden="true" size={18} /> Cancel Booking</button></div>}
+              {!selectedIsCatering && <small>Requests require Administrator assistance. This page does not submit cancellation or issue refunds.</small>}
            </section>
          </aside></>;
        })()}
@@ -3877,6 +4229,7 @@ function OrderPage() {
         <div className="order-card">
            <div className="order-card__header"><div><span>Order Reference</span><strong>{bookingReference(order)}</strong></div><button onClick={() => navigate(`/track-order?ref=${encodeURIComponent(bookingReference(reservation ?? order))}`)} type="button">Track Booking <Icon name="arrow" size={17} /></button></div>
           <div className="order-overview"><div><span>Service</span><strong>{rowText(order, ["service", "service_type"])}</strong></div><div><span>Package</span><strong>{bookingPackageLabel(order, reservation)}</strong></div><div><span>Guests</span><strong>{rowText(order, ["guest_count", "guests"], "—")}</strong></div><div><span>Event Date</span><strong>{bookingDate(order)}</strong></div></div>
+          {reservation && <div className="booking-policy-notice"><strong>Payment deadline · Asia/Manila</strong><p>Submit the required 30% down payment by {rowValue(reservation, ["payment_due_at"]) ? <PaymentDeadline awaitingReview={paymentAwaitingReview} dueAt={rowText(reservation, ["payment_due_at"])} paymentVerified={amountPaid >= depositAmount} /> : "the deadline shown in your booking details"}. Timely submitted payment proof remains subject to Administrator review. A rejected proof does not reset the original deadline.</p></div>}
           <div className="order-sections">
             <article><div className="order-section__title"><span>01</span><h2>Catering Menu</h2></div>{menu.length ? <ul className="menu-list">{menu.map((item) => <li key={item}><i />{item}</li>)}</ul> : <p className="order-empty-copy">No catering menu stored for this order.</p>}</article>
             <article><div className="order-section__title"><span>02</span><h2>Add-ons</h2></div>{addons.length ? <ul className="menu-list">{addons.map((item) => <li key={item}><i />{item}</li>)}</ul> : <p className="order-empty-copy">No add-ons stored for this order.</p>}</article>
@@ -4037,7 +4390,7 @@ function TrackOrderPage() {
         <div className="tracking-result__header"><div><span>{type} reference</span><h2>{bookingReference(tracked)}</h2><p>Latest status from your Evently record.</p></div><span className={`tracking-result__status ${cancelled ? "tracking-result__status--cancelled" : `tracking-result__status--${status.toLowerCase()}`}`}>{status}</span></div>
         {cancelled ? <div className="tracking-cancelled"><Icon name="close" size={20} /><div><strong>This booking was cancelled</strong><span>No completion progress is shown for cancelled bookings.</span></div></div> : <div className="tracking-timeline" aria-label={`${type} progress`}>{stages.map((stage, index) => { const state = stageState(index); return <div className={`tracking-step tracking-step--${state}`} key={stage}><div className="tracking-step__marker"><span>{state === "completed" ? "✓" : index + 1}</span></div><div className="tracking-step__copy"><strong>{stage}</strong><small>{state === "completed" ? "Completed" : state === "current" ? "Current status" : "Upcoming"}</small></div></div>; })}</div>}
          {Boolean(rowValue(tracked, ["_order_status"]) ?? (type === "Order" ? rowValue(tracked, ["order_status", "status"]) : null)) && <div className="tracking-order-progress"><span>Order progress</span><strong>{rowText(tracked, ["_order_status", "order_status", "status"])}</strong></div>}
-         <div className="tracking-detail-grid"><article className="tracking-information-card"><div className="tracking-card-heading"><span><Icon name="calendar" size={19} /></span><div><small>{type}</small><h3>Booking Summary</h3></div></div><dl><div><dt>Reference Number</dt><dd>{bookingReference(tracked)}</dd></div><div><dt>Service Type</dt><dd>{rowText(tracked, ["service", "service_type"])}</dd></div><div><dt>Package / Tour Slot</dt><dd>{bookingPackageLabel(tracked)}</dd></div><div><dt>Event Date</dt><dd>{bookingDate(tracked)}</dd></div><div><dt>Schedule</dt><dd>{bookingSchedule(tracked)}</dd></div><div><dt>Number of Guests</dt><dd>{rowText(tracked, ["guest_count", "guests"], "—")}</dd></div>{Boolean(rowValue(tracked, ["resource_name", "resource_key"])) && <div><dt>Venue / Resource</dt><dd>{rowText(tracked, ["resource_name", "resource_key"])}</dd></div>}<div><dt>Booking Status</dt><dd>{status}</dd></div>{type === "Order" && <div><dt>Order Status</dt><dd>{rowText(tracked, ["order_status", "status"])}</dd></div>}</dl></article>
+          <div className="tracking-detail-grid"><article className="tracking-information-card"><div className="tracking-card-heading"><span><Icon name="calendar" size={19} /></span><div><small>{type}</small><h3>Booking Summary</h3></div></div><dl><div><dt>Reference Number</dt><dd>{bookingReference(tracked)}</dd></div><div><dt>Service Type</dt><dd>{rowText(tracked, ["service", "service_type"])}</dd></div><div><dt>Package / Tour Slot</dt><dd>{bookingPackageLabel(tracked)}</dd></div><div><dt>Event Date</dt><dd>{bookingDate(tracked)}</dd></div><div><dt>Schedule</dt><dd>{bookingSchedule(tracked)}</dd></div>{roomStayLabel(tracked) && <div><dt>Stay</dt><dd>{roomStayLabel(tracked)}</dd></div>}<div><dt>Number of Guests</dt><dd>{rowText(tracked, ["guest_count", "guests"], "—")}</dd></div>{Boolean(rowValue(tracked, ["resource_name", "resource_key"])) && <div><dt>Venue / Resource</dt><dd>{rowText(tracked, ["resource_name", "resource_key"])}</dd></div>}<div><dt>Booking Status</dt><dd>{status}</dd></div>{type === "Order" && <div><dt>Order Status</dt><dd>{rowText(tracked, ["order_status", "status"])}</dd></div>}</dl></article>
           <article className="tracking-payment-card"><div className="tracking-card-heading"><span><Icon name="sparkle" size={19} /></span><div><small>Payments</small><h3>Payment Summary</h3></div></div><dl><div><dt>Total Booking Cost</dt><dd>{formatPhp(total)}</dd></div><div><dt>Required Deposit</dt><dd>{formatPhp(requiredDeposit(tracked))}</dd></div><div><dt>Verified Amount Paid</dt><dd className="tracking-positive-value">{formatPhp(amountPaid)}</dd></div><div className="tracking-payment-balance"><dt>Remaining Balance</dt><dd>{formatPhp(remainingBalance(tracked))}</dd></div><div><dt>Payment Method</dt><dd>{rowText(payments[0] ?? tracked, ["payment_method", "method"], "Not recorded")}</dd></div><div><dt>Payment Status</dt><dd>{paymentStatus(payments[0] ?? tracked, tracked)}</dd></div><div><dt>Payment Verification</dt><dd>{paymentVerificationStatus(payments[0] ?? tracked)}</dd></div>{payments[0] && <><div><dt>Reference</dt><dd>{rowText(payments[0], ["reference_number"], "Not recorded")}</dd></div><div><dt>Receipt</dt><dd>{rowValue(payments[0], ["proof_url"]) ? "Private receipt uploaded" : "Not uploaded"}</dd></div></>}{Boolean(rowValue(payments[0] ?? {}, ["rejection_reason", "review_notes"])) && <div><dt>Admin review note</dt><dd>{rowText(payments[0], ["rejection_reason", "review_notes"])}</dd></div>}</dl>{(payments[0] ?? {}).demo_mode === true && <p className="tracking-demo-note">Demo Payment — No Actual Money Transfer. This receipt is a demonstration record only.</p>}</article></div>
         <article className="tracking-selection-card"><div><span>Booking Details</span><p><strong>Selected Package:</strong> {bookingPackageLabel(tracked)}</p>{rowList(tracked, ["menu_items", "selected_menu", "menu"]).length > 0 && <p><strong>Catering Menu:</strong> {rowList(tracked, ["menu_items", "selected_menu", "menu"]).join(" · ")}</p>}{rowList(tracked, ["addons", "selected_addons"]).length > 0 && <p><strong>Selected Add-ons:</strong> {rowList(tracked, ["addons", "selected_addons"]).join(" · ")}</p>}<p><strong>Special Requests:</strong> {rowText(tracked, ["special_requests", "requests", "notes"], "None recorded")}</p></div></article>
       </section>}
@@ -4418,7 +4771,8 @@ function Homepage() {
   const [scrolled, setScrolled] = useState(false);
   const [activeSection, setActiveSection] = useState(() => window.location.hash === "#booking" ? "booking" : "home");
   const [reviewIndex, setReviewIndex] = useState(0);
-  const [publicReviews, setPublicReviews] = useState<Array<{ id: string; rating: number; review: string; service: string }>>([]);
+  const [publicReviews, setPublicReviews] = useState<Array<{ key: number; rating: number; review: string; service: string; date: string; displayName: string; verified: boolean }>>([]);
+  const [publicReviewError, setPublicReviewError] = useState("");
   const [lightbox, setLightbox] = useState<{ context: string; alt: string } | null>(null);
   const [bookingLoginOpen, setBookingLoginOpen] = useState(false);
   const [customerProfile, setCustomerProfile] = useState<CustomerAccountProfile | null>(() => readCustomerProfile());
@@ -4564,14 +4918,23 @@ function Homepage() {
   useEffect(() => {
     let active = true;
     const loadPublishedReviews = async () => {
-      const { data: reviews } = await supabase.from("reviews")
-        .select("id,rating,review_text,created_at,is_published")
-        .eq("is_published", true).order("created_at", { ascending: false }).limit(12);
+      const { data: reviews, error } = await supabase.from("evently_public_review_feed")
+        .select("rating,review_text,service_category,review_date,display_name,verified_booking").limit(12);
       if (!active) return;
-      setPublicReviews((reviews ?? []).map((row) => ({
-        id: String(row.id), rating: Number(row.rating), review: String(row.review_text ?? ""),
-        service: "Venice experience",
-      })).filter((row) => row.review.trim().length > 0 && row.rating >= 1 && row.rating <= 5));
+      if (error) {
+        setPublicReviews([]);
+        setPublicReviewError("Customer feedback is temporarily unavailable because the sanitized review feed could not be loaded.");
+        return;
+      }
+      setPublicReviewError("");
+      setPublicReviews((reviews ?? []).map((row, index) => ({
+        key: index, rating: Number(row.rating), review: String(row.review_text ?? ""),
+        service: String(row.service_category ?? "Venice experience"),
+        date: String(row.review_date ?? ""),
+        verified: row.verified_booking === true,
+        displayName: row.verified_booking === true ? "Verified Customer" : "Anonymous Customer",
+      })).filter((row) => row.rating >= 1 && row.rating <= 5)
+        .sort((left, right) => Date.parse(right.date) - Date.parse(left.date)));
     };
     void loadPublishedReviews();
     return () => { active = false; };
@@ -4772,7 +5135,7 @@ function Homepage() {
         <div className="services-overview__grid stagger-group" data-reveal>
           {[
             { label: "Catering", description: "A complete six-dish buffet with rice, dessert, drinks, and your preferred menu selections.", imageContext: "Food & Catering Photo", serviceId: "Catering" },
-            { label: "Staycation", description: "Stay close to the good times with flexible day and overnight options for your group.", imageContext: "Overnight Resort Stay Photo", serviceId: "staycation" },
+            { label: "Staycation", description: "Choose swimming tours, room stays, or Venue Only with optional Pool Access.", imageContext: "Overnight Resort Stay Photo", serviceId: "staycation" },
             { label: "Events Place", description: "Explore Daffodil and Amarillo venues for your next celebration.", imageContext: "Event & Venue Photo", serviceId: "Event" },
           ].map((experience, index) => (
             <article className={`service-overview-card service-overview-card--${index + 1}`} key={experience.label}>
@@ -4787,6 +5150,7 @@ function Homepage() {
                 <div className="staycation-options">
                   <button data-booking-cta="true" onClick={() => chooseService("Swimming Pool")} type="button"><strong>Swimming Pool Tours</strong><small>Day, night, and overnight schedules</small></button>
                   <button data-booking-cta="true" onClick={() => chooseService("Room Accommodation")} type="button"><strong>Room Accommodation</strong><small>Standard and Kubo room options</small></button>
+                  <button data-booking-cta="true" onClick={() => chooseService("Resort Venue Only")} type="button"><strong>Venue Only</strong><small>Non-Aircon ₱10,000/5 hours · Aircon ₱15,000/4 hours</small></button>
                 </div>
               )}
             </article>
@@ -4949,13 +5313,13 @@ function Homepage() {
         </div>
         <div className="review-grid stagger-group" data-reveal>
           {publicReviews.slice(0, 3).map((review, index) => (
-            <article className={`review-card ${reviewIndex === index ? "review-card--active" : ""}`} key={review.id} onMouseEnter={() => setReviewIndex(index)}>
+            <article className={`review-card ${reviewIndex === index ? "review-card--active" : ""}`} key={`${review.key}-${index}`} onMouseEnter={() => setReviewIndex(index)}>
               <AnimatedRating rating={review.rating} />
-              <blockquote>{review.review}</blockquote>
-              <div><CustomerAvatarPlaceholder name="Verified customer" /><p><strong>Verified customer</strong><span>{review.service}</span></p></div>
+              <blockquote>{review.review || "Customer left a star rating without written feedback."}</blockquote>
+              <div><CustomerAvatarPlaceholder name={review.displayName} /><p><strong>{review.displayName}</strong><span>{review.service}{review.verified ? " · Verified Booking" : ""}</span><small>{review.date ? new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" }).format(new Date(review.date)) : ""}</small></p></div>
             </article>
           ))}
-          {!publicReviews.length && <div className="admin-chart-empty" role="status">Customer feedback will appear here after approved reviews are published.</div>}
+          {!publicReviews.length && <div className="admin-chart-empty" role="status">{publicReviewError || "Customer feedback will appear here after approved reviews are published."}</div>}
         </div>
       </section>
 

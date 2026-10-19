@@ -79,45 +79,47 @@ with checks as (
   union all
 
   select
-    'Admin-only review and approval privileges',
+    'Admin-only review and automatic-confirmation privileges',
     coalesce(
       has_function_privilege('authenticated', to_regprocedure('public.admin_review_payment(uuid,text,text)'), 'EXECUTE')
-      and has_function_privilege('authenticated', to_regprocedure('public.evently_admin_approve_booking(uuid,boolean)'), 'EXECUTE')
+       and not has_function_privilege('authenticated', to_regprocedure('public.evently_admin_approve_booking(uuid,boolean)'), 'EXECUTE')
       and not has_function_privilege('anon', to_regprocedure('public.admin_review_payment(uuid,text,text)'), 'EXECUTE')
       and not has_function_privilege('anon', to_regprocedure('public.evently_admin_approve_booking(uuid,boolean)'), 'EXECUTE'),
       false
     ),
-    'authenticated RPC calls are guarded by Owner/Admin checks in their function bodies'
+    'payment review is authenticated/Admin-guarded; manual schedule approval is disabled'
 
   union all
 
   select
-    'approval requires verified proof and schedule checks',
+    'timely sufficient payment auto-confirms',
     coalesce(
-      pg_get_functiondef(to_regprocedure('public.evently_admin_approve_booking(uuid,boolean)')) ilike '%payment proof%'
-      and pg_get_functiondef(to_regprocedure('public.evently_admin_approve_booking(uuid,boolean)')) ilike '%is_evently_admin%'
-      and pg_get_functiondef(to_regprocedure('public.evently_admin_approve_booking(uuid,boolean)')) ilike '%evently_admin_approve_booking_before_payment_verification%',
+      pg_get_functiondef(to_regprocedure('public.admin_review_payment(uuid,text,text)')) ilike '%submitted_at%'
+      and pg_get_functiondef(to_regprocedure('public.admin_review_payment(uuid,text,text)')) ilike '%payment_due_at%'
+      and pg_get_functiondef(to_regprocedure('public.admin_review_payment(uuid,text,text)')) ilike '%evently_auto_confirm_verified_reservation%'
+      and pg_get_functiondef(to_regprocedure('public.evently_auto_confirm_verified_reservation(uuid)')) ilike '%confirmed%'
+      and pg_get_functiondef(to_regprocedure('public.evently_auto_confirm_verified_reservation(uuid)')) ilike '%demo_mode is not true%',
       false
     ),
-    'the wrapper checks verified payment proof, then delegates to the schedule/resource approval workflow'
+    'only timely non-demo verified payment reaching the required deposit auto-confirms'
 
   union all
 
   select
     'generic confirmation bypass is blocked',
     coalesce(
-      pg_get_functiondef(to_regprocedure('public.admin_transition_reservation(uuid,text,text)')) ilike '%evently_admin_approve_booking%'
-      and pg_get_functiondef(to_regprocedure('public.admin_transition_reservation(uuid,text,text)')) ilike '%use evently_admin_approve_booking%',
+      pg_get_functiondef(to_regprocedure('public.admin_transition_reservation(uuid,text,text)')) ilike '%admin_transition_reservation_before_override_audit%'
+      and pg_get_functiondef(to_regprocedure('public.admin_transition_reservation_before_override_audit(uuid,text,text)')) ilike '%use evently_admin_approve_booking%',
       false
     ),
-    'confirmed/approved transitions must use the guarded approval RPC'
+    'manual confirmation remains blocked and normal confirmation is payment-driven'
 
   union all
 
   select
     'demo payments excluded from financial totals',
     coalesce(
-      pg_get_functiondef(to_regprocedure('public.admin_review_payment(uuid,text,text)')) ilike '%demo_mode is not true%',
+      pg_get_functiondef(to_regprocedure('public.evently_auto_confirm_verified_reservation(uuid)')) ilike '%demo_mode is not true%',
       false
     ),
     'accepted demo proof does not update amount_paid or collected payment totals'

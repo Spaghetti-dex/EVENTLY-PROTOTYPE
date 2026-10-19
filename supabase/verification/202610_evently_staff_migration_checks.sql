@@ -61,10 +61,11 @@ with required_columns(table_name, column_name) as (
     ('notifications','entity_type'), ('notifications','entity_id'), ('notifications','dedupe_key'), ('notifications','is_read'),
     ('evently_review_analysis_rate_limits','user_id'), ('evently_review_analysis_rate_limits','window_started_at'),
     ('evently_review_analysis_rate_limits','request_count'),
-    ('reviews','id'), ('reviews','customer_id'), ('reviews','reservation_id'), ('reviews','package_id'),
+    ('reviews','id'), ('reviews','customer_id'), ('reviews','reservation_id'),
     ('reviews','rating'), ('reviews','review_text'), ('reviews','is_published'), ('reviews','moderation_status'),
     ('reviews','moderation_reason'), ('reviews','sentiment_label'), ('reviews','sentiment_confidence'),
-    ('reviews','sentiment_analyzed_at'), ('reviews','sentiment_model_version'), ('reviews','created_at'), ('reviews','updated_at')
+    ('reviews','sentiment_analyzed_at'), ('reviews','sentiment_model_version'), ('reviews','sentiment_status'),
+    ('reviews','public_review_text'), ('reviews','service_category'), ('reviews','created_at'), ('reviews','updated_at')
 )
 select required.table_name,
        required.column_name,

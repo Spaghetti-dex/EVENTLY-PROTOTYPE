@@ -298,7 +298,6 @@ create table if not exists public.reviews (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references public.profiles(id) on delete cascade,
   reservation_id uuid not null references public.reservations(id) on delete cascade,
-  package_id uuid references public.packages(id) on delete set null,
   rating smallint not null check (rating between 1 and 5),
   review_text text not null,
   is_published boolean not null default false,
@@ -314,7 +313,6 @@ create table if not exists public.reviews (
 alter table public.reviews
   add column if not exists customer_id uuid references public.profiles(id) on delete cascade,
   add column if not exists reservation_id uuid references public.reservations(id) on delete cascade,
-  add column if not exists package_id uuid references public.packages(id) on delete set null,
   add column if not exists rating smallint,
   add column if not exists review_text text,
   add column if not exists is_published boolean not null default false,
@@ -345,12 +343,6 @@ $$;
 update public.reviews
 set moderation_status = 'approved'
 where is_published and moderation_status = 'pending';
-
-update public.reviews review
-set package_id = reservation.package_id
-from public.reservations reservation
-where review.reservation_id = reservation.id
-  and review.package_id is null;
 
 do $$
 begin
@@ -696,7 +688,7 @@ create or replace function public.evently_submit_customer_review(
   p_reservation_id uuid, p_rating integer, p_review_text text
 ) returns uuid language plpgsql security definer set search_path = ''
 as $$
-declare v_review_id uuid; v_package_id uuid;
+declare v_review_id uuid;
 begin
   if auth.uid() is null then raise exception 'Sign in to submit a review'; end if;
   if not exists (select 1 from public.profiles where id = auth.uid() and role = 'customer') then
@@ -708,15 +700,15 @@ begin
   if public.evently_review_text_has_profanity(p_review_text) then
     raise exception 'Please edit profanity or abusive wording before submitting your review';
   end if;
-  select package_id into v_package_id from public.reservations
+  perform 1 from public.reservations
     where id = p_reservation_id and customer_id = auth.uid() and lower(status::text) = 'completed';
   if not found then raise exception 'Only the customer who completed this booking may review it'; end if;
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_reservation_id::text, 0));
   if exists (select 1 from public.reviews where reservation_id = p_reservation_id and customer_id = auth.uid()) then
     raise exception 'A review has already been submitted for this booking';
   end if;
-  insert into public.reviews(customer_id, reservation_id, package_id, rating, review_text, moderation_status, moderation_reason, is_published)
-  values (auth.uid(), p_reservation_id, v_package_id, p_rating, trim(p_review_text),
+  insert into public.reviews(customer_id, reservation_id, rating, review_text, moderation_status, moderation_reason, is_published)
+  values (auth.uid(), p_reservation_id, p_rating, trim(p_review_text),
     case when public.evently_review_text_needs_moderation(p_review_text) then 'flagged' else 'pending' end,
     case when public.evently_review_text_needs_moderation(p_review_text) then 'Automated flag: potentially abusive phrasing requires manual review' else null end,
     false)
@@ -834,7 +826,6 @@ create policy "Published reviews are public; authors and moderators can read" on
 revoke insert, update, delete on public.reviews from public, anon, authenticated;
 revoke select on public.reviews from public, anon;
 grant select on public.reviews to authenticated;
-grant select (id, package_id, rating, review_text, created_at, is_published) on public.reviews to anon;
 drop policy if exists "Evently restrict review row visibility" on public.reviews;
 create policy "Evently restrict review row visibility" on public.reviews as restrictive for select
   using (is_published or customer_id = auth.uid() or public.is_evently_admin() or public.evently_staff_has_permission('moderate_reviews'));

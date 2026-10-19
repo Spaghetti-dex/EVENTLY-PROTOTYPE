@@ -7,6 +7,34 @@
 .customer-review-form select,.customer-review-form textarea { border: 1px solid #cbd9d4; border-radius: 7px; font: inherit; padding: 9px; }
 .customer-review-form button { background: #148d88; border: 0; border-radius: 7px; color: white; cursor: pointer; font: inherit; font-weight: 700; padding: 10px; }
 .customer-review-form p,.customer-review-state p { color: #53645f; font-size: 11px; line-height: 1.5; margin: 0; }
+.customer-review-form > small { color: #8a5b27; font-size: 11px; line-height: 1.5; }
+.customer-review-form .review-star-picker { border: 0; display: flex; gap: 6px; margin: 0; padding: 0; }
+.customer-review-form .review-star-picker legend { color: #586d66; font-size: 11px; margin-bottom: 5px; }
+.customer-review-form .review-star-picker button { background: transparent; color: #c8c9c1; font-size: 30px; line-height: 1; padding: 0 2px; }
+.customer-review-form .review-star-picker button.is-selected { color: #d49b2e; }
+.customer-review-form .review-star-picker button:focus-visible { outline: 2px solid #148d88; outline-offset: 3px; }
+.customer-review-form textarea { min-height: 100px; resize: vertical; width: 100%; }
+.customer-history-card > .customer-review-state,.customer-history-card > .customer-review-form,.customer-history-card > button.history-card-actions__primary { display: none !important; }
+.booking-review-controls { display: grid; gap: 9px; margin-top: 12px; }
+.booking-review-controls__actions,.booking-review-form__actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.booking-review-controls__primary,.booking-review-controls__secondary { align-items: center; border: 1px solid var(--teal-dark); border-radius: 8px; cursor: pointer; display: inline-flex; font: inherit; font-size: 11px; font-weight: 700; justify-content: center; min-height: 40px; padding: 9px 14px; }
+.booking-review-controls__primary { background: var(--teal-dark); color: white; }
+.booking-review-controls__primary:disabled { cursor: not-allowed; opacity: .55; }
+.booking-review-controls__secondary { background: white; color: var(--teal-dark); }
+.booking-review-controls__view,.booking-review-form { background: #f7f9f5; border: 1px solid var(--customer-border); border-radius: 11px; display: grid; gap: 10px; padding: 13px; }
+.booking-review-controls__view > div:first-child,.booking-review-form__heading { align-items: flex-start; display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+.booking-review-controls__view strong,.booking-review-form__heading strong { color: var(--teal-dark); font-size: 12px; }
+.booking-review-controls__view p { color: var(--ink); font-size: 12px; line-height: 1.6; margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.booking-review-controls__view small,.booking-review-form > small { color: var(--customer-muted); font-size: 10px; line-height: 1.5; }
+.booking-review-controls__status { background: #e7f2ec; border-radius: 20px; color: #286446; font-size: 9px; font-weight: 700; padding: 4px 8px; text-transform: capitalize; }
+.booking-review-controls__status--flagged,.booking-review-controls__status--pending { background: #fff1d9; color: #7a5412; }
+.booking-review-controls__status--rejected { background: #ffeded; color: #9c3434; }
+.booking-review-controls__rating { color: #d49b2e; font-size: 19px; letter-spacing: 2px; }
+.booking-review-form__heading { flex-direction: column; gap: 3px; }
+.booking-review-form__heading span { color: var(--customer-muted); font-size: 10px; }
+.booking-review-form label { color: var(--customer-muted); display: grid; font-size: 10px; gap: 5px; }
+.booking-review-form textarea { background: white; border: 1px solid var(--customer-border); border-radius: 7px; color: var(--ink); font: inherit; min-height: 92px; padding: 9px; resize: vertical; width: 100%; }
+.booking-review-form__message { color: var(--teal-dark); font-size: 10px; line-height: 1.45; margin: 0; overflow-wrap: anywhere; }
 
 :root {
   --green: #159c03;
@@ -707,6 +735,18 @@ body:has(.customer-history-detail) .demo-floating-chat { opacity: 0 !important; 
 .customer-manage-booking > div { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; }
 .customer-manage-booking button { align-items: center; background: white; border: 1px solid var(--green); border-radius: 9px; color: var(--green); cursor: not-allowed; display: inline-flex; font: inherit; font-size: 10px; font-weight: 700; gap: 8px; justify-content: center; min-height: 44px; padding: 10px; opacity: .62; }
 .customer-manage-booking button.customer-manage-booking__cancel { border-color: #c97873; color: #a94d4b; }
+.catering-change-request-form { background: #fff; border: 1px solid var(--customer-border); border-radius: 10px; display: grid; gap: 10px; margin-top: 12px; padding: 12px; }
+.catering-change-request-form label { color: var(--customer-muted); display: grid; font-size: 10px; gap: 5px; }
+.catering-change-request-form input,.catering-change-request-form select,.catering-change-request-form textarea { background: white; border: 1px solid var(--customer-border); border-radius: 7px; color: var(--ink); font: inherit; min-height: 40px; padding: 8px; width: 100%; }
+.catering-change-request-form > div { display: grid; gap: 8px; grid-template-columns: repeat(2,minmax(0,1fr)); }
+.catering-change-request-form textarea { min-height: 76px; resize: vertical; }
+.catering-change-request-form > small { color: var(--customer-muted); font-size: 10px; line-height: 1.5; }
+.catering-change-request-form > p { color: var(--teal-dark); font-size: 11px; margin: 0; }
+.catering-change-request-form button { background: var(--teal-dark); border: 0; border-radius: 8px; color: white; cursor: pointer; font: inherit; font-size: 11px; font-weight: 700; min-height: 42px; padding: 9px 12px; }
+.booking-policy-notice { background: #f4f7ef; border: 1px solid rgba(18,70,63,.16); border-left: 4px solid var(--teal-dark); border-radius: 12px; color: var(--teal-dark); margin: 16px 0; padding: 14px 16px; }
+.booking-policy-notice strong { display: block; font-size: 13px; margin-bottom: 5px; }
+.booking-policy-notice p { font-size: 12px; line-height: 1.65; margin: 0; }
+@media (max-width: 600px) { .booking-policy-notice { margin: 12px 0; padding: 12px; } .booking-policy-notice p { font-size: 11px; } }
 .customer-manage-booking > small { color: #75817c; display: block; font-size: 9px; line-height: 1.45; margin-top: 10px; }
 @media (max-width: 760px) {
   .customer-history-detail { border-radius: 0; inset: 0; max-width: none; padding: calc(16px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom)); width: 100%; }

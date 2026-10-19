@@ -2,7 +2,6 @@
 -- This leaves the original customer/reservation/rating/text/publication columns intact.
 
 alter table public.reviews
-  add column if not exists package_id uuid references public.packages(id) on delete set null,
   add column if not exists moderation_status text not null default 'pending',
   add column if not exists moderation_reason text,
   add column if not exists sentiment_label text,
@@ -10,12 +9,6 @@ alter table public.reviews
   add column if not exists sentiment_analyzed_at timestamptz,
   add column if not exists sentiment_model_version text,
   add column if not exists updated_at timestamptz not null default now();
-
-update public.reviews review
-set package_id = reservation.package_id
-from public.reservations reservation
-where review.reservation_id = reservation.id
-  and review.package_id is null;
 
 update public.reviews
 set moderation_status = 'approved'
@@ -39,7 +32,7 @@ create or replace function public.evently_submit_customer_review(
   p_reservation_id uuid, p_rating integer, p_review_text text
 ) returns uuid language plpgsql security definer set search_path = ''
 as $$
-declare v_review_id uuid; v_package_id uuid;
+declare v_review_id uuid;
 begin
   if auth.uid() is null then raise exception 'Sign in to submit a review'; end if;
   if not exists (select 1 from public.profiles where id = auth.uid() and role = 'customer') then
@@ -51,7 +44,7 @@ begin
   if public.evently_review_text_has_profanity(p_review_text) then
     raise exception 'Please edit profanity or abusive wording before submitting your review';
   end if;
-  select reservation.package_id into v_package_id
+  perform 1
   from public.reservations reservation
   where reservation.id = p_reservation_id
     and reservation.customer_id = auth.uid()
@@ -65,11 +58,11 @@ begin
   end if;
 
   insert into public.reviews(
-    customer_id, reservation_id, package_id, rating, review_text, moderation_status,
+    customer_id, reservation_id, rating, review_text, moderation_status,
     moderation_reason, is_published, sentiment_label, sentiment_confidence,
     sentiment_analyzed_at, sentiment_model_version, updated_at
   ) values (
-    auth.uid(), p_reservation_id, v_package_id, p_rating, trim(p_review_text),
+    auth.uid(), p_reservation_id, p_rating, trim(p_review_text),
     case when public.evently_review_text_needs_moderation(p_review_text) then 'flagged' else 'pending' end,
     case when public.evently_review_text_needs_moderation(p_review_text)
       then 'Automated flag: potentially abusive phrasing requires manual review' else null end,
@@ -85,7 +78,7 @@ create or replace function public.evently_update_customer_review(
   p_review_id uuid, p_rating integer, p_review_text text
 ) returns uuid language plpgsql security definer set search_path = ''
 as $$
-declare v_reservation_id uuid; v_package_id uuid;
+declare v_reservation_id uuid;
 begin
   if auth.uid() is null then raise exception 'Sign in to update your review'; end if;
   if not exists (select 1 from public.profiles where id = auth.uid() and role = 'customer') then
@@ -101,7 +94,7 @@ begin
   select reservation_id into v_reservation_id
   from public.reviews where id = p_review_id and customer_id = auth.uid() for update;
   if not found then raise exception 'Review not found for this customer'; end if;
-  select reservation.package_id into v_package_id
+  perform 1
   from public.reservations reservation
   where reservation.id = v_reservation_id
     and reservation.customer_id = auth.uid()
@@ -110,8 +103,7 @@ begin
   if not found then raise exception 'Only the customer who completed this booking may update its review'; end if;
 
   update public.reviews
-  set package_id = v_package_id,
-      rating = p_rating,
+  set rating = p_rating,
       review_text = trim(p_review_text),
       is_published = false,
       moderation_status = case when public.evently_review_text_needs_moderation(p_review_text) then 'flagged' else 'pending' end,
@@ -183,11 +175,11 @@ returns boolean language sql stable security definer set search_path = ''
 as $$
   select to_regclass('public.reviews') is not null
     and (
-      select count(*) = 15
+      select count(*) = 14
       from pg_catalog.pg_attribute
       where attrelid = 'public.reviews'::regclass
         and attname = any(array[
-          'id','customer_id','reservation_id','package_id','rating','review_text','is_published',
+          'id','customer_id','reservation_id','rating','review_text','is_published',
           'moderation_status','moderation_reason','sentiment_label','sentiment_confidence',
           'sentiment_analyzed_at','sentiment_model_version','created_at','updated_at'
         ])

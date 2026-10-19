@@ -197,11 +197,13 @@ async function loadAdminRows(section: string, table: string) {
     ? ["payments", "reservations", "profiles"] as const
     : section === "orders"
       ? ["orders", "reservations", "profiles"] as const
-      : ["reservations", "profiles", "evently_booking_recommendations", "packages", "package_variants"] as const;
+      : ["reservations", "profiles", "evently_booking_recommendations", "evently_catering_change_requests", "packages", "package_variants"] as const;
   const results = await Promise.all(tableNames.map((name) => supabase.from(name).select("*").limit(500)));
-  const failure = results.find((result) => result.error)?.error;
+  const optionalCateringRequestIndex = section === "reservations"
+    ? tableNames.findIndex((name) => String(name) === "evently_catering_change_requests") : -1;
+  const failure = results.find((result, index) => result.error && index !== optionalCateringRequestIndex)?.error;
   if (failure) throw failure;
-  const byTable = Object.fromEntries(tableNames.map((name, index) => [name, (results[index].data ?? []) as Row[]]));
+  const byTable = Object.fromEntries(tableNames.map((name, index) => [name, (results[index].error ? [] : results[index].data ?? []) as Row[]]));
   const profiles = byTable.profiles ?? [];
   const reservations = byTable.reservations ?? [];
   const profileName = (customerId: unknown) => first(
@@ -211,6 +213,7 @@ async function loadAdminRows(section: string, table: string) {
 
   if (section === "reservations") {
     const recommendations = (byTable.evently_booking_recommendations ?? []) as Row[];
+    const cateringRequests = (byTable.evently_catering_change_requests ?? []) as Row[];
     const packages = (byTable.packages ?? []) as Row[];
     const variants = (byTable.package_variants ?? []) as Row[];
     return (reservations.map((reservation) => {
@@ -231,6 +234,9 @@ async function loadAdminRows(section: string, table: string) {
           ...recommendation,
           staff_name: profileName(recommendation.staff_id),
         } : null,
+        _catering_change_requests: cateringRequests
+          .filter((item) => String(item.reservation_id) === String(reservation.id))
+          .sort((left, right) => String(right.requested_at ?? "").localeCompare(String(left.requested_at ?? ""))),
       };
     }) as Row[]).sort((left, right) => {
       const leftPending = String(left.status ?? "").toLowerCase() === "pending" ? 0 : 1;
@@ -669,7 +675,7 @@ function ReservationsView({ go, canManageReservations }: { go: (path: string) =>
                     items={[
                       { label: "Open Reservation", onSelect: () => setSelected(row) },
                       ...(canManageReservations ? [
-                        { label: "Approve Booking", disabled: normalizedStatus(row) !== "pending", onSelect: () => setSelected(row) },
+                        { label: "Review Schedule / Payment", disabled: normalizedStatus(row) !== "pending", onSelect: () => setSelected(row) },
                         { label: "Reject Booking", disabled: normalizedStatus(row) !== "pending", onSelect: () => { setSelected(row); setRejectTarget(String(row.id)); } },
                         { label: "Edit Schedule", disabled: normalizedStatus(row) !== "pending", onSelect: () => { setScheduleEditTarget(String(row.id)); setSelected(row); } },
                       ] : []),
@@ -799,7 +805,7 @@ function DataTable({ section, go, defaultFilter = "All" }: { section: string; go
                     items={[
                       { label: section === "reservations" ? "Open Reservation" : section === "customers" ? "View Customer Profile" : "View Details", onSelect: () => setSelected(row) },
                       ...(section === "reservations" ? [
-                        { label: "Approve Booking", onSelect: () => setSelected(row) },
+                        { label: "Review Schedule / Payment", onSelect: () => setSelected(row) },
                         { label: "Reject Booking", disabled: normalizedStatus(row) !== "pending", onSelect: () => { setSelected(row); setRejectOnOpen(true); } },
                       ] : []),
                       ...(section === "customers" ? [
@@ -833,6 +839,25 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
   const [price, setPrice] = useState(String(first(row, ["price"]) ?? "0"));
   const [adjustment, setAdjustment] = useState("");
   const [guestCapacity, setGuestCapacity] = useState(String(first(row, ["guest_capacity"]) ?? ""));
+  const isPoolTour = entity === "package" && String(row.package_category ?? "").toLowerCase() === "pool_tour";
+  const resortService = String(row.service_type ?? "").trim().toLowerCase() === "resort";
+  const resortRateByName: Record<string, number> = {
+    "standard room": 3000,
+    "kubo room": 1500,
+    "non-air-conditioned venue": 10000,
+    "air-conditioned venue": 15000,
+  };
+  const originalPackageName = String(row.name ?? "").trim().toLowerCase();
+  const lockedResortRate = entity === "package" && resortService ? resortRateByName[originalPackageName] : undefined;
+  const isStandardRoom = entity === "package" && resortService && originalPackageName === "standard room";
+  const resortVenueDuration = entity === "package" && resortService
+    ? originalPackageName === "non-air-conditioned venue" ? 300
+      : originalPackageName === "air-conditioned venue" ? 240 : undefined
+    : undefined;
+  const isResortVenueOnly = resortVenueDuration !== undefined;
+  const [poolCapacityVerified, setPoolCapacityVerified] = useState(row.pool_capacity_verified === true);
+  const [poolMaxGuestCount, setPoolMaxGuestCount] = useState(String(row.max_guest_count ?? ""));
+  const [poolCapacityReason, setPoolCapacityReason] = useState("");
   const [depositPercentage, setDepositPercentage] = useState(String(first(row, ["deposit_percentage"]) ?? ""));
   const [scheduleMode, setScheduleMode] = useState(String(first(row, ["schedule_mode"]) ?? "admin_assign"));
   const [operatingStart, setOperatingStart] = useState(String(first(row, ["operating_start_time"]) ?? "").slice(0, 5));
@@ -848,6 +873,19 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
     ? Math.round(numericPrice * (1 + Number(adjustment) / 100) * 100) / 100
     : 0;
   const isPriceChanged = numericPrice !== Number(first(row, ["price"]));
+  const poolUnitRateById: Record<string, number> = {
+    "4ae972a8-6503-4776-90c9-899246cbc4dc": 100,
+    "5afda244-a615-4bd3-98eb-d360d000100b": 150,
+    "925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8": 200,
+  };
+  const expectedPoolUnitRate = isPoolTour ? poolUnitRateById[String(row.id ?? "")] : undefined;
+  const nextPoolMaximum = poolMaxGuestCount.trim() ? Number(poolMaxGuestCount) : null;
+  const poolMinimumGuestCount = Math.max(1, Number(row.min_guest_count ?? 1));
+  const poolCapacityChanged = isPoolTour && (poolCapacityVerified !== (row.pool_capacity_verified === true)
+    || nextPoolMaximum !== (row.max_guest_count == null ? null : Number(row.max_guest_count))
+    || (poolCapacityVerified && (!row.pool_capacity_audit_id
+      || !Number.isInteger(nextPoolMaximum)
+      || (nextPoolMaximum ?? 0) < poolMinimumGuestCount)));
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) onClose(); };
@@ -860,8 +898,39 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
     if (busy) return;
     if (!name.trim()) { setMessage("Enter a name."); return; }
     if (!Number.isFinite(numericPrice) || numericPrice < 0) { setMessage("Enter a valid non-negative price."); return; }
-    if (guestCapacity && (!Number.isInteger(Number(guestCapacity)) || Number(guestCapacity) < 1)) {
+    if (isPoolTour && expectedPoolUnitRate !== undefined && numericPrice !== expectedPoolUnitRate) {
+      setMessage(`This verified per-person tour rate is ${money.format(expectedPoolUnitRate)}. Change rates only through the reviewed pool pricing migration.`);
+      return;
+    }
+    if (lockedResortRate !== undefined && (numericPrice !== lockedResortRate || name.trim().toLowerCase() !== originalPackageName)) {
+      setMessage(`This confirmed Resort rate is fixed at ${money.format(lockedResortRate)}. Change its rate or package identity only through a reviewed rate-sheet migration.`);
+      return;
+    }
+    if (lockedResortRate !== undefined && Number(depositPercentage) !== 30) {
+      setMessage("The confirmed Resort packages use a 30% deposit.");
+      return;
+    }
+    if (isStandardRoom && guestCapacity !== "5") {
+      setMessage("Standard Room occupancy is fixed at 4–5 guests per room.");
+      return;
+    }
+    if (isResortVenueOnly && (scheduleMode !== "customer_select"
+      || Number(durationMinutes) !== resortVenueDuration
+      || !operatingStart || !operatingEnd || operatingStart === operatingEnd)) {
+      setMessage(`Venue Only needs business-confirmed operating hours and its fixed ${resortVenueDuration / 60}-hour duration.`);
+      return;
+    }
+    if (!isPoolTour && guestCapacity && (!Number.isInteger(Number(guestCapacity)) || Number(guestCapacity) < 1)) {
       setMessage("Guest capacity must be a positive whole number.");
+      return;
+    }
+    if (isPoolTour && poolCapacityVerified
+      && (!Number.isInteger(nextPoolMaximum) || (nextPoolMaximum ?? 0) < poolMinimumGuestCount)) {
+      setMessage(`Enter the actual physical maximum as a whole number of at least ${poolMinimumGuestCount} guests.`);
+      return;
+    }
+    if (poolCapacityChanged && !poolCapacityReason.trim()) {
+      setMessage("Record why the physical pool capacity is being verified or withdrawn.");
       return;
     }
     if (depositPercentage && (!Number.isFinite(Number(depositPercentage)) || Number(depositPercentage) < 0 || Number(depositPercentage) > 100)) {
@@ -874,10 +943,10 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
     if (entity === "package") {
       Object.assign(patch, {
         description,
-        guest_capacity: guestCapacity || null,
         deposit_percentage: depositPercentage || null,
         is_active: active,
       });
+      if (!isPoolTour) patch.guest_capacity = guestCapacity || null;
     } else if (entity === "package_variant") {
       Object.assign(patch, {
         guest_capacity: guestCapacity || null,
@@ -910,8 +979,17 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
     const result = entity === "menu_item"
       ? await supabase.rpc("evently_admin_update_catering_menu_item", { p_id: String(row.id ?? ""), p_patch: patch })
       : await supabase.rpc("admin_update_evently_catalog", { p_entity: entity, p_id: String(row.id ?? ""), p_patch: patch });
+    if (result.error) { setBusy(false); setMessage(result.error.message); return; }
+    if (poolCapacityChanged) {
+      const { error: capacityError } = await supabase.rpc("evently_admin_set_pool_capacity", {
+        p_package_id: String(row.id ?? ""),
+        p_capacity_verified: poolCapacityVerified,
+        p_max_guest_count: poolCapacityVerified ? nextPoolMaximum : null,
+        p_reason: poolCapacityReason.trim(),
+      });
+      if (capacityError) { setBusy(false); setMessage(capacityError.message); return; }
+    }
     setBusy(false);
-    if (result.error) { setMessage(result.error.message); return; }
     await onSaved();
     window.dispatchEvent(new Event("evently-catalog-changed"));
     onClose();
@@ -925,13 +1003,14 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
         <div className="admin-editor-modal__heading"><div><span>Catalog management</span><h2 id="admin-catalog-editor-title">{title}</h2></div><button aria-label="Close editor" onClick={onClose} type="button">×</button></div>
         <form onSubmit={(event) => void save(event)}>
           {entity === "menu_item" && <label>Category<select onChange={(event) => setCategory(event.target.value)} required value={category}>{cateringMenuCategories.map((item) => <option key={item}>{item}</option>)}</select></label>}
-          <label>Name<input onChange={(event) => setName(event.target.value)} required value={name} /></label>
+          <label>Name<input onChange={(event) => setName(event.target.value)} readOnly={lockedResortRate !== undefined} required value={name} /></label>
           {(entity === "package" || entity === "addon") && <label>Description<textarea onChange={(event) => setDescription(event.target.value)} rows={3} value={description} /></label>}
-          <label>{entity === "menu_item" ? "Price per guest (PHP)" : "Current price (PHP)"}<input min="0" onChange={(event) => setPrice(event.target.value)} required step="0.01" type="number" value={price} /></label>
+          <label>{entity === "menu_item" ? "Price per guest (PHP)" : "Current price (PHP)"}<input min="0" onChange={(event) => setPrice(event.target.value)} readOnly={lockedResortRate !== undefined} required step="0.01" type="number" value={price} /></label>
           <div className="admin-price-helper"><label>Optional adjustment (%)<input min="0" onChange={(event) => setAdjustment(event.target.value)} placeholder="For example, 5" step="0.01" type="number" value={adjustment} /></label><p>Suggested price: <strong>{money.format(suggestedPrice)}</strong></p><button onClick={() => setPrice(suggestedPrice.toFixed(2))} type="button">Use suggestion</button></div>
-          {(entity === "package" || entity === "package_variant") && <label>Guest capacity<input min="1" onChange={(event) => setGuestCapacity(event.target.value)} placeholder="No limit" step="1" type="number" value={guestCapacity} /></label>}
-          {entity === "package" && <label>Required deposit (%)<input max="100" min="0" onChange={(event) => setDepositPercentage(event.target.value)} placeholder="Not configured" step="0.01" type="number" value={depositPercentage} /></label>}
-          {entity === "package" && <><label>Schedule mode<select value={scheduleMode} onChange={(event) => setScheduleMode(event.target.value)}><option value="admin_assign">Admin assigns schedule</option><option value="customer_select">Customer selects time</option><option value="fixed">Fixed time</option><option value="untimed">No timed schedule</option></select></label>{scheduleMode === "customer_select" && <><label>Opening time<input type="time" value={operatingStart} onChange={(event) => setOperatingStart(event.target.value)} required /></label><label>Closing time<input type="time" value={operatingEnd} onChange={(event) => setOperatingEnd(event.target.value)} required /></label><label>Booking duration (minutes)<input type="number" min="1" step="1" value={durationMinutes} onChange={(event) => setDurationMinutes(event.target.value)} required /></label><small>Hours are not prefilled. Enter the business-confirmed schedule before enabling timed bookings.</small></>}</>}
+          {(entity === "package_variant" || (entity === "package" && !isPoolTour)) && <label>Guest capacity<input min="1" onChange={(event) => setGuestCapacity(event.target.value)} placeholder="Not configured" readOnly={isStandardRoom} step="1" type="number" value={guestCapacity} /></label>}
+          {isPoolTour && <section className="admin-pool-capacity-editor"><h3>Pool physical capacity</h3><p>Enter the maximum number of guests confirmed by an on-site physical capacity check. The legacy guest_capacity value is not evidence. The verified value is recorded on the shared pool resource; every verified tour using it must use the same maximum.</p><label className="admin-editor-checkbox"><input checked={poolCapacityVerified} onChange={(event) => setPoolCapacityVerified(event.target.checked)} type="checkbox" /> I have physically verified this pool tour’s maximum capacity</label><label>Verified maximum guests<input disabled={!poolCapacityVerified} min={poolMinimumGuestCount} onChange={(event) => setPoolMaxGuestCount(event.target.value)} placeholder="Enter the on-site verified maximum" step="1" type="number" value={poolMaxGuestCount} /></label><label>Capacity verification note<textarea maxLength={2000} onChange={(event) => setPoolCapacityReason(event.target.value)} required={poolCapacityChanged} rows={2} value={poolCapacityReason} /></label></section>}
+          {entity === "package" && <label>Required deposit (%)<input max="100" min="0" onChange={(event) => setDepositPercentage(event.target.value)} placeholder="Not configured" readOnly={lockedResortRate !== undefined} step="0.01" type="number" value={depositPercentage} /></label>}
+          {entity === "package" && <><label>Schedule mode<select disabled={isResortVenueOnly} value={scheduleMode} onChange={(event) => setScheduleMode(event.target.value)}><option value="admin_assign">Admin assigns schedule</option><option value="customer_select">Customer selects time</option><option value="fixed">Fixed time</option><option value="untimed">No timed schedule</option></select></label>{scheduleMode === "customer_select" && <><label>Opening time<input type="time" value={operatingStart} onChange={(event) => setOperatingStart(event.target.value)} required /></label><label>Closing time<input type="time" value={operatingEnd} onChange={(event) => setOperatingEnd(event.target.value)} required /></label><label>Booking duration (minutes)<input type="number" min="1" step="1" value={durationMinutes} onChange={(event) => setDurationMinutes(event.target.value)} readOnly={isResortVenueOnly} required /></label><small>{isResortVenueOnly ? `Venue Only duration is fixed at ${resortVenueDuration / 60} hours; enter the business-confirmed opening and closing times.` : "Hours are not prefilled. Enter the business-confirmed schedule before enabling timed bookings."}</small></>}</>}
           {entity === "addon" && <label>Compatible services<input onChange={(event) => setCompatibleServices(event.target.value)} placeholder="Catering, Resort" value={compatibleServices} /></label>}
           {entity === "package_variant" && <label className="admin-editor-checkbox"><input checked={hasAircon} onChange={(event) => setHasAircon(event.target.checked)} type="checkbox" /> Air-conditioned</label>}
           <label className="admin-editor-checkbox"><input checked={active} onChange={(event) => setActive(event.target.checked)} type="checkbox" /> Available for new bookings</label>
@@ -1106,7 +1185,7 @@ function PaymentReviewCard({ payment, onReviewed }: { payment: Row; onReviewed?:
     if (busy || status !== "pending") return;
     const reason = decision === "rejected"
       ? window.prompt("Enter the reason and what the customer should correct before resubmitting:")?.trim() ?? ""
-      : window.prompt("Optional payment review note:")?.trim() ?? "";
+      : window.prompt("Optional payment review note. Timely non-demo proof covering the 30% deposit automatically confirms the booking when its schedule is valid:")?.trim() ?? "";
     if (decision === "rejected" && !reason) return;
     if (!window.confirm(decision === "verified"
       ? "Accept this submitted receipt for booking review? This verifies the submitted proof only; it does not independently confirm financial settlement."
@@ -1148,7 +1227,7 @@ function PaymentReviewCard({ payment, onReviewed }: { payment: Row; onReviewed?:
     const refreshError = paymentRefresh.error ?? reservationRefresh.error;
     setMessage(refreshError
       ? `${decision === "verified" ? "Payment proof verified" : "Payment proof rejected"}, but refreshed payment details could not be loaded: ${refreshError.message}`
-      : decision === "verified" ? "Payment proof verified. Reservation and payment details refreshed." : "Payment proof rejected; the customer may submit corrected proof.");
+      : decision === "verified" ? "Payment proof verified. A timely sufficient deposit confirms a valid schedule automatically; payment and booking details refreshed." : "Payment proof rejected; the customer may submit corrected proof before the original deadline.");
     window.dispatchEvent(new Event("evently-admin-data-changed"));
     window.dispatchEvent(new Event("evently-customer-bookings-changed"));
     setBusy(false);
@@ -1181,6 +1260,7 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
   const [scheduleStart, setScheduleStart] = useState(String(first(row, ["start_time"]) ?? "").slice(0, 5));
   const [scheduleEnd, setScheduleEnd] = useState(String(first(row, ["end_time"]) ?? "").slice(0, 5));
   const [scheduleDate, setScheduleDate] = useState(String(first(row, ["reservation_date"]) ?? "").slice(0, 10));
+  const [overrideDeadlineLocal, setOverrideDeadlineLocal] = useState("");
   const [scheduleResource, setScheduleResource] = useState(String(first(row, ["resource_key"]) ?? ""));
   const [scheduleResources, setScheduleResources] = useState<ScheduleResourceOption[]>([]);
   const [scheduleResourceError, setScheduleResourceError] = useState("");
@@ -1238,9 +1318,18 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
   useEffect(() => { void loadRelatedPayments(); }, [loadRelatedPayments]);
   useEffect(() => {
     if (section !== "reservations" || !row.id) return;
-    void supabase.from("admin_activity_logs").select("*").eq("entity_id", row.id)
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => { if (!error) setRelatedActivity((data ?? []) as Row[]); });
+    void Promise.all([
+      supabase.from("admin_activity_logs").select("*").eq("entity_id", row.id),
+      supabase.from("evently_reservation_override_audit").select("*").eq("reservation_id", row.id),
+    ]).then(([activity, overrides]) => {
+      const standard = (activity.data ?? []) as Row[];
+      const audited: Row[] = ((overrides.data ?? []) as Row[]).map((entry) => ({
+        ...entry,
+        description: `${String(entry.reason ?? "")}; before ${JSON.stringify(entry.previous_values ?? {})}; after ${JSON.stringify(entry.new_values ?? {})}`,
+      }));
+      setRelatedActivity([...standard, ...audited].sort((left, right) =>
+        Date.parse(String(right.created_at ?? 0)) - Date.parse(String(left.created_at ?? 0))));
+    });
   }, [row.id, section]);
   useEffect(() => {
     if (section !== "reservations") return;
@@ -1297,9 +1386,10 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
     setScheduleValidation(data as Row);
   }, [row.id, section]);
   useEffect(() => { void refreshScheduleValidation(); }, [refreshScheduleValidation]);
-  const scheduleFixed = String(first(row, ["schedule_mode"]) ?? "").toLowerCase() === "fixed";
-  const scheduleRequired = String(first(row, ["schedule_mode"]) ?? "admin_assign").toLowerCase() !== "untimed";
   const rowPackageCategory = String(first(row, ["package_category"]) ?? "").toLowerCase();
+  const rowScheduleMode = String(first(row, ["schedule_mode"]) ?? "").toLowerCase();
+  const scheduleFixed = rowScheduleMode === "fixed" || (rowScheduleMode === "timed" && rowPackageCategory === "pool_tour");
+  const scheduleRequired = rowScheduleMode !== "untimed";
   const rowResourceMode = String(first(row, ["resource_mode"]) ?? "admin_assign").toLowerCase();
   const rowHasResource = Boolean(first(row, ["resource_key"]));
   const scheduleResourceRequired = rowPackageCategory !== "outside_catering" && (
@@ -1307,54 +1397,13 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
     || rowResourceMode === "exclusive"
     || (rowHasResource && rowResourceMode !== "shared_capacity")
   );
-  const scheduleResourceVerified = scheduleResources.some((resource) => resource.value === scheduleResource);
   const selectedResource = scheduleResources.find((resource) => resource.value === scheduleResource);
-  const scheduleComplete = !scheduleRequired || Boolean(
-    scheduleDate
-    && scheduleStart
-    && scheduleEnd
-    && scheduleStart !== scheduleEnd
-    && (!scheduleResourceRequired || scheduleResourceVerified),
-  );
-  const effectiveScheduleRequired = scheduleValidation
-    ? scheduleValidation.schedule_required === true
-    : scheduleRequired;
   const effectiveResourceRequired = scheduleValidation
     ? scheduleValidation.resource_required === true
     : scheduleResourceRequired;
-  const assignedResourceIsValid = scheduleValidation
-    ? scheduleValidation.resource_valid === true
-    : !effectiveResourceRequired || scheduleResourceVerified;
-  const serverScheduleComplete = scheduleValidation
-    ? scheduleValidation.schedule_complete === true
-    : scheduleComplete;
-  const serverHasNoConflict = schedulePersisted && scheduleValidation?.no_conflict === true;
-  const customerComplete = Boolean(first(row, ["customer_name", "_customer_name", "customer_id"]));
-  const packageComplete = Boolean(first(row, ["package_name", "package_id"]));
-  const configuredDeposit = Number(first(row, ["deposit_amount"]) ?? 0);
-  const requiredPayment = configuredDeposit > 0 ? configuredDeposit : Number(first(row, ["total_amount"]) ?? 0);
-  const verifiedPayments = relatedPayments.filter((payment) => String(first(payment, ["verification_status", "status"]) ?? "").toLowerCase() === "verified");
-  const verifiedAmount = verifiedPayments.reduce((total, payment) => total + Number(first(payment, ["amount", "payment_amount"]) ?? 0), 0);
-  const verifiedProof = verifiedPayments.some((payment) => Number(first(payment, ["amount", "payment_amount"]) ?? 0) > 0 && Boolean(first(payment, ["reference_number"])) && Boolean(first(payment, ["proof_url"])));
-  const paymentVerified = !relatedPaymentsLoading && verifiedProof && verifiedAmount >= requiredPayment;
-  const paymentMissingReason = relatedPaymentsLoading
-    ? "Loading linked payment submissions…"
-    : verifiedProof && verifiedAmount < requiredPayment
-      ? `Verified payment (${money.format(verifiedAmount)}) is below the required deposit (${money.format(requiredPayment)}).`
-      : verifiedProof
-        ? "The verified payment amount does not cover the required deposit."
-        : relatedPayments.some((payment) => String(first(payment, ["verification_status", "status"]) ?? "").toLowerCase() === "pending")
-          ? "Payment proof is awaiting Owner/Admin verification."
-          : "No valid uploaded receipt has been verified by an Owner/Admin.";
-  const approvalChecks = [
-    { complete: customerComplete, label: "Customer information complete", missing: "Customer information is missing." },
-    { complete: packageComplete, label: "Package is valid", missing: "A valid package is required." },
-    { complete: Boolean(scheduleDate), label: "Reservation date selected", missing: "A reservation date is required." },
-    { complete: !effectiveScheduleRequired || serverScheduleComplete, label: "Schedule assigned", missing: "Reservation date and distinct start/end times are required." },
-    { complete: assignedResourceIsValid, label: "Venue or resource assigned", missing: String(first(scheduleValidation ?? {}, ["reason"]) ?? "The package requires an active configured venue/resource.") },
-    { complete: serverHasNoConflict && serverScheduleComplete && assignedResourceIsValid, label: "No scheduling conflicts", missing: String(first(scheduleValidation ?? {}, ["reason"]) ?? "Schedule validation is still running or unavailable.") },
-    { complete: paymentVerified, label: "Required payment proof verified", missing: paymentMissingReason },
-  ];
+  const scheduleResourceVerified = scheduleResources.some((resource) => resource.value === scheduleResource);
+  const scheduleComplete = Boolean(scheduleDate && scheduleStart && scheduleEnd && scheduleStart !== scheduleEnd
+    && (!effectiveResourceRequired || scheduleResourceVerified));
   const startMinutes = scheduleStart ? Number(scheduleStart.slice(0, 2)) * 60 + Number(scheduleStart.slice(3, 5)) : 0;
   const endMinutes = scheduleEnd ? Number(scheduleEnd.slice(0, 2)) * 60 + Number(scheduleEnd.slice(3, 5)) : 0;
   const durationMinutes = scheduleStart && scheduleEnd ? (endMinutes > startMinutes ? endMinutes - startMinutes : 1440 - startMinutes + endMinutes) : 0;
@@ -1374,6 +1423,15 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
     setScheduleStart(storedStart || (scheduleFixed ? fixedFallback?.start ?? "" : ""));
     setScheduleEnd(storedEnd || (scheduleFixed ? fixedFallback?.end ?? "" : ""));
     setScheduleDate(String(first(row, ["reservation_date"]) ?? "").slice(0, 10));
+    const paymentDueAt = first(row, ["payment_due_at"]);
+    if (paymentDueAt) {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+      }).formatToParts(new Date(String(paymentDueAt)));
+      const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+      setOverrideDeadlineLocal(`${value.year}-${value.month}-${value.day}T${value.hour}:${value.minute}`);
+    } else setOverrideDeadlineLocal("");
     setScheduleResource(String(first(row, ["resource_key"]) ?? ""));
     setSchedulePersisted(!scheduleRequired || Boolean(storedStart && storedEnd));
     setScheduleEditing(openScheduleEditor);
@@ -1494,12 +1552,18 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
       setActionMessage(scheduleResourceError || "Select the verified physical venue or resource before saving.");
       return;
     }
+    const overrideReason = window.prompt("Enter the reason for this schedule or resource override:")?.trim() ?? "";
+    if (!overrideReason) return;
     setActionState("loading");
     setActionMessage("");
-    const { error } = await supabase.rpc("evently_admin_set_reservation_schedule", {
+    const { error } = await supabase.rpc("evently_admin_override_reservation", {
+      p_action: scheduleResource && scheduleResource !== String(first(row, ["resource_key"]) ?? "") ? "assign_resource" : "reschedule",
+      p_reason: overrideReason,
+      p_reservation_date: scheduleDate,
+      p_payment_due_at: null,
       p_end_time: scheduleEnd,
       p_reservation_id: String(row.id ?? ""),
-      p_resource_key: scheduleResource.trim(),
+      p_resource_key: scheduleResource.trim() || null,
       p_start_time: scheduleStart,
     });
     if (error) {
@@ -1522,70 +1586,31 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
     setSchedulePersisted(true);
     setScheduleEditing(false);
     await refreshScheduleValidation();
-    setActionMessage("Reservation schedule saved and checked against active reservations.");
+    setActionMessage("Reservation schedule saved, conflict-checked, and recorded in the Administrator override audit.");
     await onChanged?.();
     window.dispatchEvent(new Event("evently-admin-data-changed"));
     window.dispatchEvent(new Event("evently-customer-bookings-changed"));
   };
-  const approveBooking = async () => {
-    if (section !== "reservations" || !canManageReservations || actionLock.current || actionState === "loading" || currentStatus !== "pending") return;
-    const missingCheck = approvalChecks.find((check) => !check.complete);
-    if (missingCheck) {
-      setActionState("error");
-      setActionMessage(missingCheck.missing);
-      return;
-    }
-    const venue = scheduleResource || show(first(row, ["resource_key"]));
-    const reservationDate = scheduleDate || show(first(row, ["reservation_date"]), "reservation_date");
-    const startTime = scheduleStart || show(first(row, ["start_time"]));
-    const endTime = scheduleEnd || show(first(row, ["end_time"]));
-    const schedulePrompt = effectiveResourceRequired
-      ? `Verify this booking schedule before approval.\n\nVenue / resource: ${venue}\nDate: ${reservationDate}\nTime: ${startTime}–${endTime}\n\nSelect OK only if you personally verified the actual venue or resource and confirmed that this time slot does not conflict with another active reservation.`
-      : `Verify this booking schedule before approval.\n\nNo Evently-owned physical venue is required for this package.\nDate: ${reservationDate}\nTime: ${startTime}–${endTime}\n\nSelect OK only after confirming the schedule details are correct.`;
-    const scheduleVerified = window.confirm(schedulePrompt);
-    if (!scheduleVerified) return;
-
-    actionLock.current = true;
+  const savePaymentDeadlineOverride = async () => {
+    if (section !== "reservations" || !canManageReservations || actionState === "loading" || !overrideDeadlineLocal) return;
+    const action = first(row, ["expired_at"]) ? "reopen_payment" : "extend_payment_deadline";
+    const actionLabel = action === "reopen_payment" ? "reopen" : first(row, ["payment_due_at"]) ? "extend" : "start";
+    const overrideReason = window.prompt(`Enter the reason to ${actionLabel} this payment deadline:`)?.trim() ?? "";
+    if (!overrideReason) return;
+    const dueAt = new Date(`${overrideDeadlineLocal}:00+08:00`).toISOString();
     setActionState("loading");
     setActionMessage("");
-    const reservationId = String(row.id ?? "");
-    const { data, error } = await supabase.rpc("evently_admin_approve_booking", {
-      p_reservation_id: reservationId,
-      p_schedule_verified: true,
+    const { error } = await supabase.rpc("evently_admin_override_reservation", {
+      p_reservation_id: String(row.id ?? ""), p_action: action, p_reason: overrideReason,
+      p_payment_due_at: dueAt,
     });
     if (error) {
-      actionLock.current = false;
       setActionState("error");
       setActionMessage(error.message);
       return;
     }
-
-    const returnedRow = Array.isArray(data) ? data[0] : data;
-    const returnedStatus = returnedRow && typeof returnedRow === "object"
-      ? first(returnedRow as Row, ["status"])
-      : typeof returnedRow === "string" ? returnedRow : null;
-    const saved = await supabase.from("reservations").select("status").eq("id", reservationId).single();
-    if (saved.error) {
-      actionLock.current = false;
-      setActionState("error");
-      setActionMessage(`Approval was accepted, but the saved status could not be refreshed: ${saved.error.message}`);
-      await onChanged?.();
-      window.dispatchEvent(new Event("evently-admin-data-changed"));
-      return;
-    }
-    const savedStatus = String(saved.data.status ?? returnedStatus ?? "").toLowerCase();
-    if (savedStatus !== "confirmed") {
-      actionLock.current = false;
-      setActionState("error");
-      setActionMessage(`Approval RPC returned, but the saved booking status is “${savedStatus || "unknown"}”. No confirmed status was recorded; refresh and review the booking again.`);
-      await onChanged?.();
-      window.dispatchEvent(new Event("evently-admin-data-changed"));
-      return;
-    }
-    setCurrentStatus(savedStatus);
-    actionLock.current = false;
     setActionState("ready");
-    setActionMessage(`Booking status: ${savedStatus || "saved"}.`);
+    setActionMessage("Payment deadline updated and recorded in the Administrator override audit.");
     await onChanged?.();
     window.dispatchEvent(new Event("evently-admin-data-changed"));
     window.dispatchEvent(new Event("evently-customer-bookings-changed"));
@@ -1611,7 +1636,7 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
       : (["completed", "cancelled"] as const).find((status) => status === action) ?? null;
     if (section === "reservations" && !reservationTargetStatus) {
       setActionState("error");
-      setActionMessage("Use Approve Booking for approval. Only completed or cancelled are valid direct reservation status changes.");
+      setActionMessage("Only payment verification confirms a reservation. Use Administrator override actions for schedule changes or cancellation.");
       return;
     }
     let reason: string | null = suppliedReason ?? null;
@@ -1629,10 +1654,10 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
     setActionMessage("");
     const id = String(row.id ?? "");
     const request = section === "reservations"
-      ? supabase.rpc("admin_set_reservation_status", {
+      ? supabase.rpc("admin_transition_reservation", {
         p_reservation_id: id,
         p_status: reservationTargetStatus as BookingStatus,
-        p_cancellation_reason: reservationTargetStatus === "cancelled" ? reason : null,
+        p_reason: reservationTargetStatus === "cancelled" ? reason : null,
       })
       : section === "orders"
         ? supabase.rpc("admin_transition_order", { p_order_id: id, p_status: action })
@@ -1682,13 +1707,17 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
       <aside aria-label={`${title} details`} aria-modal="true" className="admin-detail-drawer" role="dialog">
         <div className="admin-drawer-heading"><div><span>{sections.find(([path]) => path === section)?.[1]} details</span><h2>{title}</h2></div><button aria-label="Close details" onClick={onClose} type="button">Close</button></div>
          {[...grouped, { label: "Additional information", test: /.*/, entries: remaining }].filter((group) => group.entries.length).map((group) => <section className="admin-detail-section" key={group.label}><h3>{group.label}</h3><dl>{group.entries.map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, " ")}</dt><dd><Value label={key} value={detailValue(key, value)} /></dd></div>)}</dl></section>)}
-         {section === "reservations" && <section className="admin-detail-section"><h3>Assigned venue</h3><p><strong>{String(first(scheduleValidation ?? {}, ["resource_name"]) ?? selectedResource?.label ?? first(row, ["resource_name", "resource_key"]) ?? "No physical venue required")}</strong>{selectedResource?.location ? ` · ${selectedResource.location}` : ""}</p>{currentStatus === "pending" && effectiveResourceRequired && <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Change Venue / Schedule</button>}</section>}
+         {section === "reservations" && <CateringChangeRequestsPanel canManage={canManageReservations} onChanged={onChanged} requests={Array.isArray(row._catering_change_requests) ? row._catering_change_requests as Row[] : []} />}
+          {section === "reservations" && <section className="admin-detail-section"><h3>Assigned venue</h3><p><strong>{String(first(scheduleValidation ?? {}, ["resource_name"]) ?? selectedResource?.label ?? first(row, ["resource_name", "resource_key"]) ?? "No physical venue required")}</strong>{selectedResource?.location ? ` · ${selectedResource.location}` : ""}</p>{currentStatus === "pending" && effectiveResourceRequired && <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Change Venue / Schedule</button>}</section>}
+          {section === "reservations" && currentStatus === "pending" && <section className="admin-detail-section"><h3>Audited schedule override</h3><p>Schedule changes require a reason, are checked against concurrent reservations, and are recorded for the Administrator.</p><label><span>New reservation date</span><input onChange={(event) => { setScheduleDate(event.target.value); setSchedulePersisted(false); }} type="date" value={scheduleDate} /></label><button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Edit schedule and resource</button></section>}
+          {section === "reservations" && <section className="admin-detail-section"><h3>Payment deadline · Asia/Manila</h3><p>{first(row, ["payment_due_at"]) ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }).format(new Date(String(first(row, ["payment_due_at"])))) : "Legacy booking — no automatic deadline until an Administrator starts one"}</p><label><span>{first(row, ["expired_at"]) ? "Reopen until" : first(row, ["payment_due_at"]) ? "Extend until" : "Start deadline until"} (Manila time)</span><input onChange={(event) => setOverrideDeadlineLocal(event.target.value)} type="datetime-local" value={overrideDeadlineLocal} /></label><button className="admin-secondary-action" disabled={actionState === "loading" || !overrideDeadlineLocal || (!first(row, ["expired_at"]) && currentStatus !== "pending")} onClick={() => void savePaymentDeadlineOverride()} type="button">{first(row, ["expired_at"]) ? "Reopen Payment Hold" : first(row, ["payment_due_at"]) ? "Extend Payment Deadline" : "Start 24-Hour Deadline"}</button></section>}
+          {section === "reservations" && currentStatus === "confirmed" && <section className="admin-detail-section"><h3>Confirmed schedule override</h3>{!scheduleEditing ? <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Reschedule / Reassign Resource</button> : <><label><span>New reservation date</span><input onChange={(event) => { setScheduleDate(event.target.value); setSchedulePersisted(false); }} type="date" value={scheduleDate} /></label><label><span>Physical resource</span><select onChange={(event) => { setScheduleResource(event.target.value); setSchedulePersisted(false); }} value={scheduleResource}><option value="">No resource change</option>{scheduleResources.map((resource) => <option key={resource.value} value={resource.value}>{resource.label}</option>)}</select></label><div><label><span>Start time</span><input disabled={scheduleFixed} onChange={(event) => { setScheduleStart(event.target.value); setSchedulePersisted(false); }} type="time" value={scheduleStart} /></label><label><span>End time</span><input disabled={scheduleFixed} onChange={(event) => { setScheduleEnd(event.target.value); setSchedulePersisted(false); }} type="time" value={scheduleEnd} /></label></div><button disabled={actionState === "loading" || !scheduleDate || !scheduleStart || !scheduleEnd} onClick={() => void saveReservationSchedule()} type="button">Save audited override</button><button className="admin-close-action" onClick={() => setScheduleEditing(false)} type="button">Cancel</button></>}</section>}
          {section === "reservations" && <section className="admin-detail-section"><h3>Staff recommendation</h3>{row._latest_staff_recommendation && typeof row._latest_staff_recommendation === "object" ? (() => { const recommendation = row._latest_staff_recommendation as Row; return <dl><div><dt>Recommendation</dt><dd>{show(first(recommendation, ["recommendation"]))}</dd></div><div><dt>Status</dt><dd>{show(first(recommendation, ["review_state"]))}</dd></div><div><dt>Staff member</dt><dd>{show(first(recommendation, ["staff_name", "staff_id"]))}</dd></div><div><dt>Reason</dt><dd>{show(first(recommendation, ["reason"]))}</dd></div><div><dt>Notes</dt><dd>{show(first(recommendation, ["notes"]))}</dd></div><div><dt>Submitted</dt><dd>{show(first(recommendation, ["created_at"]), "created_at")}</dd></div></dl>; })() : <p>No staff recommendation has been submitted for this reservation.</p>}</section>}
         {section === "reservations" && <section className="admin-detail-section"><h3>Payment submissions</h3>{relatedPaymentsLoading ? <p>Loading linked payment submissions…</p> : relatedPayments.length ? <div className="admin-payment-review-list">{relatedPayments.map((payment) => <PaymentReviewCard key={String(payment.id)} onReviewed={(updated) => setRelatedPayments((current) => current.map((item) => item.id === updated.id ? updated : item))} payment={payment} />)}</div> : <p>No payment proof has been submitted for this reservation.</p>}</section>}
         {section === "reservations" && <section className="admin-detail-section"><h3>Reservation history</h3>{relatedActivity.length ? <div className="admin-history-timeline">{relatedActivity.map((activity) => <div key={String(activity.id)}><i /><span><strong>{show(first(activity, ["action"]))}</strong><small>{show(first(activity, ["description"]))}</small><time>{show(first(activity, ["created_at"]), "created_at")}</time></span></div>)}</div> : <p>No administrative history has been recorded for this reservation yet.</p>}</section>}
-         {section === "reservations" && currentStatus === "pending" && <section className="admin-approval-checklist"><div><span>Approval readiness</span><strong>{approvalChecks.every((check) => check.complete) ? "Ready for approval" : "Action required"}</strong></div>{approvalChecks.map((check) => <p className={check.complete ? "is-complete" : ""} key={check.label}><i>{check.complete ? "✓" : "!"}</i><span><strong>{check.label}</strong>{!check.complete && <small>{check.missing}</small>}</span></p>)}{scheduleValidationError && <small className="admin-schedule-error">Schedule validation unavailable: {scheduleValidationError}</small>}<small>Payment proof verification and exclusive-resource conflicts are checked securely again by the approval RPC.</small></section>}
+          {section === "reservations" && currentStatus === "pending" && <section className="admin-approval-checklist"><div><span>Automatic schedule reservation</span><strong>{scheduleValidation?.no_conflict === true && scheduleValidation?.schedule_complete === true ? "Reserved" : "Needs schedule review"}</strong></div>{scheduleValidationError && <small className="admin-schedule-error">Schedule validation unavailable: {scheduleValidationError}</small>}<small>The schedule is reserved when the booking is created. Payment verification automatically confirms eligible bookings; no separate schedule approval is required.</small></section>}
         {section === "reservations" && currentStatus === "pending" && scheduleEditing && <section className="admin-workflow-actions admin-schedule-editor"><h3>Edit schedule</h3><p>{scheduleFixed ? "This package uses a fixed tour schedule. Times are locked to the configured package." : "Assign the agreed schedule. An end time earlier than the start time is treated as the following day."}</p><div className="admin-schedule-context"><span>Reservation</span><strong>{show(first(row, ["reservation_code", "id"]))}</strong><span>Package</span><strong>{show(first(row, ["package_name", "package_id"]))}</strong><span>Variant</span><strong>{show(first(row, ["package_variant", "package_variant_id"]))}</strong><span>Duration</span><strong>{durationLabel}</strong></div><label><span>Reservation date</span><input disabled type="date" value={scheduleDate} /></label>{effectiveResourceRequired ? <label><span>Physical venue or resource</span><select required onChange={(event) => { setScheduleResource(event.target.value); setSchedulePersisted(false); }} value={scheduleResource}><option value="">Select a configured resource</option>{scheduleResources.map((resource) => <option key={resource.value} value={resource.value}>{resource.label}{resource.location ? ` · ${resource.location}` : ""}</option>)}</select></label> : <p className="admin-schedule-shared">No exclusive Evently resource is required for this package.</p>}{scheduleResourceError && <p className="admin-schedule-error" role="alert">{scheduleResourceError}</p>}<div><label><span>Start time</span><input disabled={scheduleFixed} onChange={(event) => { setScheduleStart(event.target.value); setSchedulePersisted(false); }} type="time" value={scheduleStart} /></label><label><span>End time</span><input disabled={scheduleFixed} onChange={(event) => { setScheduleEnd(event.target.value); setSchedulePersisted(false); }} type="time" value={scheduleEnd} /></label></div><div className="admin-schedule-actions"><button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => { setScheduleStart(String(first(row, ["start_time"]) ?? scheduleStart).slice(0, 5)); setScheduleEnd(String(first(row, ["end_time"]) ?? scheduleEnd).slice(0, 5)); setScheduleResource(String(first(row, ["resource_key"]) ?? "")); setSchedulePersisted(true); setScheduleEditing(false); }} type="button">Cancel</button>{scheduleResourceRequired && <button disabled={actionState === "loading" || Boolean(scheduleResourceError) || !scheduleResource || !scheduleStart || !scheduleEnd} onClick={() => void saveReservationSchedule()} type="button">{actionState === "loading" ? "Saving…" : "Save Schedule"}</button>}</div></section>}
-         {section === "reservations" && <section className="admin-workflow-actions admin-drawer-actions"><h3>Reservation actions</h3>{currentStatus === "pending" && !approvalChecks.every((check) => check.complete) && <p>{approvalChecks.find((check) => !check.complete)?.missing ?? "Complete the approval checks first."}</p>}<div>{currentStatus === "pending" && <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Edit Schedule</button>}{currentStatus === "pending" && <button disabled={actionState === "loading" || !approvalChecks.every((check) => check.complete)} title={!approvalChecks.every((check) => check.complete) ? approvalChecks.find((check) => !check.complete)?.missing : undefined} onClick={() => void approveBooking()} type="button">{actionState === "loading" ? "Approving…" : "Approve Booking"}</button>}{currentStatus === "pending" && <button className="is-danger" disabled={actionState === "loading"} onClick={() => { setRejectionReason(""); setRejectionOpen(true); }} type="button">Reject Booking</button>}{currentStatus === "confirmed" && <button disabled={actionState === "loading"} onClick={() => void mutate("completed")} type="button">Mark Completed</button>}<button className="admin-close-action" onClick={onClose} type="button">Close</button></div></section>}
+         {section === "reservations" && <section className="admin-workflow-actions admin-drawer-actions"><h3>Reservation actions</h3><p>Schedule assignment happens automatically when the booking is accepted. A sufficient verified deposit confirms the booking.</p><div>{currentStatus === "pending" && <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Edit Schedule</button>}{currentStatus === "pending" && <button className="is-danger" disabled={actionState === "loading"} onClick={() => { setRejectionReason(""); setRejectionOpen(true); }} type="button">Reject Booking</button>}{currentStatus === "confirmed" && <button disabled={actionState === "loading"} onClick={() => void mutate("completed")} type="button">Mark Completed</button>}{["pending", "confirmed"].includes(currentStatus) && <button className="is-danger" disabled={actionState === "loading"} onClick={() => void mutate("cancelled")} type="button">Cancel / Release Schedule</button>}<button className="admin-close-action" onClick={onClose} type="button">Close</button></div></section>}
          {rejectionOpen && typeof document !== "undefined" && createPortal(
            <div className="admin-modal-wrap admin-rejection-modal-wrap">
              <button aria-label="Close rejection confirmation" className="admin-modal-backdrop" disabled={actionState === "loading"} onClick={() => setRejectionOpen(false)} type="button" />
@@ -2482,8 +2511,9 @@ function ScheduleProposalsView() {
   }, []);
   useEffect(() => { void load(); const interval = window.setInterval(() => void load(), 30000); return () => window.clearInterval(interval); }, [load]);
   const decide = async (row: Row, accept: boolean) => {
-    const reason = accept ? null : window.prompt("Why is this schedule proposal being declined?")?.trim();
-    if (!accept && !reason) return;
+    const reason = window.prompt(accept ? "Enter the reason to accept this schedule override:" : "Why is this schedule proposal being declined?")?.trim();
+    if (!reason) return;
+    if (accept && !window.confirm("Accept this proposal using the audited, conflict-checked schedule override?")) return;
     const { error } = await supabase.rpc("evently_admin_decide_schedule_proposal", { p_proposal_id: String(row.id), p_accept: accept, p_reason: reason });
     setMessage(error ? error.message : `Schedule proposal ${accept ? "accepted" : "declined"}.`);
     if (!error) { void load(); window.dispatchEvent(new Event("evently-admin-data-changed")); }
@@ -2491,9 +2521,36 @@ function ScheduleProposalsView() {
   return <section className="admin-card admin-table-card admin-attention-card"><div className="admin-card-heading"><div><h2>Schedule Proposals</h2><p>Administrator acceptance runs the existing resource and conflict checks.</p></div><b>{rows.length}</b></div>{message && <p className="admin-action-message">{message}</p>}<div className="admin-table-scroll"><table><thead><tr><th>Reservation</th><th>Staff</th><th>Proposed schedule</th><th>Note</th><th>Actions</th></tr></thead><tbody>{rows.map((row) => { const booking = row._booking as Row | undefined; const staff = row._staff as Row | undefined; return <tr key={String(row.id)}><td>{show(booking?.reservation_code)}<small>{show(booking?.customer_name)} · {show(booking?.package_name)}</small></td><td>{show(staff?.full_name)}</td><td>{show(row.proposed_date)}<small>{show(row.proposed_start_time)}–{show(row.proposed_end_time)} · {show(row.proposed_resource_key)}</small></td><td>{show(row.note)}</td><td><div className="admin-inline-actions"><button onClick={() => void decide(row,true)} type="button">Accept</button><button onClick={() => void decide(row,false)} type="button">Decline</button></div></td></tr>; })}</tbody></table>{!rows.length && <div className="admin-empty"><strong>No schedule proposals</strong><p>Staff proposals will appear here for approval.</p></div>}</div></section>;
 }
 
+function CateringChangeRequestsPanel({ requests, onChanged, canManage }: { requests: Row[]; onChanged?: () => void | Promise<void>; canManage: boolean }) {
+  const [feedback, setFeedback] = useState("");
+  const decide = async (request: Row, decision: "approved" | "rejected") => {
+    if (!canManage) return;
+    const note = window.prompt(decision === "approved" ? "Administrator approval note:" : "Reason for declining this customer request:")?.trim();
+    if (!note) return;
+    const { error } = await supabase.rpc("evently_admin_decide_catering_change", {
+      p_request_id: String(request.id), p_decision: decision, p_decision_note: note,
+    });
+    setFeedback(error ? error.message : `Catering request ${decision}.`);
+    if (!error) {
+      window.dispatchEvent(new Event("evently-admin-data-changed"));
+      window.dispatchEvent(new Event("evently-customer-bookings-changed"));
+      await onChanged?.();
+    }
+  };
+  if (!requests.length) return null;
+  return <section className="admin-detail-section"><h3>Catering cancellation / reschedule requests</h3>{requests.map((request) => <article className="admin-review-excerpt" key={String(request.id)}>
+    <strong>{show(request.request_action)} · {show(request.request_status)}</strong>
+    <span>Requested {show(request.requested_at)} · event {show(request.original_reservation_date)} {show(request.original_start_time)}</span>
+    <p>{show(request.reason)}</p>
+    {String(request.request_action) === "reschedule" && <small>Proposed: {show(request.proposed_reservation_date)} {show(request.proposed_start_time)}–{show(request.proposed_end_time)}</small>}
+    {Boolean(request.decision_note) && <small>Administrator: {show(request.decision_note)}</small>}
+    {canManage && String(request.request_status) === "pending" && <div className="admin-inline-actions"><button onClick={() => void decide(request,"approved")} type="button">Approve request</button><button onClick={() => void decide(request,"rejected")} type="button">Decline request</button></div>}
+  </article>)}{feedback && <p className="admin-action-message" role="status">{feedback}</p>}</section>;
+}
+
 function ReviewsWorkspace() {
-  const [reviews, setReviews] = useState<Row[]>([]); const [packages, setPackages] = useState<Row[]>([]);
-  const [filter, setFilter] = useState("All"); const [moderation, setModeration] = useState("All"); const [message, setMessage] = useState("");
+  const [reviews, setReviews] = useState<Row[]>([]);
+  const [filter, setFilter] = useState("All"); const [moderation, setModeration] = useState("All"); const [serviceFilter, setServiceFilter] = useState("All"); const [ratingFilter, setRatingFilter] = useState("All"); const [dateFrom, setDateFrom] = useState(""); const [dateTo, setDateTo] = useState(""); const [message, setMessage] = useState("");
   const [schemaReady, setSchemaReady] = useState<boolean | null>(null);
   const load = useCallback(async () => {
     const readiness = await supabase.rpc("evently_review_features_ready");
@@ -2503,40 +2560,54 @@ function ReviewsWorkspace() {
       return;
     }
     setSchemaReady(true);
-    const [reviewsResult, packagesResult] = await Promise.all([supabase.from("reviews").select("*").order("created_at", { ascending: false }).limit(1000), supabase.from("packages").select("id,name,service_type,package_category")]);
+    const reviewsResult = await supabase.from("reviews").select("*").order("created_at", { ascending: false }).limit(1000);
     if (reviewsResult.error) { setMessage(reviewsResult.error.message); return; }
-    setReviews((reviewsResult.data ?? []) as Row[]); setPackages((packagesResult.data ?? []) as Row[]);
+    setReviews((reviewsResult.data ?? []) as Row[]);
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const refresh = () => { void load(); };
+    const interval = window.setInterval(refresh, 30000);
+    window.addEventListener("evently-admin-data-changed", refresh);
+    const channel = supabase.channel("admin-review-workspace")
+      .on("postgres_changes", { event: "*", schema: "public", table: "reviews" }, refresh)
+      .subscribe();
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("evently-admin-data-changed", refresh);
+      void supabase.removeChannel(channel);
+    };
+  }, [load]);
   const reviewText = (row: Row) => first(row,["review_text","comment","content"]);
-  const serviceFor = (row: Row) => { const pack = packages.find((item) => item.id === row.package_id); const category = String(pack?.package_category ?? "").toLowerCase(); if (category.includes("event_venue")) return "Event Venues"; if (category.includes("room") || category.includes("accommodation")) return "Staycation / Rooms"; const service = String(pack?.service_type ?? ""); return service.toLowerCase().includes("resort") ? "Resort / Swimming Pool" : service || "Uncategorized"; };
-  const visible = reviews.filter((row) => (filter === "All" || String(row.sentiment_label ?? "pending") === filter.toLowerCase()) && (moderation === "All" || String(row.moderation_status ?? "pending") === moderation.toLowerCase()));
+  const serviceFor = (row: Row) => String(row.service_category ?? "Uncategorized");
+  const visible = reviews.filter((row) => (filter === "All" || String(row.sentiment_label ?? "pending") === filter.toLowerCase()) && (moderation === "All" || String(row.moderation_status ?? "pending") === moderation.toLowerCase()) && (serviceFilter === "All" || serviceFor(row) === serviceFilter) && (ratingFilter === "All" || Number(row.rating) === Number(ratingFilter)) && (!dateFrom || String(row.created_at ?? "").slice(0,10) >= dateFrom) && (!dateTo || String(row.created_at ?? "").slice(0,10) <= dateTo));
   const published = reviews.filter((row) => row.is_published === true && row.moderation_status === "approved");
   const distribution = ["positive","neutral","negative"].map((sentiment) => ({ sentiment, count: published.filter((row) => row.sentiment_label === sentiment).length }));
   const average = published.length ? published.reduce((sum,row) => sum + Number(row.rating ?? 0),0) / published.length : 0;
   const months = Array.from({length: 6}, (_, index) => { const date = new Date(); date.setDate(1); date.setMonth(date.getMonth() - (5 - index)); return date; });
   const trendSeries = ["positive","neutral","negative"].map((sentiment) => ({ sentiment, points: months.map((month) => published.filter((row) => row.sentiment_label === sentiment && new Date(String(row.created_at)).getFullYear() === month.getFullYear() && new Date(String(row.created_at)).getMonth() === month.getMonth()).length) }));
   const trendMax = Math.max(...trendSeries.flatMap((series) => series.points), 1);
-  const serviceNames = ["Catering","Resort / Swimming Pool","Staycation / Rooms","Event Venues"];
+  const serviceNames = ["Catering","Staycation","Events Place","Venice experience"];
   const serviceRows = published.reduce<Record<string, number[]>>((totals, row) => {
     const service = serviceFor(row).toLowerCase();
-    const category = service.includes("event_venue") || service.includes("venue") ? serviceNames[3]
-      : service.includes("room") || service.includes("staycation") || service.includes("accommodation") ? serviceNames[2]
-      : service.includes("catering") ? serviceNames[0] : service.includes("resort") || service.includes("pool") || service.includes("swim") ? serviceNames[1] : "Other";
+    const category = service.includes("event") || service.includes("venue") ? serviceNames[2]
+      : service.includes("staycation") || service.includes("room") || service.includes("accommodation") ? serviceNames[1]
+      : service.includes("catering") ? serviceNames[0] : service.includes("resort") || service.includes("pool") || service.includes("swim") ? serviceNames[1] : service.includes("venice") ? serviceNames[3] : "Other";
     if (!totals[category]) totals[category] = [0,0,0];
     const index = ["positive","neutral","negative"].indexOf(String(row.sentiment_label));
     if (index >= 0) totals[category][index] += 1;
     return totals;
   }, {});
   const moderate = async (row: Row, decision: "approved" | "rejected" | "flagged") => { const reason = decision === "approved" ? null : window.prompt("Record a moderation reason:")?.trim(); if (decision !== "approved" && !reason) return; const { error } = await supabase.rpc("evently_admin_moderate_review", { p_review_id: String(row.id), p_decision: decision, p_reason: reason }); setMessage(error ? error.message : `Review ${decision}.`); if (!error) void load(); };
-  const analyze = async (row: Row) => { const { data } = await supabase.auth.getSession(); const response = await fetch(`${eventlyFunctionBaseUrl}/reviews/analyze`, { method:"POST", headers:{ Authorization:`Bearer ${data.session?.access_token ?? ""}`, "Content-Type":"application/json" }, body:JSON.stringify({review_id:row.id}) }); const result = await response.json().catch(()=>({})); setMessage(response.ok ? `Analysis: ${result.sentiment} (${Math.round(result.confidence * 100)}% confidence).` : String(result.error ?? "Analysis unavailable.")); if (response.ok) void load(); };
+  const analyze = async (row: Row) => { if (!String(reviewText(row) ?? "").trim()) { setMessage("Sentiment is unavailable for a star-only review."); return; } const { data } = await supabase.auth.getSession(); const response = await fetch(`${eventlyFunctionBaseUrl}/reviews/analyze`, { method:"POST", headers:{ Authorization:`Bearer ${data.session?.access_token ?? ""}`, "Content-Type":"application/json" }, body:JSON.stringify({review_id:row.id}) }); const result = await response.json().catch(()=>({})); setMessage(response.ok ? `Analysis: ${result.sentiment} (${Math.round(result.confidence * 100)}% confidence).` : String(result.error ?? "Analysis unavailable.")); if (response.ok) void load(); };
   const max = Math.max(...distribution.map((item) => item.count), 1);
   const totalAnalyzed = distribution.reduce((sum, item) => sum + item.count, 0);
   if (schemaReady === null) return <LoadingState />;
   if (!schemaReady) return <section className="admin-card admin-schema-note"><span>Migration required</span><h2>Review moderation is not ready</h2><p>{message}</p><p>The application checks for the review edit, moderation, and sentiment schema before querying those fields.</p></section>;
   return <>
-    {reviews.some((row) => !row.sentiment_label) && <section className="admin-card admin-attention-card"><div className="admin-card-heading"><div><h2>Sentiment analysis pending</h2><p>Unprocessed or failed analyses remain pending; retrying analyzes the stored review text.</p></div><b>{reviews.filter((row) => !row.sentiment_label).length}</b></div><div className="admin-review-pending-list">{reviews.filter((row) => !row.sentiment_label).slice(0, 6).map((row) => <article key={String(row.id)}><span><strong>{String(reviewText(row) ?? "").slice(0, 120)}</strong><small>{serviceFor(row)} · {show(row.created_at)}</small></span><button className="admin-row-action" onClick={() => void analyze(row)} type="button">Analyze / retry</button></article>)}</div></section>}
-    <div className="admin-stat-grid"><article className="admin-card"><span>Published reviews</span><strong>{published.length}</strong></article><article className="admin-card"><span>Average rating</span><strong>{average ? average.toFixed(1) : "—"} ★</strong></article><article className="admin-card"><span>Moderation queue</span><strong>{reviews.filter((row) => ["pending","flagged"].includes(String(row.moderation_status))).length}</strong></article></div>
+    <section className="admin-card"><div className="admin-card-heading"><div><h2>Review filters</h2><p>Filter by service, rating, sentiment, and submission date.</p></div><div className="admin-inline-filters"><label>Service<select value={serviceFilter} onChange={(event)=>setServiceFilter(event.target.value)}><option>All</option>{serviceNames.map((name)=><option key={name}>{name}</option>)}</select></label><label>Rating<select value={ratingFilter} onChange={(event)=>setRatingFilter(event.target.value)}><option>All</option>{[5,4,3,2,1].map((stars)=><option key={stars} value={stars}>{stars} stars</option>)}</select></label><label>From<input type="date" value={dateFrom} onChange={(event)=>setDateFrom(event.target.value)}/></label><label>To<input type="date" value={dateTo} onChange={(event)=>setDateTo(event.target.value)}/></label></div></div></section>
+    {reviews.some((row) => !row.sentiment_label && Boolean(String(reviewText(row) ?? "").trim())) && <section className="admin-card admin-attention-card"><div className="admin-card-heading"><div><h2>Sentiment analysis pending</h2><p>Unprocessed or failed written reviews remain pending; retrying analyzes the stored text.</p></div><b>{reviews.filter((row) => !row.sentiment_label && Boolean(String(reviewText(row) ?? "").trim())).length}</b></div><div className="admin-review-pending-list">{reviews.filter((row) => !row.sentiment_label && Boolean(String(reviewText(row) ?? "").trim())).slice(0, 6).map((row) => <article key={String(row.id)}><span><strong>{String(reviewText(row) ?? "").slice(0, 120)}</strong><small>{serviceFor(row)} · {show(row.created_at)}</small></span><button className="admin-row-action" onClick={() => void analyze(row)} type="button">Analyze / retry</button></article>)}</div></section>}
+     <div className="admin-stat-grid"><article className="admin-card"><span>Total reviews</span><strong>{reviews.length}</strong></article><article className="admin-card"><span>Average rating</span><strong>{reviews.length ? (reviews.reduce((sum,row) => sum + Number(row.rating ?? 0),0) / reviews.length).toFixed(1) : "—"} ★</strong></article><article className="admin-card"><span>Positive</span><strong>{reviews.filter((row) => row.sentiment_label === "positive").length}</strong></article><article className="admin-card"><span>Neutral</span><strong>{reviews.filter((row) => row.sentiment_label === "neutral").length}</strong></article><article className="admin-card"><span>Negative</span><strong>{reviews.filter((row) => row.sentiment_label === "negative").length}</strong></article><article className="admin-card"><span>Moderation queue</span><strong>{reviews.filter((row) => ["pending","flagged"].includes(String(row.moderation_status))).length}</strong></article></div>
     <div className="admin-overview-grid" style={{ marginTop: 14 }}><section className="admin-card"><div className="admin-card-heading"><div><h2>Sentiment distribution</h2><p>From actual published review text with completed analysis.</p></div></div><div className="admin-donut-wrap"><svg aria-label="Sentiment distribution donut chart" role="img" viewBox="0 0 80 80"><circle cx="40" cy="40" r="30" fill="none" stroke="#edf1f1" strokeWidth="12"/><g transform="rotate(-90 40 40)">{distribution.map((item,index)=>{const circumference=188.5;const offset=distribution.slice(0,index).reduce((sum,previous)=>sum+previous.count/Math.max(totalAnalyzed,1)*circumference,0);return <circle key={item.sentiment} cx="40" cy="40" r="30" fill="none" stroke={["#148d88","#c9973d","#bc4a4f"][index]} strokeWidth="12" strokeDasharray={`${item.count/Math.max(totalAnalyzed,1)*circumference} ${circumference}`} strokeDashoffset={-offset}/>;})}</g><text x="40" y="39" textAnchor="middle" className="admin-donut-total">{totalAnalyzed}</text><text x="40" y="48" textAnchor="middle" className="admin-donut-label">ANALYZED</text></svg><div className="admin-sentiment-bars">{distribution.map((item) => <div key={item.sentiment}><span>{item.sentiment}</span><i><b style={{ width:`${item.count / max * 100}%` }}/></i><strong>{item.count}</strong></div>)}</div></div></section><section className="admin-card"><div className="admin-card-heading"><div><h2>Sentiment trends</h2><p>Monthly analyzed published reviews · last six months.</p></div></div>{published.some((row)=>row.sentiment_label) ? <div className="admin-sentiment-trend"><svg aria-label="Monthly review sentiment trends" role="img" viewBox="0 0 600 220" preserveAspectRatio="none"><path d="M35 15V185H590" fill="none" stroke="#dce5e5" strokeWidth="2"/>{trendSeries.map((series)=>{const points=series.points.map((value,index)=>`${45+index*105},${180-value/trendMax*150}`).join(" ");return <g key={series.sentiment}><polyline fill="none" points={points} stroke={series.sentiment === "positive" ? "#148d88" : series.sentiment === "neutral" ? "#c9973d" : "#bc4a4f"} strokeWidth="4"/>{series.points.map((value,index)=><circle key={index} cx={45+index*105} cy={180-value/trendMax*150} r="5" fill={series.sentiment === "positive" ? "#148d88" : series.sentiment === "neutral" ? "#c9973d" : "#bc4a4f"}/>)}</g>;})}</svg><div className="admin-sentiment-months">{months.map((month)=><span key={month.toISOString()}>{month.toLocaleDateString("en",{month:"short"})}</span>)}</div><div className="admin-sentiment-legend">{trendSeries.map((series)=><span key={series.sentiment}><i className={`is-${series.sentiment}`}/>{series.sentiment}</span>)}</div></div> : <div className="admin-chart-empty">Sentiment trends will appear after reviews are analyzed.</div>}</section></div>
     <section className="admin-card" style={{ marginTop:14 }}><div className="admin-card-heading"><div><h2>Reviews by service</h2><p>Analyzed review counts for actual linked services and packages.</p></div></div><div className="admin-review-services">{serviceNames.map((service,index)=>{const values=serviceRows[service]??[0,0,0];const total=values.reduce((sum,value)=>sum+value,0);return <article key={service}><strong>{service}</strong><span>{total} analyzed review{total===1?"":"s"}</span><div>{values.map((value,seriesIndex)=><i key={seriesIndex} style={{width:`${total ? value/total*100 : 0}%`,background:["#148d88","#c9973d","#bc4a4f"][seriesIndex]}} title={`${["Positive","Neutral","Negative"][seriesIndex]}: ${value}`}/>)}</div><small>Positive {values[0]} · Neutral {values[1]} · Negative {values[2]}</small></article>;})}</div></section>
     <div className="admin-overview-grid" style={{ marginTop: 14 }}><section className="admin-card"><div className="admin-card-heading"><div><h2>Recent customer feedback</h2><p>Latest published reviews with actual sentiment analysis.</p></div></div>{published.slice(0,4).map((row)=><article className="admin-review-excerpt" key={String(row.id)}><strong>{"★".repeat(Number(row.rating ?? 0))} · {String(row.sentiment_label ?? "Pending")}</strong><span>{serviceFor(row)} · {show(row.created_at)}</span><p>{String(reviewText(row) ?? "").slice(0,180)}</p></article>)}{!published.length && <div className="admin-chart-empty">No published reviews with data yet.</div>}</section><section className="admin-card"><div className="admin-card-heading"><div><h2>Moderation queue</h2><p>Pending and flagged customer submissions.</p></div></div>{reviews.filter((row)=>["pending","flagged"].includes(String(row.moderation_status))).slice(0,5).map((row)=><article className="admin-review-excerpt" key={String(row.id)}><strong>{show(row.moderation_status)} · {show(row.rating)} ★</strong><span>{serviceFor(row)} · {show(row.created_at)}</span><p>{String(reviewText(row) ?? "").slice(0,180)}</p></article>)}{!reviews.some((row)=>["pending","flagged"].includes(String(row.moderation_status))) && <div className="admin-chart-empty">No reviews are waiting for moderation.</div>}</section></div>
