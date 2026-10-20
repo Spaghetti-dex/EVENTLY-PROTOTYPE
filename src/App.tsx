@@ -2713,7 +2713,8 @@ function ReservationFlow({
                 <div className="availability-legend">
                   <span><i className="status-dot status-dot--available" />Available</span>
                   <span><i className="status-dot status-dot--reserved" />Reserved</span>
-                  <span><i className="status-dot status-dot--unavailable" />Unavailable (gray)</span>
+                  <span><i className="status-dot status-dot--unavailable" />Unavailable (booked)</span>
+                  <span><i className="status-dot status-dot--unavailable" />🔒 Advance booking restriction ({advanceBookingDays} days)</span>
                 </div>
                 <p className="calendar-context-note"><strong>Advance booking notice:</strong> Reservations must be made at least {advanceBookingDays} calendar days before the event. The earliest selectable date is {earliestBookingDate.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}.</p>
                 {!packageChoice && <p className="calendar-context-note">Choose a package or venue in the next step to see its specific booked dates and time overlaps. Return to this calendar after selecting it.</p>}
@@ -2749,20 +2750,23 @@ function ReservationFlow({
                     {calendarDays.map((day, index) => {
                       if (!day) return <span className="calendar__blank" key={`blank-${index}`} />;
                       const status = getStatus(day);
+                      const advanceRestricted = new Date(month.getFullYear(), month.getMonth(), day) < earliestBookingDate;
+                      const restrictionReason = advanceRestricted ? `Unavailable: ${advanceBookingDays}-day advance booking rule. Earliest date: ${earliestBookingDate.toLocaleDateString("en-PH", { month: "short", day: "numeric" })}.` : status === "unavailable" ? "Unavailable: already booked or conflicting schedule." : status;
                       const isSelected =
                         selectedDate?.getFullYear() === month.getFullYear() &&
                         selectedDate?.getMonth() === month.getMonth() &&
                         selectedDate?.getDate() === day;
                       return (
                         <button
-                          className={`calendar-day calendar-day--${status} ${isSelected ? "calendar-day--selected" : ""}`}
-                          disabled={status === "unavailable" || new Date(month.getFullYear(), month.getMonth(), day) < earliestBookingDate}
+                          className={`calendar-day calendar-day--${advanceRestricted ? "unavailable" : status} ${advanceRestricted ? "calendar-day--advance-restricted" : ""} ${isSelected ? "calendar-day--selected" : ""}`}
+                          disabled={status === "unavailable" || advanceRestricted}
                           key={day}
                           onClick={() => selectDate(day)}
                           type="button"
-                          aria-label={`${month.toLocaleDateString("en-PH", { month: "long" })} ${day}, ${status}`}
+                          aria-label={`${month.toLocaleDateString("en-PH", { month: "long" })} ${day}, ${restrictionReason}`}
+                          title={restrictionReason}
                         >
-                          <span>{day}</span><i />
+                          <span>{day}</span>{advanceRestricted ? <span aria-hidden="true" style={{ fontSize: "0.7em", lineHeight: 1 }}>🔒</span> : <i />}
                         </button>
                       );
                     })}
