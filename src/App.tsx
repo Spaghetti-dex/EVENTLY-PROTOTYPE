@@ -5479,7 +5479,7 @@ function Homepage() {
         </div>
       </section>
 
-      <section className="resort-showcase service-photo-showcase" id="events">
+      <section className="resort-showcase service-photo-showcase service-photo-showcase--right" id="events">
         <div className="resort-showcase__media" data-parallax>
           <img src={officialVenicePhotos.events[8]} alt="Venice Events Place celebration setup" loading="lazy" />
         </div>
