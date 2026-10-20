@@ -3888,3 +3888,15 @@ section[id] { scroll-margin-top: 88px; }
 .food-order-details>.booking-primary { justify-self: stretch; text-align: center; min-height: 52px; font-size: 16px; font-weight: 800; }
 .food-order-details>.booking-primary:not(:disabled) { cursor: pointer; }
 @media(min-width:901px) { .food-order-cart { top: 20px; } }
+
+/* Unified operations palette: warmer, layered workspaces for both admin and staff. */
+.evently-admin { background: linear-gradient(145deg,#edf5f1 0%,#f6f4ec 49%,#e9f1ee 100%); color:#203d36; min-height:100vh; }
+.evently-admin .admin-workspace { background: transparent; min-height:100vh; }
+.evently-admin .admin-content, .evently-admin .admin-main, .evently-admin .admin-page-content { background:transparent; }
+.evently-admin .admin-topbar { background:rgba(248,251,248,.94); border-bottom:1px solid #d6e5dc; box-shadow:0 3px 18px rgba(29,74,61,.045); }
+.evently-admin .admin-sidebar { background:linear-gradient(180deg,#123e37 0%,#1b5147 54%,#17453d 100%); }
+.evently-admin .admin-card, .evently-admin .admin-table-card, .evently-admin .admin-operations-intro, .evently-admin .admin-mini-stats > * { background:#fffefa; border-color:#dbe7dd; box-shadow:0 7px 24px rgba(26,75,57,.065); }
+.evently-admin .admin-card-heading { border-color:#e4ebe5; }
+.evently-admin .admin-search, .evently-admin .admin-filter-tabs, .evently-admin .admin-toolbar { border-color:#d8e6dd; }
+.evently-admin .admin-card:hover { box-shadow:0 10px 28px rgba(26,75,57,.085); }
+@media (prefers-reduced-motion:reduce) { .evently-admin .admin-card { transition:none; } }
