@@ -5455,50 +5455,30 @@ function Homepage() {
         </div>
       </section>
 
-      <section className="editorial-feature" id="catering">
-        <div className="editorial-feature__image image-reveal" data-reveal>
-          <div className="parallax-image" data-parallax>
-            <img
-              alt="Elegant place settings arranged for a catered celebration"
-              loading="lazy"
-              src={officialVenicePhotos.catering[1]}
-            />
-          </div>
-          <span className="floating-note">Prepared with care</span>
+      <section className="resort-showcase service-photo-showcase" id="catering">
+        <div className="resort-showcase__media" data-parallax>
+          <img src={officialVenicePhotos.catering[6]} alt="Venice Catering food presentation" loading="lazy" />
         </div>
-        <div className="editorial-feature__copy" data-reveal>
-          <span className="feature-number">01 — Catering</span>
+        <div className="resort-showcase__overlay" />
+        <div className="resort-showcase__content" data-reveal>
+          <span className="section-kicker section-kicker--light">01 — Catering</span>
           <h2>Food that brings<br /><em>everyone closer.</em></h2>
-          <p>
-            Choose Basic, Standard, or Premium catering with six selected dishes, plus rice,
-            dessert, and drinks. Every buffet is planned around your guest list and served with care.
-          </p>
-          <div className="mini-points">
-            <span><Icon name="sparkle" /> Curated menus</span>
-            <span><Icon name="people" /> Intimate to grand</span>
-          </div>
+          <p>Choose Basic, Standard, or Premium catering with six selected dishes, plus rice, dessert, and drinks. Every buffet is planned around your guest list and served with care.</p>
+          <div className="venue__facts"><span><Icon name="sparkle" /> Curated menus</span><span><Icon name="people" /> Intimate to grand</span></div>
           <button className="button button--booking inline-service-button" data-booking-cta="true" onClick={() => chooseService("Catering")} type="button"><span>Book Catering</span><Icon name="arrow" size={18} /></button>
         </div>
       </section>
 
-      <section className="editorial-feature editorial-feature--reverse" id="events">
-        <div className="editorial-feature__image image-reveal" data-reveal>
-          <div className="parallax-image" data-parallax>
-            <PhotoPlaceholder context="Event & Venue Photo #2" />
-          </div>
-          <span className="floating-note floating-note--orange">Made to be remembered</span>
+      <section className="resort-showcase service-photo-showcase" id="events">
+        <div className="resort-showcase__media" data-parallax>
+          <img src={officialVenicePhotos.events[8]} alt="Venice Events Place celebration setup" loading="lazy" />
         </div>
-        <div className="editorial-feature__copy" data-reveal>
-          <span className="feature-number">02 — Events</span>
+        <div className="resort-showcase__overlay" />
+        <div className="resort-showcase__content" data-reveal>
+          <span className="section-kicker section-kicker--light">02 — Events</span>
           <h2>A beautiful setting<br />for <em>your story.</em></h2>
-          <p>
-            Weddings, birthdays, debuts, reunions, and company gatherings come to life in spaces
-            that feel lush, welcoming, and full of possibility.
-          </p>
-          <div className="mini-points">
-            <span><Icon name="calendar" /> Flexible event dates</span>
-            <span><Icon name="sparkle" /> Styling support</span>
-          </div>
+          <p>Weddings, birthdays, debuts, reunions, and company gatherings come to life in spaces that feel lush, welcoming, and full of possibility.</p>
+          <div className="venue__facts"><span><Icon name="calendar" /> Flexible event dates</span><span><Icon name="sparkle" /> Styling support</span></div>
           <button className="button button--booking inline-service-button" data-booking-cta="true" onClick={() => chooseService("Event")} type="button"><span>Book Your Event</span><Icon name="arrow" size={18} /></button>
         </div>
       </section>
