@@ -1031,3 +1031,21 @@
 .evently-admin .admin-food-line-items small {font-size:13px;color:#5b7668}
 .evently-admin .admin-food-line-items b {font-size:15px;color:#1b6b55;white-space:nowrap}
 .evently-admin .admin-food-order-detail>p {font-size:13px;line-height:1.5;color:#60796c;margin:0}
+
+/* Operations content refresh: richer canvas and distinct, readable dashboard surfaces.
+   Deliberately leave the navigation sidebar unchanged. */
+.evently-admin { --admin-bg:#e9f2ed; --admin-border:#cbded4; background:#e9f2ed; }
+.evently-admin .admin-workspace { background:linear-gradient(145deg,#e2efe8 0%,#edf4ed 44%,#f1eee4 100%); }
+.evently-admin .admin-content { background:transparent; }
+.evently-admin .admin-topbar { background:#f8fbf7; border-bottom-color:#cbded4; box-shadow:0 3px 18px rgba(24,71,54,.06); }
+.evently-admin .admin-page-heading { background:linear-gradient(110deg,#d4e9de 0%,#e6f0e6 68%,#f1ead9 100%); border:1px solid #c4dccd; border-radius:18px; padding:24px 28px; box-shadow:0 8px 22px rgba(31,84,61,.055); }
+.evently-admin .admin-page-heading h1 { color:#173e35; }
+.evently-admin .admin-page-heading p { color:#4c6a5e; }
+.evently-admin .admin-card, .evently-admin .staff-stat-card, .evently-admin .admin-stat-grid button { background:#fffefa; border-color:#d2e1d7; box-shadow:0 7px 20px rgba(29,76,56,.075); }
+.evently-admin .admin-stat-grid button:nth-child(3n+1), .evently-admin .staff-stat-grid .staff-stat-card:nth-child(3n+1) { background:#f1faf3; border-top:3px solid #399077; }
+.evently-admin .admin-stat-grid button:nth-child(3n+2), .evently-admin .staff-stat-grid .staff-stat-card:nth-child(3n+2) { background:#f2f8fa; border-top:3px solid #5c9baf; }
+.evently-admin .admin-stat-grid button:nth-child(3n), .evently-admin .staff-stat-grid .staff-stat-card:nth-child(3n) { background:#fff9ed; border-top:3px solid #c49a54; }
+.evently-admin .admin-table-scroll th { background:#e5f0e9; color:#2d5b4c; }
+.evently-admin .admin-table-scroll tbody tr:nth-child(even) { background:#f7faf5; }
+.evently-admin .admin-table-scroll tbody tr:hover { background:#eaf4ec; }
+@media(max-width:700px) { .evently-admin .admin-page-heading { padding:18px; } }
