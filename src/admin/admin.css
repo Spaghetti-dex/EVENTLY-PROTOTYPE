@@ -951,3 +951,66 @@
  .evently-admin .admin-drawer-heading h2 { font-size: 22px; }
  .evently-admin .admin-page-heading h1 { font-size: 26px; }
 }
+
+
+/* Admin Reviews — accessible, focused moderation workspace */
+.evently-admin .review-workspace{display:grid;gap:20px;color:#1f4149}
+.evently-admin .review-topline{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap}
+.evently-admin .review-eyebrow{font-size:12px;color:#157b72;font-weight:800;letter-spacing:.1em}
+.evently-admin .review-topline h2{font-size:27px;line-height:1.25;font-weight:800;color:#173a43;margin:6px 0}
+.evently-admin .review-topline p{font-size:15px;line-height:1.5;color:#526a72;margin:0}
+.evently-admin .review-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.evently-admin .review-summary article{display:grid;gap:5px;background:#fff;border:1px solid #dce6e7;border-radius:13px;padding:19px 21px}
+.evently-admin .review-summary article>span{font-size:14px;color:#536b73;font-weight:650}
+.evently-admin .review-summary strong{font-size:29px;line-height:1.2;color:#143d45;font-weight:800}
+.evently-admin .review-summary strong span{font-size:20px;color:#bc8b26}
+.evently-admin .review-summary small{font-size:13px;color:#5e747c}
+.evently-admin .review-notice{display:flex;align-items:center;justify-content:space-between;gap:14px;background:#f0f8f7;border:1px solid #b8d8d2;border-radius:10px;padding:13px 16px;color:#214c4d;font-size:14px;line-height:1.5}
+.evently-admin .review-notice>button:not(.admin-secondary-button){background:transparent;border:0;cursor:pointer;font-size:24px}
+.evently-admin .review-records{padding:0;overflow:hidden}
+.evently-admin .review-records-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:24px 24px 16px}
+.evently-admin .review-records-head h3{font-size:21px;color:#183e46;margin:0 0 4px}
+.evently-admin .review-records-head p{font-size:14px;color:#5a7178;margin:0}
+.evently-admin .review-filters{display:grid;grid-template-columns:minmax(190px,2fr) repeat(5,minmax(115px,1fr));gap:12px;padding:0 24px 22px}
+.evently-admin .review-filters label{display:grid;gap:7px;font-size:13px;font-weight:750;color:#49636a;min-width:0}
+.evently-admin .review-filters input,.evently-admin .review-filters select{background:#fff;border:1px solid #cedcdf;border-radius:9px;color:#24444d;font:inherit;font-size:14px;min-height:44px;padding:9px 11px;min-width:0;width:100%}
+.evently-admin .review-filters :is(input,select):focus{border-color:#16887f;outline:2px solid #b5ded9;outline-offset:1px}
+.evently-admin .review-table-scroll{width:100%;overflow-x:auto}
+.evently-admin .review-table-scroll table{width:100%;min-width:930px;border-collapse:collapse}
+.evently-admin .review-table-scroll th{background:#f2f6f6;color:#3e5f68;text-transform:uppercase;letter-spacing:.04em;font-size:12px;font-weight:800;text-align:left;padding:15px 17px;white-space:nowrap}
+.evently-admin .review-table-scroll td{border-top:1px solid #e7eeee;padding:16px 17px;color:#24464d;font-size:14px;line-height:1.5;vertical-align:middle}
+.evently-admin .review-table-scroll td>strong{font-size:14px;font-weight:750;color:#1b4149}
+.evently-admin .review-table-scroll td small{display:block;font-size:13px;color:#60757c;margin-top:4px}
+.evently-admin .review-table-scroll tbody tr:hover{background:#f7faf9}
+.evently-admin .review-excerpt{max-width:330px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px;line-height:1.5;margin:0}
+.evently-admin .review-stars{font-size:19px;letter-spacing:1px;color:#b9821d;white-space:nowrap}
+.evently-admin .review-status{display:inline-flex;border-radius:99px;padding:7px 11px;font-size:12px;font-weight:800;text-transform:capitalize;background:#e8eef0;color:#425c66;white-space:nowrap}
+.evently-admin .review-status--approved{background:#e1f3e8;color:#206a46}
+.evently-admin .review-status--pending{background:#fff2d9;color:#825b14}
+.evently-admin .review-status--flagged{background:#ffedd7;color:#935a23}
+.evently-admin .review-status--rejected{background:#fae5e5;color:#a63b44}
+.evently-admin .review-modal-backdrop{position:fixed;inset:0;background:rgba(13,33,40,.48);z-index:1100;display:flex;align-items:center;justify-content:center;padding:20px}
+.evently-admin .review-modal{background:#fff;border-radius:16px;box-shadow:0 24px 70px #102c3540;width:min(630px,100%);max-height:min(90vh,880px);overflow-y:auto;color:#25454c}
+.evently-admin .review-modal-header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding:24px 28px;border-bottom:1px solid #e3ebec}
+.evently-admin .review-modal-header h3{font-size:24px;line-height:1.25;color:#193d45;margin:5px 0}
+.evently-admin .review-modal-header p{font-size:14px;color:#657980;margin:0}
+.evently-admin .review-modal-header>button{width:42px;height:42px;flex-shrink:0;font-size:24px;background:#f0f4f4;border:0;border-radius:10px;color:#24454b;cursor:pointer}
+.evently-admin .review-modal-body{padding:25px 28px 28px}
+.evently-admin .review-modal-badges{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:22px;flex-wrap:wrap}
+.evently-admin .review-modal-body h4{font-size:16px;color:#20454b;margin:16px 0 9px}
+.evently-admin .review-fulltext{font-size:16px;line-height:1.65;color:#24474e;white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f9f8;border-radius:11px;padding:19px;margin:0}
+.evently-admin .review-meta{font-size:14px;line-height:1.5;color:#597078;overflow-wrap:anywhere}
+.evently-admin .review-moderation{margin-top:24px;padding-top:14px;border-top:1px solid #e4ecec}
+.evently-admin .review-moderation>p{font-size:14px;line-height:1.5;color:#5a7179}
+.evently-admin .review-action-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.evently-admin .review-action-row button,.evently-admin .review-confirm button:not(.admin-secondary-button){min-height:43px;background:#146f67;color:#fff;border:0;border-radius:9px;padding:10px 15px;font-size:14px;font-weight:750;cursor:pointer}
+.evently-admin .review-action-row button:nth-child(2){background:#a36323}
+.evently-admin .review-action-row button:nth-child(3){background:#a83d46}
+.evently-admin .review-action-row button:disabled,.evently-admin .review-confirm button:disabled{opacity:.5;cursor:not-allowed}
+.evently-admin .review-confirm{display:grid;gap:15px;padding:18px;border:1px solid #c8dcda;border-radius:10px;background:#f5faf9;margin-top:16px}
+.evently-admin .review-confirm strong{font-size:15px}
+.evently-admin .review-confirm label{display:grid;gap:8px;font-size:14px;font-weight:700}
+.evently-admin .review-confirm textarea{width:100%;resize:vertical;border:1px solid #bccfd0;border-radius:9px;padding:12px;font:inherit;font-size:14px;min-height:90px}
+.evently-admin .review-confirm>div{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:1180px){.evently-admin .review-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.evently-admin .review-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:690px){.evently-admin .review-filters{grid-template-columns:repeat(2,minmax(0,1fr));padding:0 16px 18px}.evently-admin .review-search{grid-column:1/-1}.evently-admin .review-records-head{padding:19px 16px}.evently-admin .review-modal-header,.evently-admin .review-modal-body{padding:20px}.evently-admin .review-summary{gap:10px}.evently-admin .review-summary article{padding:14px}.evently-admin .review-modal-backdrop{padding:8px}}
