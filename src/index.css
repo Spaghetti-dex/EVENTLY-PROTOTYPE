@@ -3786,3 +3786,35 @@ section[id] { scroll-margin-top: 88px; }
 .venice-locations__footnote { font-size:12px;line-height:1.6;color:#7b8c7e;margin:19px 0 0 }
 @media(max-width:850px) { .venice-locations__groups { grid-template-columns:1fr } .venice-locations__resort-note { max-width:none } }
 @media(max-width:520px) { .venice-locations {padding:60px 18px} .venice-locations__group {padding:21px;border-radius:15px} .venice-locations__group-heading {gap:12px} .venice-locations__group-icon {height:40px;width:40px} .venice-locations__venue {gap:12px} .venice-locations__venue h4 {font-size:15px} .venice-locations__intro>p {font-size:14px} }
+
+
+/* Staycation accommodation selector */
+.staycation-room-card{margin:24px 0;padding:28px;border:1px solid #dce7db;border-radius:22px;background:linear-gradient(145deg,#fff 0%,#f7faf5 100%);box-shadow:0 10px 34px rgba(20,65,48,.055)}
+.staycation-room-card__header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:22px}
+.staycation-room-card__eyebrow{font-size:10px;font-weight:800;letter-spacing:.15em;color:#43836c}
+.staycation-room-card__header h4{font-family:Georgia,serif;color:#184b3e;font-size:27px;line-height:1.25;margin:8px 0}
+.staycation-room-card__header h4 span{font-family:inherit;font-size:11px;font-weight:600;vertical-align:middle;background:#e9f2e9;border-radius:30px;padding:6px 10px;color:#487363;white-space:nowrap}
+.staycation-room-card__header p{margin:0;color:#687d72;font-size:13px;line-height:1.6}
+.staycation-room-card__symbol{display:grid;place-items:center;width:48px;height:48px;border-radius:14px;background:#e9f3e9;color:#286e55;flex-shrink:0}
+.staycation-room-card__options{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px}
+.staycation-room-card__option{appearance:none;min-height:94px;padding:16px;border:1px solid #dfe8de;border-radius:14px;background:white;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:8px;justify-content:center;transition:border-color .2s,background .2s,box-shadow .2s}
+.staycation-room-card__option strong{font-size:14px;color:#19483d}
+.staycation-room-card__option small{font-size:12px;color:#73867a;line-height:1.5}
+.staycation-room-card__option:hover{border-color:#77a98b}
+.staycation-room-card__option.is-active{background:#eff7ed;border:2px solid #27934a;box-shadow:0 0 0 3px rgba(39,147,74,.06);padding:15px}
+.staycation-room-card__option:focus-visible,.staycation-room-card__counter button:focus-visible{outline:3px solid #72ac8b;outline-offset:3px}
+.staycation-room-card__details{margin-top:20px;padding-top:20px;border-top:1px solid #dfe8de}
+.staycation-room-card__fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.staycation-room-card__fields label{display:flex;flex-direction:column;gap:8px;font-size:12px;font-weight:700;color:#345b4b}
+.staycation-room-card__fields input{height:46px;border:1px solid #d6e3db;border-radius:11px;padding:0 14px;background:white;color:#19483d;font-size:15px;width:100%;box-sizing:border-box}
+.staycation-room-card__fields label small{font-size:11px;font-weight:400;color:#778a7e}
+.staycation-room-card__counter{height:46px;max-width:210px;border:1px solid #d6e3db;border-radius:11px;background:white;display:flex;align-items:center;justify-content:space-between;overflow:hidden}
+.staycation-room-card__counter button{width:48px;height:100%;border:0;background:transparent;font-size:22px;color:#216c50;cursor:pointer}
+.staycation-room-card__counter button:disabled{opacity:.3;cursor:not-allowed}
+.staycation-room-card__counter strong{font-size:17px;color:#174b3b}
+.staycation-room-card__total{margin-top:20px;padding:16px 18px;border-radius:12px;background:#eaf3e9;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.staycation-room-card__total span{font-size:13px;color:#466a57}
+.staycation-room-card__total strong{font-size:22px;font-family:Georgia,serif;color:#194b3b}
+.staycation-room-card__total small{flex-basis:100%;font-size:11px;color:#6b8071}
+@media(max-width:600px){.staycation-room-card{padding:19px;border-radius:16px}.staycation-room-card__header h4{font-size:23px}.staycation-room-card__options{grid-template-columns:1fr 1fr}.staycation-room-card__fields{grid-template-columns:1fr}.staycation-room-card__symbol{display:none}}
+@media(max-width:390px){.staycation-room-card__options{grid-template-columns:1fr}}
