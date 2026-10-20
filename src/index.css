@@ -3867,3 +3867,24 @@ section[id] { scroll-margin-top: 88px; }
 .availability-legend .status-dot--restricted { background: #b88732; }
 .calendar-day--restricted { background: rgba(184,135,50,.13); border: 1px dashed rgba(184,135,50,.55); color: #93641d; cursor: not-allowed; text-decoration: none; }
 .calendar-day--restricted i { background: #b88732; }
+
+/* Food ordering: clear hierarchy, visible form guidance, and accessible checkout. */
+.food-composer { gap: 28px; }
+.food-composer__heading { padding-bottom: 6px; }
+.food-category-tabs { padding: 5px 0 8px; }
+.food-category-tabs button:hover:not(.is-active) { background: #e6f1eb; border-color: #9ac4b4; }
+.food-item-card { transition: border-color .18s ease, box-shadow .18s ease; }
+.food-item-card:focus-within { border-color: #1c7568; box-shadow: 0 0 0 3px rgba(28,117,104,.10); }
+.food-item-qty button:hover:not(:disabled) { background: #d4eadd; }
+.food-order-cart { box-shadow: 0 10px 28px rgba(19,68,51,.06); }
+.food-order-details { padding: clamp(18px,3vw,30px); gap: 20px; box-shadow: 0 8px 26px rgba(19,68,51,.04); }
+.food-checkout-heading { display: grid; gap: 6px; }
+.food-checkout-heading>span { font-size: 11px; font-weight: 850; letter-spacing: .13em; color: #237e72; }
+.food-checkout-heading h4 { margin: 0; }
+.food-checkout-heading p { margin: 0; color: #5e7770; font-size: 14px; }
+.food-form-guidance { background: #fff8e8; border: 1px solid #e7d3a3; border-radius: 12px; padding: 14px 18px; color: #70501c; font-size: 13px; }
+.food-form-guidance strong { display: block; margin-bottom: 7px; font-size: 14px; }
+.food-form-guidance ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.food-order-details>.booking-primary { justify-self: stretch; text-align: center; min-height: 52px; font-size: 16px; font-weight: 800; }
+.food-order-details>.booking-primary:not(:disabled) { cursor: pointer; }
+@media(min-width:901px) { .food-order-cart { top: 20px; } }
