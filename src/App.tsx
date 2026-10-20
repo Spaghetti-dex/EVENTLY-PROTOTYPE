@@ -1815,7 +1815,7 @@ function ReservationFlow({
       { id: 2, label: "Choose Date" },
       { id: 3, label: service === "Event" ? "Choose Venue" : "Choose Package" },
       { id: 5, label: "Customer Information" },
-      ...(service === "Event" ? [] : [{ id: 6, label: "Recommended Add-ons" }]),
+      ...(selectedMainCategory === "Staycation" || service === "Event" ? [] : [{ id: 6, label: "Recommended Add-ons" }]),
       { id: 7, label: "Review Booking" },
       { id: 8, label: "Payment" },
       { id: 9, label: "Booking Status" },
@@ -2526,7 +2526,7 @@ function ReservationFlow({
       }
       return;
     }
-    setStep((current) => current === 3 && !hasIncludedMenu ? 5 : current === 5 && service === "Event" ? 7 : Math.min(8, current + 1));
+    setStep((current) => current === 3 && !hasIncludedMenu ? 5 : current === 5 && (service === "Event" || selectedMainCategory === "Staycation") ? 7 : Math.min(8, current + 1));
   };
 
   const resetBooking = () => {
@@ -3082,7 +3082,7 @@ function ReservationFlow({
               </div>
             )}
 
-            {step === 6 && (
+            {step === 6 && selectedMainCategory !== "Staycation" && (
               <div className="booking-step booking-step--enter">
                 <div className="booking-step__heading">
                   <span>Step {progressIndex + 1} of {steps.length}</span>
@@ -3254,10 +3254,10 @@ function ReservationFlow({
               <>
               {bookingError && <div className="booking-inline-error" role="alert">{bookingError}</div>}
               <div className="booking-controls">
-                <button className="booking-back" disabled={step === 1 || (step === 8 && Boolean(createdReservation))} type="button" onClick={() => setStep((current) => current === 7 && service === "Event" ? 5 : current === 5 && !hasIncludedMenu ? 3 : Math.max(1, current - 1))}>
+                <button className="booking-back" disabled={step === 1 || (step === 8 && Boolean(createdReservation))} type="button" onClick={() => setStep((current) => current === 7 && (service === "Event" || selectedMainCategory === "Staycation") ? 5 : current === 5 && !hasIncludedMenu ? 3 : Math.max(1, current - 1))}>
                   Back
                 </button>
-                {step === 6 && <button className="skip-offer-button" onClick={() => setStep(7)} type="button">Skip This Offer</button>}
+                {step === 6 && selectedMainCategory !== "Staycation" && <button className="skip-offer-button" onClick={() => setStep(7)} type="button">Skip This Offer</button>}
                 <button className="booking-primary" data-booking-cta="true" disabled={!canContinue || Boolean(conflictReason) || selectedDateOverlaps || calendarAvailabilityLoading || Boolean(calendarAvailabilityError) || bookingSubmitting} type="button" onClick={nextStep}>
                   {step === 8 ? bookingSubmitting ? "Reserving Schedule…" : createdReservation ? "Retry Booking" : "Reserve Schedule" : step === 7 ? "Continue to Payment" : step === 6 ? "Continue to Review" : "Continue"} <Icon name="arrow" size={18} />
                 </button>
