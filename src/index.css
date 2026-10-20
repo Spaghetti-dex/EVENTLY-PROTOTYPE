@@ -3747,3 +3747,42 @@ section[id] { scroll-margin-top: 88px; }
 @media(max-width:620px){.food-items-grid,.food-checkout-fields,.food-fulfillment-options{grid-template-columns:1fr}.food-checkout-fields label.food-wide{grid-column:auto}.food-composer__heading h3{font-size:26px}.food-item-card{min-height:unset}.food-order-details{padding:16px}.booking-time-picker{gap:4px;padding:7px}.booking-time-picker select{font-size:14px;padding:8px 4px}.booking-time-picker__clock{display:none}}
 
 .food-consent {display:flex;align-items:flex-start;gap:11px;font-size:14px;line-height:1.5;color:#234b42}.food-consent input {width:20px;height:20px;accent-color:#1a7b68;flex-shrink:0;margin-top:1px}.food-consent span {flex:1}
+
+
+/* VENICE homepage: four clearly separated destinations */
+.venice-locations { position:relative;overflow:hidden;padding:clamp(65px,8vw,112px) 24px;background:#f7f8f3;scroll-margin-top:95px }
+.venice-locations:before { content:"";position:absolute;inset:auto -160px -290px auto;width:610px;height:610px;border:1px solid #d9e4db;border-radius:50%;pointer-events:none }
+.venice-locations__inner { position:relative;max-width:1180px;margin:0 auto }
+.venice-locations__intro { max-width:745px;margin-bottom:36px }
+.venice-locations__intro h2 { color:#1c4337;font-size:clamp(33px,5vw,62px);font-weight:650;letter-spacing:-.045em;line-height:1.07;margin:17px 0 }
+.venice-locations__intro h2 em { color:#3f8b77;font-weight:500;font-style:italic }
+.venice-locations__intro>p { font-size:16px;line-height:1.75;color:#647269;max-width:630px;margin:0 }
+.venice-locations__groups { display:grid;grid-template-columns:minmax(0,1.44fr) minmax(0,1fr);align-items:stretch;gap:23px }
+.venice-locations__group { display:flex;flex-direction:column;background:#fff;border:1px solid #e2e9e2;border-radius:20px;padding:clamp(22px,3vw,33px);box-shadow:0 15px 45px rgba(18,65,48,.045);min-width:0 }
+.venice-locations__group--resort { background:linear-gradient(145deg,#eaf3eb 0%,#f5f7ef 100%);border-color:#d4e4d4 }
+.venice-locations__group-heading { display:flex;gap:15px;align-items:flex-start;margin-bottom:24px }
+.venice-locations__group-icon { width:46px;height:46px;border-radius:14px;background:#e8f1e9;color:#236852;display:grid;place-items:center;flex-shrink:0 }
+.venice-locations__group--resort .venice-locations__group-icon { background:#dcecdf }
+.venice-locations__eyebrow { display:block;font-size:10px;letter-spacing:.135em;font-weight:800;color:#528771;margin:1px 0 6px }
+.venice-locations__group-heading h3 { margin:0 0 5px;color:#1b4437;font-size:clamp(19px,2.2vw,25px);line-height:1.22;letter-spacing:-.025em;font-weight:750 }
+.venice-locations__group-heading p { margin:0;color:#687c70;font-size:13px }
+.venice-locations__venues { display:grid;gap:0;border-top:1px solid #e5ede7 }
+.venice-locations__venue { display:flex;gap:16px;padding:20px 0;border-bottom:1px solid #e5ede7;align-items:flex-start }
+.venice-locations__venue:last-child { border-bottom:0;padding-bottom:2px }
+.venice-locations__number { flex:0 0 34px;width:34px;height:34px;display:grid;place-items:center;background:#f0f5ee;color:#427563;border-radius:10px;font-size:12px;font-weight:800;letter-spacing:.035em }
+.venice-locations__venue>div { min-width:0;flex:1 }
+.venice-locations__venue h4 { color:#294d3f;font-size:16px;font-weight:750;letter-spacing:-.01em;line-height:1.45;margin:0 0 6px }
+.venice-locations__venue h4 span { font-weight:650;color:#557265 }
+.venice-locations__venue p { display:flex;align-items:flex-start;gap:7px;margin:0;color:#687b71;font-size:13px;line-height:1.65 }
+.venice-locations__venue p svg { flex-shrink:0;margin-top:3px;color:#4d8c74 }
+.venice-locations__resort-address { display:flex;align-items:flex-start;gap:14px;padding:23px 0;border-top:1px solid #d6e5d8;border-bottom:1px solid #d6e5d8 }
+.venice-locations__resort-address>svg { flex-shrink:0;color:#397e5e;margin-top:2px }
+.venice-locations__resort-address strong { display:block;color:#234838;font-size:19px;font-weight:750;line-height:1.35;margin:0 0 6px }
+.venice-locations__resort-address p { font-size:15px;line-height:1.5;color:#5c7462;margin:0 }
+.venice-locations__resort-note { color:#607668;line-height:1.7;font-size:14px;margin:22px 0 23px;max-width:340px }
+.venice-locations__explore { display:inline-flex;align-items:center;gap:9px;align-self:flex-start;margin-top:auto;padding-bottom:6px;border-bottom:1px solid #2e785b;text-decoration:none;color:#246c51;font-weight:750;font-size:14px;transition:gap .2s ease }
+.venice-locations__explore:hover { gap:14px }
+.venice-locations__explore:focus-visible { outline:3px solid #9ac7af;outline-offset:5px }
+.venice-locations__footnote { font-size:12px;line-height:1.6;color:#7b8c7e;margin:19px 0 0 }
+@media(max-width:850px) { .venice-locations__groups { grid-template-columns:1fr } .venice-locations__resort-note { max-width:none } }
+@media(max-width:520px) { .venice-locations {padding:60px 18px} .venice-locations__group {padding:21px;border-radius:15px} .venice-locations__group-heading {gap:12px} .venice-locations__group-icon {height:40px;width:40px} .venice-locations__venue {gap:12px} .venice-locations__venue h4 {font-size:15px} .venice-locations__intro>p {font-size:14px} }
