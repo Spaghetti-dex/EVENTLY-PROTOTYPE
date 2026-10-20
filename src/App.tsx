@@ -1227,7 +1227,7 @@ type BookingPackageRow = {
   min_guest_count?: number | null;
   pool_access_fee?: number | null;
   cottage_addon_id?: string | null;
-  pricing_mode?: "fixed" | "per_guest" | "per_night" | null;
+  pricing_mode?: "per_booking" | "fixed" | "per_guest" | "per_night" | null;
   resource_mode?: "exclusive" | "shared_capacity" | "admin_assign" | null;
 };
 
