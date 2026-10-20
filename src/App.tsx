@@ -2047,7 +2047,7 @@ function ReservationFlow({
     packageChoice?.pricing_mode === "per_guest"
     && verifiedPoolRate
     && Number(packageChoice.price) === verifiedPoolRate.rate
-    && packageChoice.min_guest_count === verifiedPoolRate.minimumGuests
+    && Number(packageChoice.min_guest_count) === verifiedPoolRate.minimumGuests
     && minimumGuests === verifiedPoolRate.minimumGuests,
   );
   const poolCapacityReady = service !== "Swimming Pool" || Boolean(
