@@ -1012,8 +1012,8 @@ const serviceCatalog: VeniceService[] = [
     imageContext: "Pool & Resort Facilities Photo",
     quantityMode: "tour",
     packages: [
-      { name: "Day Tour", detail: "8:00 AM – 3:00 PM · minimum 20 guests", inclusions: ["₱100 per guest", "Minimum 20 guests", "Optional cottage ₱700"], price: 100, priceLabel: "₱100 / guest" },
-      { name: "Night Tour", detail: "4:00 PM – 10:00 PM · minimum 20 guests", inclusions: ["₱150 per guest", "Minimum 20 guests", "Optional cottage ₱700"], price: 150, priceLabel: "₱150 / guest" },
+      { name: "Day Tour", detail: "8:00 AM – 3:00 PM · no minimum guests", inclusions: ["₱100 per guest", "No minimum guests", "Optional cottage ₱700"], price: 100, priceLabel: "₱100 / guest" },
+      { name: "Night Tour", detail: "4:00 PM – 10:00 PM · no minimum guests", inclusions: ["₱150 per guest", "No minimum guests", "Optional cottage ₱700"], price: 150, priceLabel: "₱150 / guest" },
       { name: "Overnight Tour", detail: "7:00 PM – 4:00 AM the following day · minimum 20 guests", inclusions: ["₱200 per guest", "Minimum 20 guests", "Optional cottage ₱1,000"], price: 200, priceLabel: "₱200 / guest" },
     ],
     extras: [],
@@ -1493,7 +1493,7 @@ function ReservationFlow({
   const chooseBookingService = (serviceId: string) => {
     setService(serviceId);
     setPrivacyAcknowledged(false);
-    setGuests(serviceId === "Swimming Pool" ? 20 : serviceId === "Resort Venue Only" ? 1 : serviceId === "Room Accommodation" ? 4 : 50);
+    setGuests(serviceId === "Swimming Pool" ? 1 : serviceId === "Resort Venue Only" ? 1 : serviceId === "Room Accommodation" ? 4 : 50);
     setSelectedPackageId("");
     setSelectedVariantId("");
     setDatabaseVariants([]);
@@ -1707,7 +1707,7 @@ function ReservationFlow({
     setSelectedMainCategory(mainCategoryForService(requestedService));
     setCateringChoice(requestedService === "Food Orders & Party Trays" ? "party-trays" : null);
     setStaycationChoice(requestedService === "Resort Venue Only" ? "venue" : null);
-    setGuests(requestedService === "Swimming Pool" ? 20 : requestedService === "Resort Venue Only" ? 1 : requestedService === "Room Accommodation" ? 4 : 50);
+    setGuests(requestedService === "Swimming Pool" ? 1 : requestedService === "Resort Venue Only" ? 1 : requestedService === "Room Accommodation" ? 4 : 50);
     setSelectedPackageId("");
     setSelectedVariantId("");
     setAddOns([]);
@@ -2011,7 +2011,7 @@ function ReservationFlow({
   const isStandardRoom = service === "Room Accommodation" && /standard room/i.test(packageChoice?.name ?? "");
   const effectiveUnitPrice = selectedVariant?.price ?? (service === "Swimming Pool" ? poolUnitRate(packageChoice) : packageChoice?.price) ?? 0;
   const minimumGuests = service === "Swimming Pool"
-    ? 20
+    ? /overnight/i.test(packageChoice?.name ?? "") ? 20 : 1
     : service === "Room Accommodation" && isStandardRoom
       ? (packageChoice?.min_guest_count ?? 4) * rooms
       : packageChoice?.min_guest_count
@@ -2038,8 +2038,8 @@ function ReservationFlow({
     if ((service === "Swimming Pool" || isStandardRoom) && packageChoice && guests < minimumGuests) setGuests(minimumGuests);
   }, [service, packageChoice?.id, guests, isStandardRoom, minimumGuests]);
   const verifiedPoolRates: Record<string, { minimumGuests: number; rate: number }> = {
-    "4ae972a8-6503-4776-90c9-899246cbc4dc": { rate: 100, minimumGuests: 20 },
-    "5afda244-a615-4bd3-98eb-d360d000100b": { rate: 150, minimumGuests: 20 },
+    "4ae972a8-6503-4776-90c9-899246cbc4dc": { rate: 100, minimumGuests: 1 },
+    "5afda244-a615-4bd3-98eb-d360d000100b": { rate: 150, minimumGuests: 1 },
     "925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8": { rate: 200, minimumGuests: 20 },
   };
   const verifiedPoolRate = packageChoice ? verifiedPoolRates[packageChoice.id] : undefined;
@@ -2662,7 +2662,7 @@ function ReservationFlow({
                             setStaycationChoice(option.key);
                             chooseBookingService("Swimming Pool");
                           }} type="button">
-                            <span className="booking-staycation-choice__copy"><strong>{option.label}</strong><small>{option.schedule} · Minimum 20 guests · {option.price > 0 ? `${currency(option.price)} per guest` : "Rate unavailable"}{option.packageRow?.cottage_addon_id && Number(option.packageRow.cottage_fee) > 0 ? ` · Cottage ${currency(Number(option.packageRow.cottage_fee))}` : " · Cottage selection not configured"}</small></span>
+                            <span className="booking-staycation-choice__copy"><strong>{option.label}</strong><small>{option.schedule} · { /overnight/i.test(option.label) ? "Minimum 20 guests" : "No minimum guests" } · {option.price > 0 ? `${currency(option.price)} per guest` : "Rate unavailable"}{option.packageRow?.cottage_addon_id && Number(option.packageRow.cottage_fee) > 0 ? ` · Cottage ${currency(Number(option.packageRow.cottage_fee))}` : " · Cottage selection not configured"}</small></span>
                             <span className="booking-catering-choice__check">✓</span>
                           </button>)}
                           <button aria-pressed={staycationChoice === "venue"} className={`booking-staycation-choice ${staycationChoice === "venue" ? "is-selected" : ""}`} onClick={() => {
