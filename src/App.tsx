@@ -5305,8 +5305,7 @@ function Homepage() {
   ];
   const serviceLinks = [
     ["Catering & Events Place", "#catering"],
-    ["Resort", "#resort"],
-    ["Staycation", "#services"],
+    ["Resort/Staycation", "#resort"],
   ];
 
   return (
@@ -5499,7 +5498,7 @@ function Homepage() {
         </div>
         <div className="resort-showcase__overlay" />
         <div className="resort-showcase__content" data-reveal>
-          <span className="section-kicker section-kicker--light">03 — Resort</span>
+          <span className="section-kicker section-kicker--light">03 — Resort/Staycation</span>
           <h2>Stay close to<br /><em>the good times.</em></h2>
           <p>
             Come for a day tour from 8:00 AM to 3:00 PM, stay overnight, or reserve comfortable
