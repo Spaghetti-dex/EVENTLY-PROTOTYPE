@@ -23,6 +23,7 @@ import {
   getEventlyProfile,
   getVerifiedAdmin,
   hasExplicitSupabaseConfiguration,
+  markOwnEventlyNotificationsRead,
   sendPasswordReset,
   signInAdmin,
   signInOperations,
@@ -988,8 +989,8 @@ const serviceCatalog: VeniceService[] = [
     imageContext: "Pool & Resort Facilities Photo",
     quantityMode: "tour",
     packages: [
-      { name: "Day Tour", detail: "8:00 AM – 3:00 PM · minimum 1 guest", inclusions: ["₱100 per guest", "Minimum 1 guest", "Optional cottage ₱700"], price: 100, priceLabel: "₱100 / guest" },
-      { name: "Night Tour", detail: "4:00 PM – 10:00 PM · minimum 1 guest", inclusions: ["₱150 per guest", "Minimum 1 guest", "Optional cottage ₱700"], price: 150, priceLabel: "₱150 / guest" },
+      { name: "Day Tour", detail: "8:00 AM – 3:00 PM · minimum 20 guests", inclusions: ["₱100 per guest", "Minimum 20 guests", "Optional cottage ₱700"], price: 100, priceLabel: "₱100 / guest" },
+      { name: "Night Tour", detail: "4:00 PM – 10:00 PM · minimum 20 guests", inclusions: ["₱150 per guest", "Minimum 20 guests", "Optional cottage ₱700"], price: 150, priceLabel: "₱150 / guest" },
       { name: "Overnight Tour", detail: "7:00 PM – 4:00 AM the following day · minimum 20 guests", inclusions: ["₱200 per guest", "Minimum 20 guests", "Optional cottage ₱1,000"], price: 200, priceLabel: "₱200 / guest" },
     ],
     extras: [],
@@ -1218,7 +1219,7 @@ type BookingPackageRow = {
   deposit_percentage: number | null;
   description: string;
   guest_capacity: number | null;
-  max_guest_count?: number | null;
+  max_guest_count?: number | string | null;
   pool_capacity_verified?: boolean | null;
   pool_capacity_verified_at?: string | null;
   pool_capacity_verified_by?: string | null;
@@ -1343,7 +1344,7 @@ function ReservationFlow({
   const chooseBookingService = (serviceId: string) => {
     setService(serviceId);
     setPrivacyAcknowledged(false);
-    setGuests(serviceId === "Swimming Pool" || serviceId === "Resort Venue Only" ? 1 : serviceId === "Room Accommodation" ? 4 : 50);
+    setGuests(serviceId === "Swimming Pool" ? 20 : serviceId === "Resort Venue Only" ? 1 : serviceId === "Room Accommodation" ? 4 : 50);
     setSelectedPackageId("");
     setSelectedVariantId("");
     setDatabaseVariants([]);
@@ -1497,7 +1498,9 @@ function ReservationFlow({
 
   useEffect(() => {
     let active = true;
-    const compatibleService = service.trim().toLowerCase();
+    const compatibleService = ["Swimming Pool", "Room Accommodation", "Resort Venue Only"].includes(service)
+      ? "resort"
+      : service.trim().toLowerCase();
     setDatabaseAddons([]);
     setAddonError("");
     if (!compatibleService) {
@@ -1515,6 +1518,10 @@ function ReservationFlow({
         setAddonLoading(false);
         setAddonError(error?.message ?? "");
         if (!error) setDatabaseAddons((data ?? []) as BookingAddonRow[]);
+      }, (error: unknown) => {
+        if (!active) return;
+        setAddonLoading(false);
+        setAddonError(error instanceof Error ? error.message : "The add-on catalog could not be reached. Please try again.");
       });
     };
     setAddonLoading(true);
@@ -1544,7 +1551,7 @@ function ReservationFlow({
     setSelectedMainCategory(mainCategoryForService(requestedService));
     setCateringChoice(requestedService === "Food Orders & Party Trays" ? "party-trays" : null);
     setStaycationChoice(requestedService === "Room Accommodation" ? "rooms" : requestedService === "Resort Venue Only" ? "venue" : null);
-    setGuests(requestedService === "Swimming Pool" || requestedService === "Resort Venue Only" ? 1 : requestedService === "Room Accommodation" ? 4 : 50);
+    setGuests(requestedService === "Swimming Pool" ? 20 : requestedService === "Resort Venue Only" ? 1 : requestedService === "Room Accommodation" ? 4 : 50);
     setSelectedPackageId("");
     setSelectedVariantId("");
     setAddOns([]);
@@ -1727,6 +1734,10 @@ function ReservationFlow({
   const ungroupedEventVenueOptions = service === "Event" ? packageOptions.filter((item) => eventVenueGroupFor(item) === "other") : [];
   const packageChoice = packageOptions.find((item) => item.id === selectedPackageId)
     ?? packageOptions.find((item) => item.name === selectedPackageId);
+  const isPoolPackage = service === "Swimming Pool" || Boolean(packageChoice && (
+    ["4ae972a8-6503-4776-90c9-899246cbc4dc", "5afda244-a615-4bd3-98eb-d360d000100b", "925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8"].includes(packageChoice.id)
+    || swimmingPackageNames.has(packageChoice.name.trim().toLowerCase())
+  ));
   const packageDisplayPrice = (price: number | null | undefined, label?: string | null) => {
     if (Number.isFinite(Number(price)) && Number(price) > 0) return label || currency(Number(price));
     return service === "Catering" ? "Price to be announced" : `from ${currency(Number(price) || 0)}`;
@@ -1743,7 +1754,15 @@ function ReservationFlow({
   }, [packageChoice, selectedPackageId]);
   useEffect(() => {
     let active = true;
+    let requestId = 0;
     if (!packageChoice) {
+      setDatabaseVariants([]);
+      setSelectedVariantId("");
+      setVariantError("");
+      setVariantLoading(false);
+      return () => { active = false; };
+    }
+    if (isPoolPackage) {
       setDatabaseVariants([]);
       setSelectedVariantId("");
       setVariantError("");
@@ -1753,12 +1772,21 @@ function ReservationFlow({
     setVariantLoading(true);
     setVariantError("");
     const loadVariants = () => {
-      void supabase.from("package_variants")
+      const currentRequest = ++requestId;
+      setVariantLoading(true);
+      setVariantError("");
+      let timeout: number | undefined;
+      const request = supabase.from("package_variants")
         .select("*")
         .eq("package_id", packageChoice.id)
-        .eq("is_active", true)
-        .then(({ data, error }) => {
-        if (!active) return;
+        .eq("is_active", true);
+      void Promise.race([
+        request,
+        new Promise<never>((_, reject) => {
+          timeout = window.setTimeout(() => reject(new Error("Loading package options timed out. Please try again.")), 10000);
+        }),
+      ]).then(({ data, error }) => {
+        if (!active || currentRequest !== requestId) return;
         setVariantLoading(false);
         if (error) {
           setDatabaseVariants([]);
@@ -1771,6 +1799,14 @@ function ReservationFlow({
           if (variants.some((variant) => variant.id === current)) return current;
           return variants.length === 1 ? variants[0].id : "";
         });
+      }, (error: unknown) => {
+        if (!active || currentRequest !== requestId) return;
+        setDatabaseVariants([]);
+        setSelectedVariantId("");
+        setVariantLoading(false);
+        setVariantError(error instanceof Error ? error.message : "Package options could not be loaded. Check your connection and try again.");
+      }).finally(() => {
+        if (timeout !== undefined) window.clearTimeout(timeout);
       });
     };
     loadVariants();
@@ -1783,7 +1819,7 @@ function ReservationFlow({
       window.removeEventListener("evently-catalog-changed", loadVariants);
       void supabase.removeChannel(channel);
     };
-  }, [packageChoice?.id]);
+  }, [packageChoice?.id, isPoolPackage]);
   const packageVariants = packageChoice
     ? databaseVariants.filter((variant) => variant.package_id === packageChoice.id)
     : [];
@@ -1822,23 +1858,27 @@ function ReservationFlow({
   const packageGuestCapacity = selectedVariant?.guest_capacity ?? packageChoice?.guest_capacity ?? null;
   const isStandardRoom = service === "Room Accommodation" && /standard room/i.test(packageChoice?.name ?? "");
   const effectiveUnitPrice = selectedVariant?.price ?? (service === "Swimming Pool" ? poolUnitRate(packageChoice) : packageChoice?.price) ?? 0;
-  const minimumGuests = service === "Room Accommodation" && isStandardRoom
-    ? (packageChoice?.min_guest_count ?? 4) * rooms
-    : packageChoice?.min_guest_count
-    ?? (service === "Swimming Pool" && /minimum\s*20\s*guests/i.test(packageChoice?.description ?? "")
-      ? 20
-      : service === "Room Accommodation" && /4\s*to\s*5\s*guests/i.test(packageChoice?.description ?? "") ? 4 : 1);
+  const minimumGuests = service === "Swimming Pool"
+    ? 20
+    : service === "Room Accommodation" && isStandardRoom
+      ? (packageChoice?.min_guest_count ?? 4) * rooms
+      : packageChoice?.min_guest_count
+        ?? (service === "Room Accommodation" && /4\s*to\s*5\s*guests/i.test(packageChoice?.description ?? "") ? 4 : 1);
+  const verifiedPoolMax = packageChoice?.max_guest_count == null
+    ? null
+    : Number(packageChoice.max_guest_count);
   const poolCapacityRecordReady = service !== "Swimming Pool" || Boolean(
     packageChoice?.pool_capacity_verified === true
     && Boolean(packageChoice.pool_capacity_verified_at)
     && Boolean(packageChoice.pool_capacity_verified_by)
     && Boolean(packageChoice.pool_capacity_audit_id)
-    && typeof packageChoice.max_guest_count === "number"
-    && Number.isInteger(packageChoice.max_guest_count)
-    && packageChoice.max_guest_count >= minimumGuests
+    && verifiedPoolMax !== null
+    && Number.isInteger(verifiedPoolMax)
+    && verifiedPoolMax >= minimumGuests
+    && verifiedPoolMax <= 50
   );
   const effectiveGuestCapacity = service === "Swimming Pool"
-    ? poolCapacityRecordReady ? packageChoice?.max_guest_count ?? null : null
+    ? poolCapacityRecordReady ? Math.min(verifiedPoolMax ?? 0, 50) : null
     : service === "Room Accommodation" && packageGuestCapacity !== null
       ? packageGuestCapacity * rooms
       : packageGuestCapacity;
@@ -1846,8 +1886,8 @@ function ReservationFlow({
     if ((service === "Swimming Pool" || isStandardRoom) && packageChoice && guests < minimumGuests) setGuests(minimumGuests);
   }, [service, packageChoice?.id, guests, isStandardRoom, minimumGuests]);
   const verifiedPoolRates: Record<string, { minimumGuests: number; rate: number }> = {
-    "4ae972a8-6503-4776-90c9-899246cbc4dc": { rate: 100, minimumGuests: 1 },
-    "5afda244-a615-4bd3-98eb-d360d000100b": { rate: 150, minimumGuests: 1 },
+    "4ae972a8-6503-4776-90c9-899246cbc4dc": { rate: 100, minimumGuests: 20 },
+    "5afda244-a615-4bd3-98eb-d360d000100b": { rate: 150, minimumGuests: 20 },
     "925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8": { rate: 200, minimumGuests: 20 },
   };
   const verifiedPoolRate = packageChoice ? verifiedPoolRates[packageChoice.id] : undefined;
@@ -1855,6 +1895,7 @@ function ReservationFlow({
     packageChoice?.pricing_mode === "per_guest"
     && verifiedPoolRate
     && Number(packageChoice.price) === verifiedPoolRate.rate
+    && packageChoice.min_guest_count === verifiedPoolRate.minimumGuests
     && minimumGuests === verifiedPoolRate.minimumGuests,
   );
   const poolCapacityReady = service !== "Swimming Pool" || Boolean(
@@ -1900,8 +1941,8 @@ function ReservationFlow({
     && poolScheduleEnd
     && validReservationTime,
   );
-  const cottageFee = cottageSelected ? packageChoice?.cottage_fee ?? 0 : 0;
-  const cottageAddonConfigured = Boolean(packageChoice?.cottage_addon_id && Number(packageChoice.cottage_fee) > 0);
+  const cottageFee = service === "Swimming Pool" && cottageSelected ? Number(packageChoice?.cottage_fee ?? 0) : 0;
+  const cottageAddonConfigured = Boolean(service === "Swimming Pool" && packageChoice?.cottage_addon_id && Number(packageChoice.cottage_fee) > 0);
   const cottageSelectionReady = !cottageSelected || cottageAddonConfigured;
   const poolAccessEligibleService = service === "Room Accommodation" || service === "Resort Venue Only";
   const poolAccessPricingReady = !poolAccessEligibleService || packageChoice?.pool_access_fee === 5000;
@@ -1920,6 +1961,7 @@ function ReservationFlow({
   const cateringWithoutVenue = service === "Catering" && Boolean(packageChoice) && !packageChoice?.resource_key;
   const addOnOptions = databaseAddons
     .filter((item) => !/pool\s*access/i.test(item.name))
+    .filter((item) => !(service === "Swimming Pool" && /cottage/i.test(item.name)))
     .filter((item) => !(isOutsideCateringPackage && item.name.trim().toLowerCase() === "wedding backdrop"))
     .map((item) => ({
       ...item,
@@ -1949,7 +1991,13 @@ function ReservationFlow({
       }))
       : databaseMenuItems.filter((item) => normalizeMenuCategory(item.category) === normalizeMenuCategory(key) && item.is_active === true && item.is_available === true),
   }));
-  const depositPercentage = 30;
+  const configuredDepositPercentage = Number(packageChoice?.deposit_percentage);
+  const depositPercentage = packageChoice?.deposit_percentage != null
+    && Number.isFinite(configuredDepositPercentage)
+    && configuredDepositPercentage >= 0
+    && configuredDepositPercentage <= 100
+    ? configuredDepositPercentage
+    : 30;
   const deposit = calculateRequiredDeposit(subtotal, depositPercentage);
   const requiredPaymentAmount = deposit > 0 ? deposit : subtotal;
   const remaining = Math.max(0, subtotal - deposit);
@@ -2016,7 +2064,7 @@ function ReservationFlow({
     (step === 2 && Boolean(selectedDate) && !conflictReason && (
       scheduleMode !== "customer_select" || Boolean(startTime && reservationEndTime)
     )) ||
-    (step === 3 && Boolean(packageChoice) && (service !== "Catering" || packagePriceConfigured) && poolPricingReady && poolCapacityReady && poolAvailabilityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && cottageSelectionReady && !variantLoading && !variantError && scheduleReady && (
+    (step === 3 && Boolean(packageChoice) && (service !== "Catering" || packagePriceConfigured) && poolPricingReady && poolCapacityReady && poolAvailabilityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && cottageSelectionReady && (isPoolPackage || (!variantLoading && !variantError)) && scheduleReady && (
       !variantRequired || Boolean(selectedVariant)
     ) && (
       activeService?.quantityMode !== "tour" || guests >= minimumGuests
@@ -2076,9 +2124,21 @@ function ReservationFlow({
       return;
     }
     if (step === 3 && packageChoice && selectedDate) {
+      const packageId = packageChoice.id;
+      const reservationDate = dateKey(selectedDate);
+      const guestCount = Number(guests);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(packageId)) {
+        setBookingError("The selected package has an invalid ID. Refresh the package list and try again.");
+        return;
+      }
+      if (!Number.isInteger(guestCount)) {
+        setBookingError("Enter a whole-number guest count before checking availability.");
+        return;
+      }
       const { data: available, error } = await supabase.rpc("evently_check_availability", {
-        p_package_id: packageChoice.id,
-        p_reservation_date: dateKey(selectedDate),
+        p_package_id: packageId,
+        p_reservation_date: reservationDate,
+        p_guest_count: guestCount,
       });
       if (error) {
         setBookingError(`Availability could not be checked: ${error.message}`);
@@ -2131,7 +2191,9 @@ function ReservationFlow({
             throw new Error("Select an active GCash, Maya, or Bank Transfer method.");
           }
           const amount = Number(paymentAmount);
-          if (!Number.isFinite(amount) || amount <= 0 || amount > subtotal) throw new Error("Enter the amount you actually paid. It must be greater than zero and no more than the booking total.");
+          if (!Number.isFinite(amount) || amount < requiredPaymentAmount || amount > subtotal) {
+            throw new Error(`Payment proof must cover the required deposit/payment amount of ${formatPhp(requiredPaymentAmount)} and cannot exceed the booking total.`);
+          }
           if (!paymentReference.trim() || paymentReference.trim().length > 160) {
             throw new Error("Enter a transaction reference number (160 characters or fewer).");
           }
@@ -2387,7 +2449,7 @@ function ReservationFlow({
                             setStaycationChoice(option.key);
                             chooseBookingService("Swimming Pool");
                           }} type="button">
-                            <span className="booking-staycation-choice__copy"><strong>{option.label}</strong><small>{option.schedule} · Minimum {option.packageRow?.min_guest_count ?? (option.key === "overnight" ? 20 : 1)} guests · {option.price > 0 ? `${currency(option.price)} per guest` : "Rate unavailable"}{option.packageRow?.cottage_addon_id && Number(option.packageRow.cottage_fee) > 0 ? ` · Cottage ${currency(Number(option.packageRow.cottage_fee))}` : " · Cottage selection not configured"}</small></span>
+                            <span className="booking-staycation-choice__copy"><strong>{option.label}</strong><small>{option.schedule} · Minimum 20 guests · {option.price > 0 ? `${currency(option.price)} per guest` : "Rate unavailable"}{option.packageRow?.cottage_addon_id && Number(option.packageRow.cottage_fee) > 0 ? ` · Cottage ${currency(Number(option.packageRow.cottage_fee))}` : " · Cottage selection not configured"}</small></span>
                             <span className="booking-catering-choice__check">✓</span>
                           </button>)}
                           <button aria-pressed={staycationChoice === "rooms"} className={`booking-staycation-choice ${staycationChoice === "rooms" ? "is-selected" : ""}`} onClick={() => {
@@ -2638,7 +2700,7 @@ function ReservationFlow({
                 )}
                 {catalogError && <div className="booking-inline-error" role="alert">{catalogError}</div>}
                 {!catalogError && !packageOptions.length && <div className="booking-inline-error" role="alert">No active {serviceLabel(service)} packages are configured in Supabase.</div>}
-                {packageChoice && variantLoading && <div className="package-variant-panel" aria-live="polite"><span>Loading package options…</span></div>}
+                {packageChoice && !isPoolPackage && variantLoading && <div className="package-variant-panel" aria-live="polite"><span>Loading package options…</span></div>}
                 {packageChoice && variantError && <div className="booking-inline-error" role="alert">{variantError}</div>}
                 {packageChoice && service === "Catering" && !packagePriceConfigured && !variantLoading && !variantError && <div className="catering-price-notice" role="status"><strong>Price to be announced</strong><span>Contact us for current catering-only pricing. Booking cannot continue until a valid price is configured.</span></div>}
                 {packageChoice && service === "Swimming Pool" && !poolPricingReady && <div className="catering-price-notice" role="status"><strong>Tour rate setup needs attention</strong><span>The active package row does not contain per-person pricing settings for the booking RPC. Booking is paused rather than submitting a mismatched total. Cottage charges are not added unless configured for the selected package.</span></div>}
@@ -2686,9 +2748,7 @@ function ReservationFlow({
                   <div className="booking-quantity-panel">
                     {service === "Swimming Pool" && !poolCapacityRecordReady && <div className="booking-inline-error" role="status">Pool bookings are paused until the Administrator verifies and audits the physical maximum capacity. The legacy guest_capacity value is not treated as a confirmed pool maximum.</div>}
                     <div><strong>Tour guests</strong><span>{configuredStartTime.slice(0, 5)}–{configuredEndTime.slice(0, 5)}{configuredEndTime <= configuredStartTime ? " · ends the following day" : ""} · {currency(effectiveUnitPrice)} per guest</span></div>
-                    <label><span>Guests</span><input aria-label="Number of tour guests" max={effectiveGuestCapacity ?? undefined} min={minimumGuests} onChange={(event) => setGuests(Math.max(1, Number(event.target.value)))} type="number" value={guests} /><small>{effectiveGuestCapacity == null ? "Guest bookings stay paused until the Administrator confirms and audits the actual physical maximum." : `Verified maximum: ${effectiveGuestCapacity} guests.`}</small></label>
-                    {cottageAddonConfigured && <label className="booking-option-toggle"><input checked={cottageSelected} onChange={(event) => setCottageSelected(event.target.checked)} type="checkbox" /><span>Add cottage · {currency(packageChoice.cottage_fee ?? 0)}</span></label>}
-                    {!cottageAddonConfigured && Number(packageChoice.cottage_fee) > 0 && <small>Cottage selection is not available until its existing add-on is linked to this package.</small>}
+                    <label><span>Guests</span><input aria-label="Number of tour guests" max={effectiveGuestCapacity ?? undefined} min={minimumGuests} onChange={(event) => setGuests(Math.max(minimumGuests, Number(event.target.value)))} type="number" value={guests} /><small>{effectiveGuestCapacity == null ? "Guest bookings stay paused until the Administrator confirms and audits the actual physical maximum." : `Allowed for this tour: ${minimumGuests}–${effectiveGuestCapacity} guests.`}</small></label>
                     {guests < minimumGuests && <small className="booking-schedule-error" role="alert">This tour requires at least {minimumGuests} guests.</small>}
                     {effectiveGuestCapacity != null && guests > effectiveGuestCapacity && <small className="booking-schedule-error" role="alert">This tour is limited to {effectiveGuestCapacity} guests.</small>}
                   </div>
@@ -2821,6 +2881,13 @@ function ReservationFlow({
                 </div>
                 {addonLoading && <p className="deposit-note" aria-live="polite">Loading available add-ons…</p>}
                 {isOutsideCateringPackage && <p className="deposit-note">Backdrop is included in this outside-catering package, so a separate backdrop add-on is not offered here.</p>}
+                {service === "Swimming Pool" && packageChoice && cottageAddonConfigured && <article aria-checked={cottageSelected} className={`booking-addon-card ${cottageSelected ? "booking-addon-card--selected" : ""}`} onClick={() => setCottageSelected((selected) => !selected)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setCottageSelected((selected) => !selected); } }} role="checkbox" style={{ cursor: "pointer" }} tabIndex={0}>
+                  <PhotoPlaceholder context="Cottage Photo" compact className="booking-addon-card__photo" />
+                  <div><span className="booking-addon-card__icon"><Icon name="sparkle" size={17} /></span><strong>Cottage</strong>{cottageSelected && <span aria-hidden="true" className="booking-addon-card__check">✓</span>}</div>
+                  <p>Optional cottage for your selected pool tour.</p>
+                  <div className="booking-addon-card__action"><b>+ {currency(Number(packageChoice.cottage_fee))}</b><span>{cottageSelected ? "Selected · click to remove" : "Click to add"}</span></div>
+                </article>}
+                {service === "Swimming Pool" && packageChoice && !cottageAddonConfigured && <p className="deposit-note">Cottage selection is unavailable until its existing package add-on is configured.</p>}
                 <div className="booking-addon-grid">
                   {addOnOptions.map((item) => {
                         const selected = !item.pricePendingConfirmation && addOns.includes(item.name);
@@ -2838,7 +2905,7 @@ function ReservationFlow({
                   })}
                 </div>
                 {addonError && <div className="booking-inline-error" role="alert">Add-ons could not be loaded: {addonError}</div>}
-                {!addonLoading && !addonError && !addOnOptions.length && <p className="deposit-note">No active add-ons are configured for this service. You may continue without add-ons.</p>}
+                {!addonLoading && !addonError && !addOnOptions.length && !(service === "Swimming Pool" && cottageAddonConfigured) && <p className="deposit-note">No active add-ons are configured for this service. You may continue without add-ons.</p>}
               </div>
             )}
 
@@ -2884,7 +2951,7 @@ function ReservationFlow({
                 )}
                 <div className="review-menu review-addons">
                   <h4>Selected add-ons</h4>
-                  {validatedAddOns.length ? <div>{validatedAddOns.map((item) => <span key={item.id}><strong>{item.displayName}</strong><small>{currency(item.price)}</small></span>)}</div> : <p>No additional services selected</p>}
+                  {validatedAddOns.length || (cottageSelected && cottageFee > 0) ? <div>{cottageSelected && cottageFee > 0 && <span><strong>Cottage</strong><small>{currency(cottageFee)}</small></span>}{validatedAddOns.map((item) => <span key={item.id}><strong>{item.displayName}</strong><small>{currency(item.price)}</small></span>)}</div> : <p>No additional services selected</p>}
                 </div>
                 <div className="review-price-summary">
                   <div><span>{service === "Swimming Pool" ? "Entrance charge" : "Base package price"}</span><strong>{currency(packagePrice)}</strong></div>
@@ -3063,8 +3130,8 @@ function CustomerHeader() {
     setNotificationsOpen((current) => !current);
     const unread = notifications.filter((item) => !item.is_read).map((item) => String(item.id));
     if (unread.length) {
-      await supabase.rpc("mark_evently_notifications_read", { p_ids: unread });
-      setNotifications((current) => current.map((item) => ({ ...item, is_read: true })));
+      const { error } = await markOwnEventlyNotificationsRead(unread);
+      if (!error) setNotifications((current) => current.map((item) => ({ ...item, is_read: true })));
     }
   };
   return (
@@ -3658,7 +3725,7 @@ function CustomerHistoryPage() {
     const [reservations, orders, paymentResult] = await Promise.all([
       supabase.from("reservations").select("*").eq("customer_id", session.user.id),
       supabase.from("orders").select("*").eq("customer_id", session.user.id),
-      supabase.from("payments").select("*").eq("customer_id", session.user.id).order("submitted_at", { ascending: false }),
+      supabase.from("payments").select("*").eq("customer_id", session.user.id).order("created_at", { ascending: false }),
     ]);
     if (!silent) setLoading(false);
     if (reservations.error) {
@@ -3868,7 +3935,7 @@ function CustomerHistoryPage() {
                <div className="customer-history-card__top"><span>Reservation</span><strong>{visibleReference}</strong><i className={`history-status history-status--${bookingTone(status)}`}>{status}</i></div>
                <h2>{customerServiceName(rowValue(record, ["service", "service_type", "service_category"]))}</h2><p>{bookingPackageLabel(record)}</p>
                 <dl><div><dt>Reservation Date</dt><dd>{bookingDate(record)}</dd></div><div><dt>Schedule</dt><dd>{bookingSchedule(record)}</dd></div>{roomStayLabel(record) && <div><dt>Stay</dt><dd>{roomStayLabel(record)}</dd></div>}<div><dt>Guests</dt><dd>{rowText(record, ["guest_count", "guests", "number_of_guests"], "—")}</dd></div>{Boolean(rowValue(record, ["resource_name", "resource_key"])) && <div><dt>Venue / Resource</dt><dd>{rowText(record, ["resource_name", "resource_key"])}</dd></div>}<div><dt>Total Booking Cost</dt><dd>{formatPhp(rowNumber(record, ["total_amount", "total", "amount"]))}</dd></div><div><dt>Required Deposit</dt><dd>{formatPhp(requiredDeposit(record))}</dd></div><div><dt>Verified Amount Paid</dt><dd>{formatPhp(rowNumber(record, ["amount_paid", "paid_amount"]))}</dd></div><div><dt>Remaining Balance</dt><dd>{formatPhp(remainingBalance(record))}</dd></div><div><dt>Payment Status</dt><dd>{paymentStatus(record)}</dd></div></dl>
-                <div className="history-card-actions"><button className="history-card-actions__primary" onClick={(event) => { detailsOpenerRef.current = event.currentTarget; setSelected(record); }} type="button">View Details</button>{hasReference && <button onClick={() => navigate(`/track-order?ref=${encodeURIComponent(reference)}`)} type="button">Track Booking</button>}{Boolean(rowValue(record, ["_order_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(record, ["_order_code"]))}`)} type="button">Payment Details</button>}</div>
+                <div className="history-card-actions"><button className="history-card-actions__primary" onClick={(event) => { detailsOpenerRef.current = event.currentTarget; setSelected(record); }} type="button">View Details</button>{hasReference && <button onClick={() => navigate(`/track-order?ref=${encodeURIComponent(reference)}`)} type="button">Track Booking</button>}{hasReference && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(record, ["_order_code"], reference))}`)} type="button">Payment Details</button>}</div>
                 {rowText(record, ["_record_type"]) === "Reservation" && status.trim().toLowerCase() === "completed" && <BookingReviewControls bookingReferenceText={visibleReference} feedback={reviewFeedback[String(record.id)] ?? ""} onSubmit={(rating, text) => submitReview(String(record.id), { rating, text })} ready={reviewFeatureReady} review={submittedReviews[String(record.id)]} setupMessage={reviewSetupMessage} serviceName={customerServiceName(rowValue(record, ["service", "service_type", "service_category"]))} submitting={Boolean(reviewSubmitting[String(record.id)])} />}
                 {rowText(record, ["_record_type"]) === "Reservation" && status.toLowerCase() === "completed" && (submittedReviews[String(record.id)] && !editingReviewIds[String(record.id)] ? <div className="customer-review-state"><strong>Your review: {rowText(submittedReviews[String(record.id)], ["moderation_status"], "pending")}</strong><p>{rowText(submittedReviews[String(record.id)], ["review_text", "comment"], "Rating submitted without written feedback.")}</p><small>Sentiment: {rowText(submittedReviews[String(record.id)], ["sentiment_status"], "pending") === "unavailable" ? "Unavailable (no written feedback)" : rowText(submittedReviews[String(record.id)], ["sentiment_label"], "Pending analysis")}</small><button disabled={!reviewFeatureReady} onClick={() => { editReview(String(record.id)); setReviewFormOpen((current) => ({ ...current, [String(record.id)]: true })); }} type="button">Edit and resubmit</button>{reviewFeedback[String(record.id)] && <p role="status">{reviewFeedback[String(record.id)]}</p>}</div> : reviewFeatureReady && <>{!reviewFormOpen[String(record.id)] && <button className="history-card-actions__primary" onClick={() => { setReviewDrafts((current) => ({ ...current, [String(record.id)]: current[String(record.id)] ?? { rating: 0, text: "" } })); setReviewFormOpen((current) => ({ ...current, [String(record.id)]: true })); }} type="button">Rate Service</button>}{reviewFormOpen[String(record.id)] && <form className="customer-review-form" onSubmit={(event) => { event.preventDefault(); void submitReview(String(record.id)); }}><strong>{customerServiceName(rowValue(record, ["service", "service_type", "service_category"]))} · {visibleReference}</strong><span>Verified completed booking</span><fieldset className="review-star-picker"><legend>Your rating</legend>{[1,2,3,4,5].map((rating) => <button aria-label={`${rating} star${rating === 1 ? "" : "s"}`} aria-pressed={(reviewDrafts[String(record.id)]?.rating ?? 0) >= rating} className={(reviewDrafts[String(record.id)]?.rating ?? 0) >= rating ? "is-selected" : ""} key={rating} onClick={() => setReviewDrafts((current) => ({ ...current, [String(record.id)]: { ...(current[String(record.id)] ?? { text: "", rating: 0 }), rating } }))} type="button">★</button>)}</fieldset><label>Written feedback (optional)<textarea maxLength={3000} placeholder="Share what you liked about your experience" value={reviewDrafts[String(record.id)]?.text ?? ""} onChange={(event) => setReviewDrafts((current) => ({ ...current, [String(record.id)]: { ...(current[String(record.id)] ?? { text: "", rating: 0 }), text: event.target.value } }))} /></label><small>Please do not include personal information such as names, phone numbers, email addresses, or booking details.</small><button disabled={!reviewDrafts[String(record.id)]?.rating} type="submit">Submit Review</button>{reviewFeedback[String(record.id)] && <p role="status">{reviewFeedback[String(record.id)]}</p>}</form>}</>)}
             </article>
@@ -3884,7 +3951,7 @@ function CustomerHistoryPage() {
             && rowNumber(selectedPayment, ["amount", "payment_amount"]) >= requiredDeposit(selected)
             && Boolean(rowValue(selectedPayment, ["reference_number"]) && rowValue(selectedPayment, ["proof_url"]))
             && dueAt
-            && Date.parse(rowText(selectedPayment, ["submitted_at"], "")) <= Date.parse(dueAt));
+            && Date.parse(rowText(selectedPayment, ["submitted_at", "created_at"], "")) <= Date.parse(dueAt));
           const deadlinePassed = Boolean(dueAt && Date.parse(dueAt) <= Date.now());
           const verifiedDepositReached = rowNumber(selected, ["amount_paid", "paid_amount"]) >= requiredDeposit(selected);
           const expiredBooking = Boolean(rowValue(selected, ["expired_at"]) || (deadlinePassed && !timelyPaymentPending && !verifiedDepositReached && statusKey !== "confirmed"));
@@ -3898,9 +3965,9 @@ function CustomerHistoryPage() {
            {statusKey === "pending" && !expiredBooking && <div className="detail-panel__section"><strong>{timelyPaymentPending ? "Your schedule is reserved and your timely payment proof is awaiting Administrator review." : verifiedDepositReached ? "Your deposit is verified. EVENTLY is resolving the remaining schedule details." : dueAt ? "Your schedule has been reserved. Please submit your 30% deposit within 24 hours to secure your booking." : "This is a legacy reservation. Its prior payment terms remain in effect until an Administrator starts a deadline."}</strong></div>}
            {expiredBooking && <div className="detail-panel__section" role="status"><strong>Your booking has expired because payment was not submitted within 24 hours. The schedule has been released. Please create a new booking.</strong></div>}
            {bookingStatus(selected).toLowerCase() === "completed" && reviewSetupMessage && <div className="detail-panel__section"><span>Customer reviews</span><p>{reviewSetupMessage}</p></div>}
-          {selectedPayment && <div className="detail-panel__section"><span>Payment submission</span><dl className="detail-panel__facts"><div><dt>Method</dt><dd>{rowText(selectedPayment, ["method", "payment_method"])}</dd></div><div><dt>Reference</dt><dd>{rowText(selectedPayment, ["reference_number"], "Not recorded")}</dd></div><div><dt>Submitted amount</dt><dd>{formatPhp(rowNumber(selectedPayment, ["amount", "payment_amount"]))}</dd></div><div><dt>Submitted</dt><dd>{rowText(selectedPayment, ["submitted_at", "created_at"], "Not recorded")}</dd></div><div><dt>Receipt upload</dt><dd>{rowValue(selectedPayment, ["proof_url"]) ? "Private receipt received" : "No receipt attached"}</dd></div><div><dt>Administrator review</dt><dd>{paymentVerificationStatus(selectedPayment)}</dd></div>{Boolean(rowValue(selectedPayment, ["rejection_reason", "review_notes"])) && <div><dt>Review note</dt><dd>{rowText(selectedPayment, ["rejection_reason", "review_notes"])}</dd></div>}</dl>{selectedPayment.demo_mode === true && <p>Demo Payment — No Actual Money Transfer. This record is for demonstration and review only.</p>}{rowText(selectedPayment, ["verification_status", "status"], "").toLowerCase() === "rejected" && Boolean(rowValue(selected, ["_order_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(selected, ["_order_code"]))}`)} type="button">Resubmit payment proof</button>}</div>}
+           {selectedPayment && <div className="detail-panel__section"><span>Payment submission</span><dl className="detail-panel__facts"><div><dt>Method</dt><dd>{rowText(selectedPayment, ["method", "payment_method"])}</dd></div><div><dt>Reference</dt><dd>{rowText(selectedPayment, ["reference_number"], "Not recorded")}</dd></div><div><dt>Submitted amount</dt><dd>{formatPhp(rowNumber(selectedPayment, ["amount", "payment_amount"]))}</dd></div><div><dt>Submitted</dt><dd>{rowText(selectedPayment, ["submitted_at", "created_at"], "Not recorded")}</dd></div><div><dt>Receipt upload</dt><dd>{rowValue(selectedPayment, ["proof_url"]) ? "Private receipt received" : "No receipt attached"}</dd></div><div><dt>Administrator review</dt><dd>{paymentVerificationStatus(selectedPayment)}</dd></div>{Boolean(rowValue(selectedPayment, ["rejection_reason", "review_notes"])) && <div><dt>Review note</dt><dd>{rowText(selectedPayment, ["rejection_reason", "review_notes"])}</dd></div>}</dl>{selectedPayment.demo_mode === true && <p>Demo Payment — No Actual Money Transfer. This record is for demonstration and review only.</p>}{rowText(selectedPayment, ["verification_status", "status"], "").toLowerCase() === "rejected" && Boolean(rowValue(selected, ["_order_code", "reservation_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(selected, ["_order_code", "reservation_code"]))}`)} type="button">Resubmit payment proof</button>}</div>}
           {rowList(selected, ["menu_items", "selected_menu", "menu"]).length > 0 && <div className="detail-panel__section"><span>Catering Menu</span><p>{rowList(selected, ["menu_items", "selected_menu", "menu"]).join(" · ")}</p></div>}
-           {rowList(selected, ["addons", "selected_addons"]).length > 0 && <div className="detail-panel__section"><span>Selected Add-ons</span><p>{rowList(selected, ["addons", "selected_addons"]).join(" · ")}</p></div>}
+            {(Boolean(rowValue(selected, ["cottage_selected"])) || rowList(selected, ["addons", "selected_addons"]).length > 0) && <div className="detail-panel__section"><span>Selected Add-ons</span><p>{[...(Boolean(rowValue(selected, ["cottage_selected"])) ? [`Cottage · ${formatPhp(rowNumber(selected, ["cottage_fee"]))}`] : []), ...rowList(selected, ["addons", "selected_addons"])].join(" · ")}</p></div>}
            {Boolean(rowValue(selected, ["special_requests", "requests", "notes"])) && <div className="detail-panel__section"><span>Special Requests</span><p>{rowText(selected, ["special_requests", "requests", "notes"])}</p></div>}
            <div className="history-payment-summary"><div><span>Total Booking Cost</span><strong>{formatPhp(rowNumber(selected, ["total_amount", "total", "amount"]))}</strong></div><div><span>Required Deposit</span><strong>{formatPhp(requiredDeposit(selected))}</strong></div><div><span>Verified Amount Paid</span><strong>{formatPhp(rowNumber(selected, ["amount_paid", "paid_amount"]))}</strong></div><div><span>Remaining Balance</span><strong>{formatPhp(remainingBalance(selected))}</strong></div></div>
             {String(rowValue(selected, ["service", "service_type", "service_category"]) ?? "").toLowerCase().includes("cater") && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Customers must request any cancellation or rescheduling at least 3 days (72 hours) before their scheduled catering event. Rescheduling requests are subject to Administrator approval.</p></div>}
@@ -3977,7 +4044,7 @@ function CustomerPaymentHistoryPage() {
     if (!session) return;
     if (!silent) setLoading(true);
     setError("");
-    const result = await supabase.from("payments").select("*").eq("customer_id", session.user.id).order("submitted_at", { ascending: false });
+    const result = await supabase.from("payments").select("*").eq("customer_id", session.user.id).order("created_at", { ascending: false });
     if (!silent) setLoading(false);
     if (result.error) { setError(result.error.message); return; }
     setPayments((result.data ?? []) as CustomerDataRow[]);
@@ -4080,20 +4147,43 @@ function OrderPage() {
     if (!session) return;
     if (!silent) setLoading(true);
     setError("");
-    const orderResult = await supabase.from("orders").select("*").eq("customer_id", session.user.id);
+    const [orderResult, reservationResult] = await Promise.all([
+      supabase.from("orders").select("*").eq("customer_id", session.user.id),
+      supabase.from("reservations").select("*").eq("customer_id", session.user.id),
+    ]);
     if (!silent) setLoading(false);
-    if (orderResult.error) { setError(orderResult.error.message); return; }
+    if (orderResult.error || reservationResult.error) { setError(orderResult.error?.message ?? reservationResult.error?.message ?? "Booking records could not be loaded."); return; }
     const owned = (orderResult.data ?? []) as CustomerDataRow[];
+    const ownedReservations = (reservationResult.data ?? []) as CustomerDataRow[];
     const found = reference
       ? owned.find((row) => bookingReference(row).toLowerCase() === reference.toLowerCase()) ?? null
       : owned.sort((a, b) => Date.parse(String(rowValue(b, ["created_at"]) ?? 0)) - Date.parse(String(rowValue(a, ["created_at"]) ?? 0)))[0] ?? null;
+    const reservationOnly = reference
+      ? ownedReservations.find((row) => bookingReference(row).toLowerCase() === reference.toLowerCase()) ?? null
+      : ownedReservations
+        .filter((row) => ["pending", "confirmed"].includes(rowText(row, ["status"], "").toLowerCase()))
+        .sort((a, b) => Date.parse(String(rowValue(b, ["created_at"]) ?? 0)) - Date.parse(String(rowValue(a, ["created_at"]) ?? 0)))[0] ?? null;
+    if (!found && reservationOnly) {
+      const reservationCode = bookingReference(reservationOnly);
+      setOrder({
+        ...reservationOnly,
+        order_code: reservationCode,
+        reservation_id: reservationOnly.id,
+        _reservation_only: true,
+      });
+      setReservation(reservationOnly);
+      const paymentResult = await supabase.from("payments").select("*")
+        .eq("reservation_id", reservationOnly.id).order("created_at", { ascending: false });
+      if (!paymentResult.error) setPayments((paymentResult.data ?? []) as CustomerDataRow[]);
+      return;
+    }
     setOrder(found);
     setReservation(null);
     if (found) {
       const id = String(rowValue(found, ["id"]) ?? "");
       const reservationId = String(rowValue(found, ["reservation_id"]) ?? "");
       const [paymentResult, reservationResult] = await Promise.all([
-        supabase.from("payments").select("*").eq("order_id", id).order("created_at", { ascending: false }),
+        supabase.from("payments").select("*").eq(reservationId ? "reservation_id" : "order_id", reservationId || id).order("created_at", { ascending: false }),
         reservationId
           ? supabase.from("reservations").select("*").eq("id", reservationId).eq("customer_id", session.user.id).maybeSingle()
           : Promise.resolve({ data: null, error: null }),
@@ -4142,6 +4232,7 @@ function OrderPage() {
   const amountDueNow = amountPaid > 0
     ? outstandingBalance
     : Math.min(outstandingBalance, depositAmount > 0 ? depositAmount : total);
+  const remainingDeposit = Math.max(0, depositAmount - amountPaid);
   const activePaymentAccounts = paymentAccounts.filter((account) => account.is_active
     && ["gcash", "maya", "bank_transfer"].includes(account.method)
     && Boolean(account.display_name?.trim() && account.instructions?.trim() && account.account_holder?.trim())
@@ -4168,6 +4259,10 @@ function OrderPage() {
       setPaymentMessage("Enter the amount you actually paid. It must be greater than zero and no more than the saved booking balance.");
       return;
     }
+    if (amount < remainingDeposit) {
+      setPaymentMessage(`This payment must cover the remaining required deposit of ${formatPhp(remainingDeposit)}.`);
+      return;
+    }
     if (paymentAwaitingReview) {
       setPaymentMessage("A payment submission is already awaiting administrator review. Please wait for its decision.");
       return;
@@ -4180,8 +4275,8 @@ function OrderPage() {
       setPaymentMessage("This payment method is not configured. Contact Venice before submitting payment.");
       return;
     }
-    if (!["image/jpeg", "image/png", "image/webp"].includes(paymentProof.type) || paymentProof.size > 10 * 1024 * 1024) {
-      setPaymentMessage("Proof must be a JPG, PNG, or WebP image no larger than 10 MB.");
+    if (!["image/jpeg", "image/png", "image/webp"].includes(paymentProof.type) || paymentProof.size > 5 * 1024 * 1024) {
+      setPaymentMessage("Proof must be a JPG, PNG, or WebP image no larger than 5 MB.");
       return;
     }
     setPaymentSubmitting(true);
@@ -4253,12 +4348,12 @@ function OrderPage() {
              {!selectedPaymentAccount && selectedPaymentInstructions && <p>{selectedPaymentInstructions}</p>}
                <div className="payment-card__balance"><span>Total booking price</span><strong>{formatPhp(total)}</strong></div>
                <div className="payment-card__balance"><span>Suggested amount due</span><strong>{formatPhp(amountDueNow)}</strong></div>
-               <label><span>Actual amount paid (PHP)</span><input max={outstandingBalance} min="0.01" onChange={(event) => setPaymentAmount(event.target.value)} required step="0.01" type="number" value={paymentAmount} /><small>Enter the amount you actually transferred. It may differ from the suggested amount.</small></label>
+                <label><span>Actual amount paid (PHP)</span><input max={outstandingBalance} min={Math.max(0.01, remainingDeposit)} onChange={(event) => setPaymentAmount(event.target.value)} required step="0.01" type="number" value={paymentAmount} /><small>Enter the amount you actually transferred. It must cover any remaining required deposit and may differ from the suggested amount.</small></label>
              <label><span>Transaction reference</span><input maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} required value={paymentReference} /></label>
-             <label><span>Proof of payment (JPG, PNG, or WebP · max 10 MB)</span><input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" ref={paymentProofInput} onChange={(event) => {
+              <label><span>Proof of payment (JPG, PNG, or WebP · max 5 MB)</span><input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" ref={paymentProofInput} onChange={(event) => {
                const file = event.target.files?.[0] ?? null;
-               if (file && (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 10 * 1024 * 1024)) {
-                 setPaymentMessage("Proof must be a JPG, PNG, or WebP image no larger than 10 MB.");
+                if (file && (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024)) {
+                  setPaymentMessage("Proof must be a JPG, PNG, or WebP image no larger than 5 MB.");
                  event.target.value = "";
                  setPaymentProof(null);
                  return;

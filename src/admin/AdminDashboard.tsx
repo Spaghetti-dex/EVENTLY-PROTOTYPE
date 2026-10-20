@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { EventlyProfile } from "../lib/supabase";
-import { eventlyFunctionBaseUrl, signOutUser, supabase } from "../lib/supabase";
+import { eventlyFunctionBaseUrl, isMissingSupabaseRpc, signOutUser, supabase } from "../lib/supabase";
 import { MessagingInbox } from "../messaging/MessagingViews";
 
 type Row = Record<string, unknown>;
@@ -839,7 +839,8 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
   const [price, setPrice] = useState(String(first(row, ["price"]) ?? "0"));
   const [adjustment, setAdjustment] = useState("");
   const [guestCapacity, setGuestCapacity] = useState(String(first(row, ["guest_capacity"]) ?? ""));
-  const isPoolTour = entity === "package" && String(row.package_category ?? "").toLowerCase() === "pool_tour";
+  const isPoolTour = entity === "package" && (String(row.package_category ?? "").toLowerCase() === "pool_tour"
+    || ["4ae972a8-6503-4776-90c9-899246cbc4dc", "5afda244-a615-4bd3-98eb-d360d000100b", "925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8"].includes(String(row.id ?? "")));
   const resortService = String(row.service_type ?? "").trim().toLowerCase() === "resort";
   const resortRateByName: Record<string, number> = {
     "standard room": 3000,
@@ -880,7 +881,7 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
   };
   const expectedPoolUnitRate = isPoolTour ? poolUnitRateById[String(row.id ?? "")] : undefined;
   const nextPoolMaximum = poolMaxGuestCount.trim() ? Number(poolMaxGuestCount) : null;
-  const poolMinimumGuestCount = Math.max(1, Number(row.min_guest_count ?? 1));
+  const poolMinimumGuestCount = isPoolTour ? 20 : Math.max(1, Number(row.min_guest_count ?? 1));
   const poolCapacityChanged = isPoolTour && (poolCapacityVerified !== (row.pool_capacity_verified === true)
     || nextPoolMaximum !== (row.max_guest_count == null ? null : Number(row.max_guest_count))
     || (poolCapacityVerified && (!row.pool_capacity_audit_id
@@ -925,8 +926,8 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
       return;
     }
     if (isPoolTour && poolCapacityVerified
-      && (!Number.isInteger(nextPoolMaximum) || (nextPoolMaximum ?? 0) < poolMinimumGuestCount)) {
-      setMessage(`Enter the actual physical maximum as a whole number of at least ${poolMinimumGuestCount} guests.`);
+      && (!Number.isInteger(nextPoolMaximum) || (nextPoolMaximum ?? 0) < 20 || (nextPoolMaximum ?? 0) > 50)) {
+      setMessage("Enter the actual physical maximum as a whole number between 20 and 50 guests.");
       return;
     }
     if (poolCapacityChanged && !poolCapacityReason.trim()) {
@@ -966,6 +967,10 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
 
     setBusy(true);
     setMessage("");
+    const result = entity === "menu_item"
+      ? await supabase.rpc("evently_admin_update_catering_menu_item", { p_id: String(row.id ?? ""), p_patch: patch })
+      : await supabase.rpc("admin_update_evently_catalog", { p_entity: entity, p_id: String(row.id ?? ""), p_patch: patch });
+    if (result.error) { setBusy(false); setMessage(result.error.message); return; }
     if (entity === "package") {
       const schedule = await supabase.rpc("evently_admin_set_package_schedule", {
         p_package_id: String(row.id ?? ""),
@@ -974,12 +979,14 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
         p_operating_end_time: operatingEnd || null,
         p_duration_minutes: durationMinutes ? Number(durationMinutes) : null,
       });
-      if (schedule.error) { setBusy(false); setMessage(schedule.error.message); return; }
+      if (schedule.error) {
+        setBusy(false);
+        setMessage(`Package details were saved, but its schedule was not: ${schedule.error.message}`);
+        await onSaved();
+        window.dispatchEvent(new Event("evently-catalog-changed"));
+        return;
+      }
     }
-    const result = entity === "menu_item"
-      ? await supabase.rpc("evently_admin_update_catering_menu_item", { p_id: String(row.id ?? ""), p_patch: patch })
-      : await supabase.rpc("admin_update_evently_catalog", { p_entity: entity, p_id: String(row.id ?? ""), p_patch: patch });
-    if (result.error) { setBusy(false); setMessage(result.error.message); return; }
     if (poolCapacityChanged) {
       const { error: capacityError } = await supabase.rpc("evently_admin_set_pool_capacity", {
         p_package_id: String(row.id ?? ""),
@@ -987,7 +994,13 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
         p_max_guest_count: poolCapacityVerified ? nextPoolMaximum : null,
         p_reason: poolCapacityReason.trim(),
       });
-      if (capacityError) { setBusy(false); setMessage(capacityError.message); return; }
+      if (capacityError) {
+        setBusy(false);
+        setMessage(`Catalog details${entity === "package" ? " and schedule" : ""} were saved, but pool capacity was not: ${capacityError.message}`);
+        await onSaved();
+        window.dispatchEvent(new Event("evently-catalog-changed"));
+        return;
+      }
     }
     setBusy(false);
     await onSaved();
@@ -1008,7 +1021,7 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
           <label>{entity === "menu_item" ? "Price per guest (PHP)" : "Current price (PHP)"}<input min="0" onChange={(event) => setPrice(event.target.value)} readOnly={lockedResortRate !== undefined} required step="0.01" type="number" value={price} /></label>
           <div className="admin-price-helper"><label>Optional adjustment (%)<input min="0" onChange={(event) => setAdjustment(event.target.value)} placeholder="For example, 5" step="0.01" type="number" value={adjustment} /></label><p>Suggested price: <strong>{money.format(suggestedPrice)}</strong></p><button onClick={() => setPrice(suggestedPrice.toFixed(2))} type="button">Use suggestion</button></div>
           {(entity === "package_variant" || (entity === "package" && !isPoolTour)) && <label>Guest capacity<input min="1" onChange={(event) => setGuestCapacity(event.target.value)} placeholder="Not configured" readOnly={isStandardRoom} step="1" type="number" value={guestCapacity} /></label>}
-          {isPoolTour && <section className="admin-pool-capacity-editor"><h3>Pool physical capacity</h3><p>Enter the maximum number of guests confirmed by an on-site physical capacity check. The legacy guest_capacity value is not evidence. The verified value is recorded on the shared pool resource; every verified tour using it must use the same maximum.</p><label className="admin-editor-checkbox"><input checked={poolCapacityVerified} onChange={(event) => setPoolCapacityVerified(event.target.checked)} type="checkbox" /> I have physically verified this pool tour’s maximum capacity</label><label>Verified maximum guests<input disabled={!poolCapacityVerified} min={poolMinimumGuestCount} onChange={(event) => setPoolMaxGuestCount(event.target.value)} placeholder="Enter the on-site verified maximum" step="1" type="number" value={poolMaxGuestCount} /></label><label>Capacity verification note<textarea maxLength={2000} onChange={(event) => setPoolCapacityReason(event.target.value)} required={poolCapacityChanged} rows={2} value={poolCapacityReason} /></label></section>}
+          {isPoolTour && <section className="admin-pool-capacity-editor"><h3>Pool physical capacity</h3><p>Enter the maximum number of guests confirmed by an on-site physical capacity check. The legacy guest_capacity value is not evidence. The verified value is recorded on the shared pool resource; every verified tour using it must use the same maximum.</p><label className="admin-editor-checkbox"><input checked={poolCapacityVerified} onChange={(event) => setPoolCapacityVerified(event.target.checked)} type="checkbox" /> I have physically verified this pool tour’s maximum capacity</label><label>Verified maximum guests<input disabled={!poolCapacityVerified} max={50} min={poolMinimumGuestCount} onChange={(event) => setPoolMaxGuestCount(event.target.value)} placeholder="Enter the on-site verified maximum" step="1" type="number" value={poolMaxGuestCount} /></label><label>Capacity verification note<textarea maxLength={2000} onChange={(event) => setPoolCapacityReason(event.target.value)} required={poolCapacityChanged} rows={2} value={poolCapacityReason} /></label></section>}
           {entity === "package" && <label>Required deposit (%)<input max="100" min="0" onChange={(event) => setDepositPercentage(event.target.value)} placeholder="Not configured" readOnly={lockedResortRate !== undefined} step="0.01" type="number" value={depositPercentage} /></label>}
           {entity === "package" && <><label>Schedule mode<select disabled={isResortVenueOnly} value={scheduleMode} onChange={(event) => setScheduleMode(event.target.value)}><option value="admin_assign">Admin assigns schedule</option><option value="customer_select">Customer selects time</option><option value="fixed">Fixed time</option><option value="untimed">No timed schedule</option></select></label>{scheduleMode === "customer_select" && <><label>Opening time<input type="time" value={operatingStart} onChange={(event) => setOperatingStart(event.target.value)} required /></label><label>Closing time<input type="time" value={operatingEnd} onChange={(event) => setOperatingEnd(event.target.value)} required /></label><label>Booking duration (minutes)<input type="number" min="1" step="1" value={durationMinutes} onChange={(event) => setDurationMinutes(event.target.value)} readOnly={isResortVenueOnly} required /></label><small>{isResortVenueOnly ? `Venue Only duration is fixed at ${resortVenueDuration / 60} hours; enter the business-confirmed opening and closing times.` : "Hours are not prefilled. Enter the business-confirmed schedule before enabling timed bookings."}</small></>}</>}
           {entity === "addon" && <label>Compatible services<input onChange={(event) => setCompatibleServices(event.target.value)} placeholder="Catering, Resort" value={compatibleServices} /></label>}
@@ -1707,8 +1720,9 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
       <aside aria-label={`${title} details`} aria-modal="true" className="admin-detail-drawer" role="dialog">
         <div className="admin-drawer-heading"><div><span>{sections.find(([path]) => path === section)?.[1]} details</span><h2>{title}</h2></div><button aria-label="Close details" onClick={onClose} type="button">Close</button></div>
          {[...grouped, { label: "Additional information", test: /.*/, entries: remaining }].filter((group) => group.entries.length).map((group) => <section className="admin-detail-section" key={group.label}><h3>{group.label}</h3><dl>{group.entries.map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, " ")}</dt><dd><Value label={key} value={detailValue(key, value)} /></dd></div>)}</dl></section>)}
-         {section === "reservations" && <CateringChangeRequestsPanel canManage={canManageReservations} onChanged={onChanged} requests={Array.isArray(row._catering_change_requests) ? row._catering_change_requests as Row[] : []} />}
-          {section === "reservations" && <section className="admin-detail-section"><h3>Assigned venue</h3><p><strong>{String(first(scheduleValidation ?? {}, ["resource_name"]) ?? selectedResource?.label ?? first(row, ["resource_name", "resource_key"]) ?? "No physical venue required")}</strong>{selectedResource?.location ? ` · ${selectedResource.location}` : ""}</p>{currentStatus === "pending" && effectiveResourceRequired && <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Change Venue / Schedule</button>}</section>}
+           {section === "reservations" && <CateringChangeRequestsPanel canManage={canManageReservations} onChanged={onChanged} requests={Array.isArray(row._catering_change_requests) ? row._catering_change_requests as Row[] : []} />}
+           {section === "reservations" && row.cottage_selected === true && <section className="admin-detail-section"><h3>Selected add-ons</h3><dl><div><dt>Cottage</dt><dd>{money.format(Number(row.cottage_fee ?? 0))}</dd></div></dl></section>}
+           {section === "reservations" && <section className="admin-detail-section"><h3>Assigned venue</h3><p><strong>{String(first(scheduleValidation ?? {}, ["resource_name"]) ?? selectedResource?.label ?? first(row, ["resource_name", "resource_key"]) ?? "No physical venue required")}</strong>{selectedResource?.location ? ` · ${selectedResource.location}` : ""}</p>{currentStatus === "pending" && effectiveResourceRequired && <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Change Venue / Schedule</button>}</section>}
           {section === "reservations" && currentStatus === "pending" && <section className="admin-detail-section"><h3>Audited schedule override</h3><p>Schedule changes require a reason, are checked against concurrent reservations, and are recorded for the Administrator.</p><label><span>New reservation date</span><input onChange={(event) => { setScheduleDate(event.target.value); setSchedulePersisted(false); }} type="date" value={scheduleDate} /></label><button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Edit schedule and resource</button></section>}
           {section === "reservations" && <section className="admin-detail-section"><h3>Payment deadline · Asia/Manila</h3><p>{first(row, ["payment_due_at"]) ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }).format(new Date(String(first(row, ["payment_due_at"])))) : "Legacy booking — no automatic deadline until an Administrator starts one"}</p><label><span>{first(row, ["expired_at"]) ? "Reopen until" : first(row, ["payment_due_at"]) ? "Extend until" : "Start deadline until"} (Manila time)</span><input onChange={(event) => setOverrideDeadlineLocal(event.target.value)} type="datetime-local" value={overrideDeadlineLocal} /></label><button className="admin-secondary-action" disabled={actionState === "loading" || !overrideDeadlineLocal || (!first(row, ["expired_at"]) && currentStatus !== "pending")} onClick={() => void savePaymentDeadlineOverride()} type="button">{first(row, ["expired_at"]) ? "Reopen Payment Hold" : first(row, ["payment_due_at"]) ? "Extend Payment Deadline" : "Start 24-Hour Deadline"}</button></section>}
           {section === "reservations" && currentStatus === "confirmed" && <section className="admin-detail-section"><h3>Confirmed schedule override</h3>{!scheduleEditing ? <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Reschedule / Reassign Resource</button> : <><label><span>New reservation date</span><input onChange={(event) => { setScheduleDate(event.target.value); setSchedulePersisted(false); }} type="date" value={scheduleDate} /></label><label><span>Physical resource</span><select onChange={(event) => { setScheduleResource(event.target.value); setSchedulePersisted(false); }} value={scheduleResource}><option value="">No resource change</option>{scheduleResources.map((resource) => <option key={resource.value} value={resource.value}>{resource.label}</option>)}</select></label><div><label><span>Start time</span><input disabled={scheduleFixed} onChange={(event) => { setScheduleStart(event.target.value); setSchedulePersisted(false); }} type="time" value={scheduleStart} /></label><label><span>End time</span><input disabled={scheduleFixed} onChange={(event) => { setScheduleEnd(event.target.value); setSchedulePersisted(false); }} type="time" value={scheduleEnd} /></label></div><button disabled={actionState === "loading" || !scheduleDate || !scheduleStart || !scheduleEnd} onClick={() => void saveReservationSchedule()} type="button">Save audited override</button><button className="admin-close-action" onClick={() => setScheduleEditing(false)} type="button">Cancel</button></>}</section>}
@@ -2073,7 +2087,13 @@ function NotificationsView({ go }: { go: (path: string) => void }) {
     if (!ids.length || busyId) return;
     setBusyId(ids.length === 1 ? ids[0] : "all");
     setActionMessage("");
-    const { error: updateError } = await supabase.rpc("evently_admin_mark_notifications_read", { p_ids: ids });
+    let { error: updateError } = await supabase.rpc("evently_admin_mark_notifications_read", { p_ids: ids });
+    if (updateError && isMissingSupabaseRpc(updateError)) {
+      // The legacy notification policy restricts this update to Owner/Admin;
+      // newer schemas revoke direct writes and expose the RPC above.
+      const fallback = await supabase.from("notifications").update({ is_read: true }).in("id", ids);
+      updateError = fallback.error;
+    }
     setBusyId("");
     if (updateError) { setActionMessage(updateError.message); return; }
     setActionMessage(ids.length === 1 ? "Notification marked as read." : `${ids.length} notifications marked as read.`);
@@ -2186,14 +2206,39 @@ function PaymentAccountSettings() {
   const load = useCallback(async () => {
     setState("loading");
     setError("");
-    const [settings, auditResult] = await Promise.all([
+    const [settings, auditResult, customerOptions] = await Promise.all([
       supabase.rpc("evently_admin_get_payment_accounts"),
       supabase.from("evently_payment_account_audit").select("id,changed_by,created_at,changed_methods").order("created_at", { ascending: false }).limit(20),
+      supabase.rpc("evently_customer_payment_options"),
     ]);
     const failure = settings.error ?? auditResult.error;
     if (failure) { setError(failure.message); setState("error"); return; }
-    const row = settings.data as (Row & { accounts?: unknown; demo_mode?: boolean; legacy_instructions?: Partial<LegacyPaymentInstructions>; updated_at?: string | null }) | null;
-    const nextAccounts = Array.isArray(row?.accounts) ? row.accounts as PaymentAccount[] : [];
+    const row = settings.data && !Array.isArray(settings.data) && typeof settings.data === "object"
+      ? settings.data as Row & { accounts?: unknown; demo_mode?: boolean; legacy_instructions?: Partial<LegacyPaymentInstructions>; updated_at?: string | null }
+      : null;
+    const optionSettings = customerOptions.data && typeof customerOptions.data === "object"
+      ? customerOptions.data as Row & { demo_mode?: boolean; legacy_instructions?: Partial<LegacyPaymentInstructions> }
+      : null;
+    const destinationRows = Array.isArray(settings.data) ? settings.data as Row[] : [];
+    const nextAccounts = Array.isArray(row?.accounts)
+      ? row.accounts as PaymentAccount[]
+      : destinationRows.map((destination): PaymentAccount => {
+        const method = String(destination.method ?? "gcash") as PaymentAccountMethod;
+        return {
+          id: String(destination.id ?? ""),
+          method,
+          display_name: String(destination.display_name ?? ""),
+          account_holder: String(destination.account_name ?? ""),
+          bank_name: String(destination.bank_name ?? ""),
+          account_number: String(destination.account_number ?? ""),
+          mobile_wallet_number: method === "gcash" || method === "maya" ? String(destination.account_number ?? "") : "",
+          instructions: String(destination.instructions ?? ""),
+          qr_code_url: String(destination.qr_image_url ?? ""),
+          is_active: destination.is_enabled === true,
+          updated_at: String(destination.updated_at ?? ""),
+          updated_by: "",
+        };
+      });
     const nextAudit = (auditResult.data ?? []) as Row[];
     const actorIds = Array.from(new Set([
       ...nextAccounts.map((account) => account.updated_by).filter(Boolean),
@@ -2205,12 +2250,12 @@ function PaymentAccountSettings() {
     }
     setAccounts(nextAccounts);
     setLegacyInstructions({
-      gcash_instructions: String(row?.legacy_instructions?.gcash_instructions ?? ""),
-      bank_transfer_instructions: String(row?.legacy_instructions?.bank_transfer_instructions ?? ""),
-      cash_instructions: String(row?.legacy_instructions?.cash_instructions ?? ""),
+      gcash_instructions: String(row?.legacy_instructions?.gcash_instructions ?? optionSettings?.legacy_instructions?.gcash_instructions ?? ""),
+      bank_transfer_instructions: String(row?.legacy_instructions?.bank_transfer_instructions ?? optionSettings?.legacy_instructions?.bank_transfer_instructions ?? ""),
+      cash_instructions: String(row?.legacy_instructions?.cash_instructions ?? optionSettings?.legacy_instructions?.cash_instructions ?? ""),
     });
     setUpdatedAt(row?.updated_at ?? null);
-    setDemoMode(row?.demo_mode !== false);
+    setDemoMode((row?.demo_mode ?? optionSettings?.demo_mode) !== false);
     setAudit(nextAudit);
     setState("ready");
   }, []);

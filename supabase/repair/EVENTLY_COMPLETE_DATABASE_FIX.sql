@@ -117,11 +117,11 @@ begin
       '925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8'
     ) and is_active and resource_key = 'venice-main-pool' and resource_mode = 'exclusive'
        and schedule_mode in ('fixed','timed') and pricing_mode = 'per_guest' and deposit_percentage = 30
-      and ((id='4ae972a8-6503-4776-90c9-899246cbc4dc' and price=100 and min_guest_count=1
+       and ((id='4ae972a8-6503-4776-90c9-899246cbc4dc' and price=100 and min_guest_count=20
             and cottage_fee=700 and cottage_addon_id='1e97b2bf-ca43-492a-8a15-2d20f6abf040'
             and coalesce(fixed_start_time,operating_start_time)=time '08:00'
             and coalesce(fixed_end_time,operating_end_time)=time '15:00')
-        or (id='5afda244-a615-4bd3-98eb-d360d000100b' and price=150 and min_guest_count=1
+         or (id='5afda244-a615-4bd3-98eb-d360d000100b' and price=150 and min_guest_count=20
             and cottage_fee=700 and cottage_addon_id='1e97b2bf-ca43-492a-8a15-2d20f6abf040'
             and coalesce(fixed_start_time,operating_start_time)=time '16:00'
             and coalesce(fixed_end_time,operating_end_time)=time '22:00')
@@ -132,9 +132,9 @@ begin
     raise exception 'EVENTLY repair stopped: the existing three pool packages do not match their verified resource, fixed schedule, per-person, and 30%% deposit settings';
   end if;
   if not exists (select 1 from public.packages where id = '4ae972a8-6503-4776-90c9-899246cbc4dc'
-      and price = 100 and min_guest_count = 1 and cottage_fee = 700)
+       and price = 100 and min_guest_count = 20 and cottage_fee = 700)
     or not exists (select 1 from public.packages where id = '5afda244-a615-4bd3-98eb-d360d000100b'
-      and price = 150 and min_guest_count = 1 and cottage_fee = 700)
+       and price = 150 and min_guest_count = 20 and cottage_fee = 700)
     or not exists (select 1 from public.packages where id = '925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8'
       and price = 200 and min_guest_count = 20 and cottage_fee = 1000) then
     raise exception 'EVENTLY repair stopped: verified Day/Night/Overnight rates, minimums, or cottage prices differ; no catalog rows were changed';

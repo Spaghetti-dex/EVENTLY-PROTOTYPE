@@ -89,14 +89,20 @@ begin
        '928c269f-c38a-4345-86a5-d1f4c65555f0') <> 5000 then
     raise exception 'FAIL: per-guest tour rates or optional cottage totals are incorrect';
   end if;
-    if public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',1,null)<>100
-       or public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',19,null)<>1900
-       or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',1,null)<>150
-       or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',19,null)<>2850 then
-       raise exception 'FAIL: Day/Night per-guest amount examples do not match their rates';
+    if public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',20,null)<>2000
+       or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',20,null)<>3000 then
+        raise exception 'FAIL: Day/Night per-guest amount examples do not match their rates';
     end if;
-   v_error:=null;
-   begin perform public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',19,null);
+    v_error:=null;
+    begin perform public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',19,null);
+    exception when raise_exception then v_error:=sqlerrm; end;
+    if v_error not ilike '%at least 20%' then raise exception 'FAIL: Day Tour minimum 20 was not enforced'; end if;
+    v_error:=null;
+    begin perform public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',19,null);
+    exception when raise_exception then v_error:=sqlerrm; end;
+    if v_error not ilike '%at least 20%' then raise exception 'FAIL: Night Tour minimum 20 was not enforced'; end if;
+    v_error:=null;
+    begin perform public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',19,null);
    exception when raise_exception then v_error:=sqlerrm; end;
    if v_error not ilike '%at least 20%' then raise exception 'FAIL: Overnight minimum 20 was not enforced'; end if;
    begin
@@ -108,13 +114,13 @@ begin
     raise exception 'FAIL: wrong-tour cottage compatibility was not enforced';
   end if;
   if not exists (select 1 from public.packages where id = '4ae972a8-6503-4776-90c9-899246cbc4dc'
-       and price = 100 and pricing_mode = 'per_guest' and min_guest_count = 1
+        and price = 100 and pricing_mode = 'per_guest' and min_guest_count = 20
        and max_guest_count is null and not pool_capacity_verified
        and deposit_percentage = 30 and schedule_mode in ('fixed','timed')
       and coalesce(fixed_start_time, operating_start_time) = time '08:00'
       and coalesce(fixed_end_time, operating_end_time) = time '15:00')
       or not exists (select 1 from public.packages where id = '5afda244-a615-4bd3-98eb-d360d000100b'
-         and price = 150 and pricing_mode = 'per_guest' and min_guest_count = 1
+          and price = 150 and pricing_mode = 'per_guest' and min_guest_count = 20
          and max_guest_count is null and not pool_capacity_verified
         and deposit_percentage = 30 and schedule_mode in ('fixed','timed')
       and coalesce(fixed_start_time, operating_start_time) = time '16:00'

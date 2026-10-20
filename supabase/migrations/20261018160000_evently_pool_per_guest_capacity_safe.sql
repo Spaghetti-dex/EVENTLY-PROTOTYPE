@@ -262,7 +262,7 @@ set compatible_services=(
 -- Preserve the per-person rate schedule and guest minimums without staging a
 -- maximum. Each package remains unverified until an Administrator records the
 -- physical limit. Never infer this value from legacy guest_capacity.
-update public.packages set min_guest_count=1,max_guest_count=null,
+update public.packages set min_guest_count=20,max_guest_count=null,
   cottage_fee=700,cottage_addon_id='1e97b2bf-ca43-492a-8a15-2d20f6abf040',
   pool_access_fee=0,pool_capacity_verified=false,pool_capacity_verified_at=null,
   pool_capacity_verified_by=null,pool_capacity_audit_id=null,updated_at=now()
@@ -277,8 +277,8 @@ where id='925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8'
 do $$
 begin
   if (select count(*) from public.packages where
-       (id='4ae972a8-6503-4776-90c9-899246cbc4dc' and is_active and min_guest_count=1 and max_guest_count is null and not pool_capacity_verified)
-        or (id='5afda244-a615-4bd3-98eb-d360d000100b' and is_active and min_guest_count=1 and max_guest_count is null and not pool_capacity_verified)
+       (id='4ae972a8-6503-4776-90c9-899246cbc4dc' and is_active and min_guest_count=20 and max_guest_count is null and not pool_capacity_verified)
+        or (id='5afda244-a615-4bd3-98eb-d360d000100b' and is_active and min_guest_count=20 and max_guest_count is null and not pool_capacity_verified)
         or (id='925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8' and is_active and min_guest_count=20 and max_guest_count is null and not pool_capacity_verified))<>3 then
     raise exception 'Pool tour minimum guest counts did not synchronize';
   end if;
@@ -341,8 +341,8 @@ begin
     or v_package.pricing_mode<>'per_guest' then raise exception 'The selected package is not a configured pool tour'; end if;
   v_rate:=public.evently_pool_tour_unit_rate(p_package_id);
   case p_package_id
-    when '4ae972a8-6503-4776-90c9-899246cbc4dc'::uuid then v_min:=1; v_cottage_id:='1e97b2bf-ca43-492a-8a15-2d20f6abf040'; v_cottage_fee:=700;
-    when '5afda244-a615-4bd3-98eb-d360d000100b'::uuid then v_min:=1; v_cottage_id:='1e97b2bf-ca43-492a-8a15-2d20f6abf040'; v_cottage_fee:=700;
+    when '4ae972a8-6503-4776-90c9-899246cbc4dc'::uuid then v_min:=20; v_cottage_id:='1e97b2bf-ca43-492a-8a15-2d20f6abf040'; v_cottage_fee:=700;
+    when '5afda244-a615-4bd3-98eb-d360d000100b'::uuid then v_min:=20; v_cottage_id:='1e97b2bf-ca43-492a-8a15-2d20f6abf040'; v_cottage_fee:=700;
     when '925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8'::uuid then v_min:=20; v_cottage_id:='928c269f-c38a-4345-86a5-d1f4c65555f0'; v_cottage_fee:=1000;
     else raise exception 'Pool package ID is not in the verified tour schedule';
   end case;
@@ -584,23 +584,17 @@ drop trigger if exists evently_pool_pricing_emergency_guard on public.reservatio
 do $$
 declare v_error text;
 begin
-  if public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',1,null)<>100
-     or public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',5,null)<>500
-     or public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',19,null)<>1900
-     or public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',20,null)<>2000
+  if public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',20,null)<>2000
      or public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',25,null)<>2500
      or public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',50,null)<>5000
-     or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',1,null)<>150
-     or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',5,null)<>750
-     or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',19,null)<>2850
      or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',20,null)<>3000
      or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',25,null)<>3750
      or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',50,null)<>7500
      or public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',20,null)<>4000
      or public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',25,null)<>5000
      or public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',50,null)<>10000
-     or public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',1,'1e97b2bf-ca43-492a-8a15-2d20f6abf040')<>800
-     or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',1,'1e97b2bf-ca43-492a-8a15-2d20f6abf040')<>850
+      or public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',20,'1e97b2bf-ca43-492a-8a15-2d20f6abf040')<>2700
+      or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',20,'1e97b2bf-ca43-492a-8a15-2d20f6abf040')<>3700
      or public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',20,'928c269f-c38a-4345-86a5-d1f4c65555f0')<>5000 then
     raise exception 'Per-person pricing calculator verification failed; stored package rates remain unchanged';
   end if;
@@ -608,6 +602,14 @@ begin
   begin perform public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',19,null);
   exception when raise_exception then get stacked diagnostics v_error=message_text; end;
   if coalesce(v_error,'') not like '%at least 20%' then raise exception 'Overnight minimum guest verification failed'; end if;
+  v_error:=null;
+  begin perform public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',19,null);
+  exception when raise_exception then get stacked diagnostics v_error=message_text; end;
+  if coalesce(v_error,'') not like '%at least 20%' then raise exception 'Day Tour minimum guest verification failed'; end if;
+  v_error:=null;
+  begin perform public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',19,null);
+  exception when raise_exception then get stacked diagnostics v_error=message_text; end;
+  if coalesce(v_error,'') not like '%at least 20%' then raise exception 'Night Tour minimum guest verification failed'; end if;
   if round(public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',20,null)*0.30,2)<>600
      or round(public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',20,null)*0.30,2)<>900
      or round(public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',20,null)*0.30,2)<>1200 then
@@ -639,18 +641,24 @@ $$;
 do $$
 declare v_error text; v_capacity record;
 begin
-  if public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',1,null)<>100
-     or public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',19,null)<>1900
+   if public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',20,null)<>2000
      or public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',50,null)<>5000
-     or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',1,null)<>150
-     or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',19,null)<>2850
+      or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',20,null)<>3000
      or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',50,null)<>7500 then
      raise exception 'Day/Night per-guest price calculations differ';
   end if;
-  v_error:=null;
-  begin perform public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',19,null);
-  exception when raise_exception then get stacked diagnostics v_error=message_text; end;
-  if coalesce(v_error,'') not like '%at least 20%' then raise exception 'Overnight boundary below-minimum test failed'; end if;
+   v_error:=null;
+   begin perform public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',19,null);
+   exception when raise_exception then get stacked diagnostics v_error=message_text; end;
+   if coalesce(v_error,'') not like '%at least 20%' then raise exception 'Day Tour below-minimum test failed'; end if;
+   v_error:=null;
+   begin perform public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',19,null);
+   exception when raise_exception then get stacked diagnostics v_error=message_text; end;
+   if coalesce(v_error,'') not like '%at least 20%' then raise exception 'Night Tour below-minimum test failed'; end if;
+   v_error:=null;
+   begin perform public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',19,null);
+   exception when raise_exception then get stacked diagnostics v_error=message_text; end;
+   if coalesce(v_error,'') not like '%at least 20%' then raise exception 'Overnight below-minimum test failed'; end if;
   if public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',20,null)<>2000
      or public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',50,null)<>5000
      or public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',20,null)<>3000

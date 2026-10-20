@@ -113,15 +113,15 @@ begin
   select max_guest_count into v_night_max from public.packages where id=v_night;
   select max_guest_count into v_overnight_max from public.packages where id=v_overnight;
   if (select count(*) from public.packages where
-       (id=v_day and min_guest_count=1 and max_guest_count>=min_guest_count and price=100)
-    or (id=v_night and min_guest_count=1 and max_guest_count>=min_guest_count and price=150)
+        (id=v_day and min_guest_count=20 and max_guest_count>=min_guest_count and price=100)
+     or (id=v_night and min_guest_count=20 and max_guest_count>=min_guest_count and price=150)
     or (id=v_overnight and min_guest_count=20 and max_guest_count>=min_guest_count and price=200))<>3 then
     raise exception 'BLOCKED: pool packages do not match the Administrator-confirmed minimum/rate configuration';
   end if;
   v_day_guest_count := case when v_day_max is null then 25 else least(25,v_day_max) end;
   v_night_guest_count := case when v_night_max is null then 25 else least(25,v_night_max) end;
   v_overnight_guest_count := case when v_overnight_max is null or v_overnight_max >= 25 then 25 else 20 end;
-  if v_day_guest_count<1 or v_night_guest_count<1 or v_overnight_guest_count<20 then
+  if v_day_guest_count<20 or v_night_guest_count<20 or v_overnight_guest_count<20 then
     raise exception 'BLOCKED: verified test capacity is below the configured minimum';
   end if;
   v_day_total:=100*v_day_guest_count+700;

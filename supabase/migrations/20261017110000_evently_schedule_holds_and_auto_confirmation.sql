@@ -318,7 +318,7 @@ $$;
 -- exclusive pool resource, preserve fixed times and every guest_capacity value.
 -- Do not stage a maximum: an Administrator must enter the actual physical limit.
 update public.packages
-set package_category='pool_tour',pricing_mode='per_guest',min_guest_count=1,max_guest_count=null,
+set package_category='pool_tour',pricing_mode='per_guest',min_guest_count=20,max_guest_count=null,
     cottage_fee=700,cottage_addon_id='1e97b2bf-ca43-492a-8a15-2d20f6abf040',
     pool_access_fee=0,resource_key='venice-main-pool',resource_mode='exclusive',schedule_mode='fixed',
     pool_capacity_verified=false,pool_capacity_verified_at=null,pool_capacity_verified_by=null,updated_at=now()
@@ -326,7 +326,7 @@ where id='4ae972a8-6503-4776-90c9-899246cbc4dc'
   and lower(service_type::text)='resort' and is_active
   and name in ('Day Tour','Day Tour Swimming — Per Person');
 update public.packages
-set package_category='pool_tour',pricing_mode='per_guest',min_guest_count=1,max_guest_count=null,
+set package_category='pool_tour',pricing_mode='per_guest',min_guest_count=20,max_guest_count=null,
     cottage_fee=700,cottage_addon_id='1e97b2bf-ca43-492a-8a15-2d20f6abf040',
     pool_access_fee=0,resource_key='venice-main-pool',resource_mode='exclusive',schedule_mode='fixed',
     pool_capacity_verified=false,pool_capacity_verified_at=null,pool_capacity_verified_by=null,updated_at=now()
@@ -1530,23 +1530,17 @@ begin
     raise exception 'The verified per-person calculator and outer pool booking wrapper must be installed before changing stored pool rates';
   end if;
   if array[
-       public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',1,null),
-       public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',5,null),
-       public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',19,null),
        public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',20,null),
        public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',25,null),
        public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',50,null),
-       public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',1,null),
-       public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',5,null),
-       public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',19,null),
        public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',20,null),
        public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',25,null),
        public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',50,null),
        public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',20,null),
        public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',25,null),
        public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',50,null)
-     ]::numeric[] is distinct from array[
-       100,500,1900,2000,2500,5000,150,750,2850,3000,3750,7500,4000,5000,10000
+      ]::numeric[] is distinct from array[
+        2000,2500,5000,3000,3750,7500,4000,5000,10000
      ]::numeric[] then
     raise exception 'Per-person or optional cottage calculation verification failed; pool price columns were not changed';
   end if;
@@ -1557,14 +1551,24 @@ begin
      ]::numeric[] is distinct from array[2700,3700,5000]::numeric[] then
     raise exception 'Optional cottage totals differ; pool price columns were not changed';
   end if;
-  v_error:=null;
-  begin
-    perform public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',19,null);
-  exception when raise_exception then get stacked diagnostics v_error=message_text;
-  end;
-  if coalesce(v_error,'') not like '%at least 20%' then
-    raise exception 'Overnight minimum-guest verification failed; pool price columns were not changed';
-  end if;
+   v_error:=null;
+   begin perform public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',19,null);
+   exception when raise_exception then get stacked diagnostics v_error=message_text; end;
+   if coalesce(v_error,'') not like '%at least 20%' then
+     raise exception 'Day Tour minimum-guest verification failed; pool price columns were not changed';
+   end if;
+   v_error:=null;
+   begin perform public.evently_pool_tour_amount('5afda244-a615-4bd3-98eb-d360d000100b',19,null);
+   exception when raise_exception then get stacked diagnostics v_error=message_text; end;
+   if coalesce(v_error,'') not like '%at least 20%' then
+     raise exception 'Night Tour minimum-guest verification failed; pool price columns were not changed';
+   end if;
+   v_error:=null;
+   begin perform public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',19,null);
+   exception when raise_exception then get stacked diagnostics v_error=message_text; end;
+   if coalesce(v_error,'') not like '%at least 20%' then
+     raise exception 'Overnight minimum-guest verification failed; pool price columns were not changed';
+   end if;
   if array[
        round(public.evently_pool_tour_amount('4ae972a8-6503-4776-90c9-899246cbc4dc',25,null)*0.30,2),
        round(public.evently_pool_tour_amount('925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8',20,
