@@ -2181,7 +2181,8 @@ function ReservationFlow({
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const earliestBookingDate = new Date(today);
-  earliestBookingDate.setDate(earliestBookingDate.getDate() + 7);
+  const advanceBookingDays = selectedMainCategory === "Staycation" ? 3 : 7;
+  earliestBookingDate.setDate(earliestBookingDate.getDate() + advanceBookingDays);
   const firstDay = new Date(month.getFullYear(), month.getMonth(), 1);
   const startOffset = firstDay.getDay();
   const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
@@ -2714,7 +2715,7 @@ function ReservationFlow({
                   <span><i className="status-dot status-dot--reserved" />Reserved</span>
                   <span><i className="status-dot status-dot--unavailable" />Unavailable (gray)</span>
                 </div>
-                <p className="calendar-context-note"><strong>Advance booking notice:</strong> Reservations must be made at least 7 calendar days before the event. The earliest selectable date is {earliestBookingDate.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}.</p>
+                <p className="calendar-context-note"><strong>Advance booking notice:</strong> Reservations must be made at least {advanceBookingDays} calendar days before the event. The earliest selectable date is {earliestBookingDate.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}.</p>
                 {!packageChoice && <p className="calendar-context-note">Choose a package or venue in the next step to see its specific booked dates and time overlaps. Return to this calendar after selecting it.</p>}
                 {packageChoice && <p className="calendar-context-note">Availability for <strong>{selectedPackageLabel}</strong>. Gray means your requested time overlaps an existing booking; blue means a reservation exists but no confirmed overlap was found.</p>}
                 {calendarAvailabilityLoading && <p className="calendar-context-note" role="status">Checking reservation conflicts…</p>}
