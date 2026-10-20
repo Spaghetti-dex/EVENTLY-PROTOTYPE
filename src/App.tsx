@@ -1376,6 +1376,7 @@ function ReservationFlow({
   const [endTime, setEndTime] = useState(initialDraft.endTime ?? "");
   const [menuSelections, setMenuSelections] = useState<Record<string, string>>(initialDraft.menuSelections ?? {});
   const [activeMenuCategory, setActiveMenuCategory] = useState("Beef");
+  const [customMenuCategory, setCustomMenuCategory] = useState("Beef");
   const [conflictReason, setConflictReason] = useState("");
   const [confirmationCode, setConfirmationCode] = useState("");
   const [createdReservation, setCreatedReservation] = useState<{ id: string; code: string; paymentDueAt?: string } | null>(null);
@@ -2803,7 +2804,48 @@ function ReservationFlow({
                       <span>{completedMenuSelection(menuSelections[key]) ? "✓" : requiredMenuCategories.indexOf(key) + 1}</span>{key}
                     </button>
                   ))}
+                  <button
+                    aria-selected={activeMenuCategory === "Others"}
+                    className={activeMenuCategory === "Others" ? "menu-category-tab--active" : ""}
+                    onClick={() => setActiveMenuCategory("Others")}
+                    role="tab"
+                    type="button"
+                  >
+                    <span>{requiredMenuCategories.some((key) => hasCustomMenuSelection(menuSelections[key])) ? "✓" : "+"}</span>Others
+                  </button>
                 </div>
+                {activeMenuCategory === "Others" && (
+                  <div className="ulam-category-panel" role="tabpanel">
+                    <div className="ulam-category-panel__heading">
+                      <div><span>CUSTOM MENU</span><h4>Request another dish or drink</h4></div>
+                      <small>Optional customization</small>
+                    </div>
+                    <div className="ulam-custom-request" style={{ display: "grid", gap: 16, padding: 20, background: "#f7faf8", border: "1px solid #cbded8", borderRadius: 14 }}>
+                      <p style={{ margin: 0, color: "#3a5c56", fontSize: 15 }}>Choose which menu category you want to customize, then enter your preferred dish. This replaces the selection for that category.</p>
+                      <label style={{ display: "grid", gap: 7, color: "#204b43", fontSize: 14, fontWeight: 700 }}>
+                        Menu category
+                        <select value={customMenuCategory} onChange={(event) => setCustomMenuCategory(event.target.value)} style={{ width: "100%", minHeight: 46, border: "1px solid #b9d0c9", borderRadius: 9, background: "white", color: "#204b43", padding: "10px 12px", fontSize: 15 }}>
+                          {requiredMenuCategories.map((key) => <option key={key} value={key}>{key}</option>)}
+                        </select>
+                      </label>
+                      <label style={{ display: "grid", gap: 7, color: "#204b43", fontSize: 14, fontWeight: 700 }}>
+                        Custom dish or drink
+                        <input
+                          type="text"
+                          maxLength={120}
+                          value={hasCustomMenuSelection(menuSelections[customMenuCategory]) ? menuSelections[customMenuCategory].slice(8) : ""}
+                          onChange={(event) => setMenuSelections((current) => ({ ...current, [customMenuCategory]: `Others: ${event.target.value}` }))}
+                          placeholder={`Type your preferred ${customMenuCategory.toLowerCase()} option`}
+                          style={{ width: "100%", minHeight: 46, padding: "10px 12px", border: "1px solid #b9d0c9", borderRadius: 9, background: "white", color: "#204b43", fontSize: 15 }}
+                        />
+                      </label>
+                      <small style={{ fontSize: 13, color: "#56726b", lineHeight: 1.5 }}>A custom request is subject to availability and confirmation. Any price adjustment must be reviewed before approval.</small>
+                      {hasCustomMenuSelection(menuSelections[customMenuCategory]) && (
+                        <button type="button" className="booking-back" onClick={() => setMenuSelections((current) => { const next = { ...current }; delete next[customMenuCategory]; return next; })} style={{ justifySelf: "start" }}>Clear custom {customMenuCategory.toLowerCase()} request</button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {menuOptions.filter(({ key }) => key === activeMenuCategory).map(({ key, items }) => (
                   <div className="ulam-category-panel" key={key} role="tabpanel">
                     <div className="ulam-category-panel__heading">
@@ -2825,18 +2867,8 @@ function ReservationFlow({
                           <span className="ulam-choice-card__check">✓</span>
                         </label>
                       ))}
-                    </div> : menuCatalogState === "ready" ? <p className="menu-catalog-empty"><strong>No available items in this category</strong><span>You can request a custom dish using Others below.</span></p> : null}
-                    <div className="ulam-custom-request" style={{ marginTop: 16, padding: 18, background: "#f4f8f6", border: "1px solid #cbded8", borderRadius: 12 }}>
-                      <label style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 700, fontSize: 15 }}>
-                        <input type="radio" name={`menu-${key}`} checked={hasCustomMenuSelection(menuSelections[key])} onChange={() => setMenuSelections((current) => ({ ...current, [key]: "Others: " }))} />
-                        Others — request a custom {key.toLowerCase()} option
-                      </label>
-                      {hasCustomMenuSelection(menuSelections[key]) && <label style={{ display: "grid", gap: 7, marginTop: 12, fontSize: 14 }}>
-                        <span>Specify your preferred dish or drink (subject to availability and confirmation)</span>
-                        <input type="text" maxLength={120} required value={menuSelections[key].slice(8)} onChange={(event) => setMenuSelections((current) => ({ ...current, [key]: `Others: ${event.target.value}` }))} placeholder={`Enter a custom ${key.toLowerCase()} request`} style={{ width: "100%", minHeight: 44, padding: "10px 12px", border: "1px solid #b9d0c9", borderRadius: 8, fontSize: 15 }} />
-                        <small>Requests outside the listed menu are reviewed by EVENTLY; any price change must be confirmed before approval.</small>
-                      </label>}
-                    </div>
+                    </div> : menuCatalogState === "ready" ? <p className="menu-catalog-empty"><strong>No available items in this category</strong><span>You can request a custom option from the Others tab.</span></p> : null}
+
                   </div>
                 ))}
                 <aside className="menu-selection-summary">
