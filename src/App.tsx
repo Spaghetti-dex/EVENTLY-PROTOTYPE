@@ -1499,6 +1499,7 @@ function ReservationFlow({
     setDatabaseVariants([]);
     setAddOns([]);
     setCottageSelected(false);
+    setSelectedRoomPackageId("");
     setPoolAccessSelected(false);
     setMenuSelections({});
     setStartTime("");
@@ -1711,6 +1712,7 @@ function ReservationFlow({
     setSelectedVariantId("");
     setAddOns([]);
     setCottageSelected(false);
+    setSelectedRoomPackageId("");
     setPoolAccessSelected(false);
     setMenuSelections({});
     setStep(1);
@@ -2099,9 +2101,8 @@ function ReservationFlow({
   const poolAccessPricingReady = !poolAccessEligibleService || Number(packageChoice?.pool_access_fee) === 5000;
   const paymentSubmissionStarted = Boolean(paymentProof);
   const poolAccessFee = poolAccessSelected && poolAccessEligibleService ? Number(packageChoice?.pool_access_fee ?? 0) : 0;
-  const standardRoomPackage = staycationRoomPackages.find((room) => /standard room/i.test(room.name));
-  const effectiveRoomPackageId = selectedRoomPackageId || standardRoomPackage?.id || "";
-  const optionalRoomPackage = service === "Swimming Pool" ? staycationRoomPackages.find((room) => room.id === effectiveRoomPackageId) : undefined;
+  const optionalRoomPackage = service === "Swimming Pool" ? staycationRoomPackages.find((room) => room.id === selectedRoomPackageId) : undefined;
+  const tourAccommodationChosen = service !== "Swimming Pool" || cottageSelected || Boolean(optionalRoomPackage);
   const optionalRoomTotal = optionalRoomPackage ? Number(optionalRoomPackage.price) * rooms * nights : 0;
   const packagePrice = !packageChoice
     ? 0
@@ -2250,7 +2251,7 @@ function ReservationFlow({
     (step === 2 && Boolean(selectedDate) && !conflictReason && !selectedDateOverlaps && !calendarAvailabilityLoading && !calendarAvailabilityError && (
       scheduleMode !== "customer_select" || Boolean(startTime && reservationEndTime)
     )) ||
-    (step === 3 && Boolean(packageChoice) && !selectedDateOverlaps && !calendarAvailabilityLoading && !calendarAvailabilityError && (service !== "Catering" || packagePriceConfigured) && poolPricingReady && poolCapacityReady && poolAvailabilityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && cottageSelectionReady && (isPoolPackage || (!variantLoading && !variantError)) && scheduleReady && (
+    (step === 3 && Boolean(packageChoice) && !selectedDateOverlaps && !calendarAvailabilityLoading && !calendarAvailabilityError && (service !== "Catering" || packagePriceConfigured) && poolPricingReady && poolCapacityReady && poolAvailabilityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && cottageSelectionReady && tourAccommodationChosen && (isPoolPackage || (!variantLoading && !variantError)) && scheduleReady && (
       !variantRequired || Boolean(selectedVariant)
     ) && (
       activeService?.quantityMode !== "tour" || guests >= minimumGuests
@@ -2270,6 +2271,7 @@ function ReservationFlow({
       && venueOnlyPricingReady
       && poolAccessPricingReady
       && cottageSelectionReady
+      && tourAccommodationChosen
       && privacyAcknowledged
       && subtotal > 0
       && (!paymentSubmissionStarted || (
@@ -2303,6 +2305,10 @@ function ReservationFlow({
     }
     if (step === 3 && service === "Swimming Pool" && !poolAvailabilityReady) {
       setBookingError("The exclusive pool resource and fixed tour schedule are not configured. EVENTLY cannot verify availability yet.");
+      return;
+    }
+    if (step === 3 && !tourAccommodationChosen) {
+      setBookingError("Choose Cottage, Kubo Room, or Standard Room before continuing.");
       return;
     }
     if (step === 3 && !cottageSelectionReady) {
@@ -2379,6 +2385,7 @@ function ReservationFlow({
         if (service === "Room Accommodation" && !roomPricingReady) throw new Error("The room rate, occupancy, deposit, or optional Pool Access settings do not match the verified rate sheet.");
         if (service === "Resort Venue Only" && !venueOnlyPricingReady) throw new Error("The Venue Only rate, duration, deposit, or optional Pool Access settings do not match the verified rate sheet.");
         if (!poolAccessPricingReady) throw new Error("Optional Pool Access is not configured at the verified ₱5,000 rate.");
+        if (!tourAccommodationChosen) throw new Error("Choose Cottage, Kubo Room, or Standard Room before booking.");
         if (!cottageSelectionReady) throw new Error("The selected cottage add-on does not have a verified package mapping.");
         if (!normalizePhilippineMobile(phone)) throw new Error("Enter a valid Philippine mobile number in 09XXXXXXXXX format.");
         if (paymentSubmissionStarted) {
@@ -2518,6 +2525,7 @@ function ReservationFlow({
     setSelectedPackageId("");
     setSelectedVariantId("");
     setCottageSelected(false);
+    setSelectedRoomPackageId("");
     setPoolAccessSelected(false);
     setDatabaseVariants([]);
     setGuests(50);
@@ -2895,20 +2903,21 @@ function ReservationFlow({
                 )}
                 {service === "Swimming Pool" && packageChoice && <section className="staycation-room-card" aria-label="Optional room accommodation">
                   <div className="staycation-room-card__header">
-                    <div><span className="staycation-room-card__eyebrow">MAKE YOUR VISIT MORE COMFORTABLE</span><h4>Room Accommodation <span>Optional</span></h4><p>Add a room to your selected tour, or continue with tour admission only.</p></div>
+                    <div><span className="staycation-room-card__eyebrow">MAKE YOUR VISIT MORE COMFORTABLE</span><h4>Choose Your Accommodation <span>Required</span></h4><p>Select Cottage, Kubo Room, or Standard Room to continue.</p></div>
                     <div className="staycation-room-card__symbol"><Icon name="building" size={24} /></div>
                   </div>
                   <div className="staycation-room-card__options" role="group" aria-label="Choose room accommodation">
-                    <button type="button" className={`staycation-room-card__option ${!effectiveRoomPackageId ? "is-active" : ""}`} aria-pressed={!effectiveRoomPackageId} onClick={() => setSelectedRoomPackageId("")}><strong>No room needed</strong><small>Continue with your tour</small></button>
-                    {staycationRoomPackages.map((room) => <button type="button" key={room.id} className={`staycation-room-card__option ${effectiveRoomPackageId === room.id ? "is-active" : ""}`} aria-pressed={effectiveRoomPackageId === room.id} onClick={() => { setSelectedRoomPackageId(room.id); setRooms(1); }}><strong>{room.name}</strong><small>{currency(Number(room.price) || 0)} / room / night</small></button>)}
+                    {cottageAddonConfigured && <button type="button" className={`staycation-room-card__option ${cottageSelected ? "is-active" : ""}`} aria-pressed={cottageSelected} onClick={() => { setCottageSelected(true); setSelectedRoomPackageId(""); }}><strong>Cottage</strong><small>{currency(Number(packageChoice.cottage_fee))} / tour</small></button>}
+                    {staycationRoomPackages.filter((room) => /^(kubo|standard) room/i.test(room.name.trim())).map((room) => <button type="button" key={room.id} className={`staycation-room-card__option ${!cottageSelected && selectedRoomPackageId === room.id ? "is-active" : ""}`} aria-pressed={!cottageSelected && selectedRoomPackageId === room.id} onClick={() => { setCottageSelected(false); setSelectedRoomPackageId(room.id); setRooms(1); }}><strong>{room.name}</strong><small>{currency(Number(room.price) || 0)} / room / night</small></button>)}
                   </div>
-                  {effectiveRoomPackageId && <div className="staycation-room-card__details">
+                  {!cottageSelected && selectedRoomPackageId && <div className="staycation-room-card__details">
                     <div className="staycation-room-card__fields">
                       <label><span>Number of rooms</span><div className="staycation-room-card__counter"><button type="button" aria-label="Remove one room" disabled={rooms <= 1} onClick={() => setRooms(Math.max(1, rooms - 1))}>−</button><strong>{rooms}</strong><button type="button" aria-label="Add one room" disabled={rooms >= 6} onClick={() => setRooms(Math.min(6, rooms + 1))}>+</button></div><small>Maximum 6 rooms</small></label>
                       <label><span>Number of nights</span><input aria-label="Number of nights" type="number" min="1" max="365" value={nights} onChange={(event) => setNights(Math.min(365, Math.max(1, Number(event.target.value) || 1)))} /></label>
                     </div>
                     <div className="staycation-room-card__total"><span>Estimated room subtotal</span><strong>{currency(optionalRoomTotal)}</strong><small>Subject to room availability and confirmation</small></div>
                   </div>}
+                  {!tourAccommodationChosen && <p className="booking-inline-error" role="status">Choose Cottage, Kubo Room, or Standard Room before continuing.</p>}
                 </section>}
                 {packageChoice && activeService?.quantityMode === "tour" && (
                   <div className="booking-quantity-panel">
@@ -3059,13 +3068,6 @@ function ReservationFlow({
                 </div>
                 {addonLoading && <p className="deposit-note" aria-live="polite">Loading available add-ons…</p>}
                 {isOutsideCateringPackage && <p className="deposit-note">Backdrop is included in this outside-catering package, so a separate backdrop add-on is not offered here.</p>}
-                {service === "Swimming Pool" && packageChoice && cottageAddonConfigured && <article aria-checked={cottageSelected} className={`booking-addon-card ${cottageSelected ? "booking-addon-card--selected" : ""}`} onClick={() => setCottageSelected((selected) => !selected)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setCottageSelected((selected) => !selected); } }} role="checkbox" style={{ cursor: "pointer" }} tabIndex={0}>
-                  <PhotoPlaceholder context="Cottage Photo" compact className="booking-addon-card__photo" />
-                  <div><span className="booking-addon-card__icon"><Icon name="sparkle" size={17} /></span><strong>Cottage</strong>{cottageSelected && <span aria-hidden="true" className="booking-addon-card__check">✓</span>}</div>
-                  <p>Optional cottage for your selected pool tour.</p>
-                  <div className="booking-addon-card__action"><b>+ {currency(Number(packageChoice.cottage_fee))}</b><span>{cottageSelected ? "Selected · click to remove" : "Click to add"}</span></div>
-                </article>}
-                {service === "Swimming Pool" && packageChoice && !cottageAddonConfigured && <p className="deposit-note">Cottage selection is unavailable until its existing package add-on is configured.</p>}
                 <div className="booking-addon-grid">
                   {addOnOptions.map((item) => {
                         const selected = !item.pricePendingConfirmation && addOns.includes(item.name);
