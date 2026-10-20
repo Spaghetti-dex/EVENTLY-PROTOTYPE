@@ -10,7 +10,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { createPortal } from "react-dom";
 import type { Session } from "@supabase/supabase-js";
 import { CalendarClock, CalendarDays, CalendarX, CreditCard, ExternalLink, LogOut, MessageSquare, Settings, ShoppingBag, UserRound } from "lucide-react";
 import AdminDashboard from "./admin/AdminDashboard";
@@ -1137,23 +1137,6 @@ const cateringMenuDisplayNames: Record<string, string> = {
 };
 const cateringMenuDisplayName = (name: string) => cateringMenuDisplayNames[name] ?? name;
 
-const eventVenueInclusions = [
-  "4-hour venue with air conditioning",
-  "Simple backdrop",
-  "Complete table settings",
-  "Six food dishes",
-  "Beef dish",
-  "Pork dish",
-  "Chicken dish",
-  "Fish or shrimp dish",
-  "Vegetable dish",
-  "Pasta or pancit",
-  "Rice",
-  "Dessert",
-  "Drinks",
-  "Uniformed waiters",
-];
-
 const normalizeMenuCategory = (value: unknown) => {
   const normalized = String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   if (["pancit", "pansit", "pasta", "pasta/pancit", "pasta / pancit", "pasta and pancit"].includes(normalized)) return "pasta / pancit";
@@ -1325,23 +1308,6 @@ function ReservationFlow({
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
   const [selectedPackageId, setSelectedPackageId] = useState(initialDraft.selectedPackageId ?? initialDraft.selectedPackage ?? "");
-  const [eventVenueGroup, setEventVenueGroup] = useState("");
-  const eventVenueTransitionPending = useRef(false);
-  const transitionEventVenueGroup = (group: string) => {
-    if (eventVenueTransitionPending.current) return;
-    const update = () => setEventVenueGroup(group);
-    const viewTransitionDocument = document as Document & { startViewTransition?: (callback: () => void) => { finished: Promise<void> } };
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !viewTransitionDocument.startViewTransition) {
-      update();
-      return;
-    }
-    eventVenueTransitionPending.current = true;
-    const transition = viewTransitionDocument.startViewTransition(() => flushSync(update));
-    void transition.finished.then(
-      () => { eventVenueTransitionPending.current = false; },
-      () => { eventVenueTransitionPending.current = false; },
-    );
-  };
   const chooseBookingService = (serviceId: string) => {
     setService(serviceId);
     setPrivacyAcknowledged(false);
@@ -1355,7 +1321,6 @@ function ReservationFlow({
     setMenuSelections({});
     setStartTime("");
     setEndTime("");
-    setEventVenueGroup("");
   };
   const [selectedVariantId, setSelectedVariantId] = useState(initialDraft.selectedVariantId ?? "");
   const [guests, setGuests] = useState(initialDraft.guests ?? 50);
@@ -1565,7 +1530,7 @@ function ReservationFlow({
   useEffect(() => {
     if (addonLoading || addonError) return;
     const compatibleNames = new Set(databaseAddons
-      .filter((item) => !/pool\s*access/i.test(item.name))
+      .filter((item) => service !== "Event" && !/pool\s*access/i.test(item.name))
       .map((item) => item.name));
     setAddOns((current) => {
       const compatible = current.filter((name) => compatibleNames.has(name));
@@ -1623,7 +1588,7 @@ function ReservationFlow({
     sessionStorage.setItem(bookingDraftKey, JSON.stringify(draft));
   }, [addOns, adults, cateringChoice, children, clientRequestId, cottageSelected, email, endTime, guestName, guests, itemQuantity, menuSelections, month, nights, paymentAmount, paymentMethod, paymentReference, phone, poolAccessSelected, privacyAcknowledged, rooms, selectedDate, selectedMainCategory, selectedPackageId, selectedVariantId, service, specialRequests, startTime, staycationChoice, step]);
 
-  const hasIncludedMenu = service === "Catering" || service === "Event";
+  const hasIncludedMenu = service === "Catering";
   const steps = hasIncludedMenu
     ? [
       { id: 1, label: "Choose Service" },
@@ -1639,9 +1604,9 @@ function ReservationFlow({
     : [
       { id: 1, label: "Choose Service" },
       { id: 2, label: "Choose Date" },
-      { id: 3, label: "Choose Package" },
+      { id: 3, label: service === "Event" ? "Choose Venue" : "Choose Package" },
       { id: 5, label: "Customer Information" },
-      { id: 6, label: "Recommended Add-ons" },
+      ...(service === "Event" ? [] : [{ id: 6, label: "Recommended Add-ons" }]),
       { id: 7, label: "Review Booking" },
       { id: 8, label: "Payment" },
       { id: 9, label: "Booking Status" },
@@ -1654,8 +1619,8 @@ function ReservationFlow({
         && (item.package_category?.trim().toLowerCase() === "pool_tour" || swimmingPackageNames.has(item.name.trim().toLowerCase()))
         && (!staycationChoice || staycationChoice === "rooms" || staycationTourKey(item.name) === staycationChoice);
       if (service === "Event") {
-        return item.package_category?.trim().toLowerCase() === "event_venue"
-          && normalizedService(item.service_type) !== "resort";
+        return item.package_category?.trim().toLowerCase() === "venue_only"
+          && normalizedService(item.service_type) === "event";
       }
       if (service === "Resort Venue Only") {
         return normalizedService(item.service_type) === "resort"
@@ -1719,21 +1684,6 @@ function ReservationFlow({
     .filter((item) => normalizedService(item.service_type) === "resort" && item.package_category?.trim().toLowerCase() === "event_venue")
     .map((item) => `${resortVenueTier(item.name) === "non_aircon" ? "Non-Aircon" : "Aircon"} ${formatPhp(Number(item.price) || 0)} / ${Number(item.duration_minutes) ? `${Number(item.duration_minutes) / 60} hours` : "configured duration"}`)
     .join(" · ");
-  const eventVenueGroupFor = (item: BookingPackageRow) => {
-    const name = item.name.trim().toLowerCase();
-    if (name.includes("daffodil") || /\bpackage\s*1\b/.test(name)) return "1";
-    if (/\bpackage\s*2\b/.test(name) || (/amarillo/.test(name) && /\b(60|100)\s*(pax|persons?|guests?)\b/.test(name))) return "2";
-    if (/\bpackage\s*3\b/.test(name) || (/amarillo/.test(name) && /air\s*con|non.?air\s*con/.test(name))) return "3";
-    return "other";
-  };
-  const eventVenueGroups = ["1", "2", "3"] as const;
-  const eventVenueOptions = packageOptions.filter((item) => eventVenueGroupFor(item) === eventVenueGroup).sort((left, right) => {
-    if (eventVenueGroup === "2") return Number(right.guest_capacity ?? 0) - Number(left.guest_capacity ?? 0);
-    const leftNonAircon = /non.?air\s*con/i.test(left.name);
-    const rightNonAircon = /non.?air\s*con/i.test(right.name);
-    return Number(leftNonAircon) - Number(rightNonAircon);
-  });
-  const ungroupedEventVenueOptions = service === "Event" ? packageOptions.filter((item) => eventVenueGroupFor(item) === "other") : [];
   const packageChoice = packageOptions.find((item) => item.id === selectedPackageId)
     ?? packageOptions.find((item) => item.name === selectedPackageId);
   const isPoolPackage = service === "Swimming Pool" || Boolean(packageChoice && (
@@ -2305,7 +2255,7 @@ function ReservationFlow({
       }
       return;
     }
-    setStep((current) => current === 3 && !hasIncludedMenu ? 5 : Math.min(8, current + 1));
+    setStep((current) => current === 3 && !hasIncludedMenu ? 5 : current === 5 && service === "Event" ? 7 : Math.min(8, current + 1));
   };
 
   const resetBooking = () => {
@@ -2581,86 +2531,28 @@ function ReservationFlow({
               <div className="booking-step booking-step--enter">
                 <div className="booking-step__heading">
                   <span>Step 3 of {steps.length}</span>
-                  <h3>{service === "Swimming Pool" ? "Choose your tour time slot" : service === "Catering" ? "Choose your catering package" : "Pick your package"}</h3>
-                  <p>{service === "Swimming Pool" ? "Tour hours are fixed and cannot be changed." : "Each package can be refined with our team after your reservation."}</p>
+                  <h3>{service === "Event" ? "Choose your events place" : service === "Swimming Pool" ? "Choose your tour time slot" : service === "Catering" ? "Choose your catering package" : "Pick your package"}</h3>
+                  <p>{service === "Event" ? "Choose one of three venue-only locations. Catering, meals, decorations and waiters are not included. Prices below are demonstration estimates." : service === "Swimming Pool" ? "Tour hours are fixed and cannot be changed." : "Each package can be refined with our team after your reservation."}</p>
                 </div>
                 {service === "Catering" && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Customers must request any cancellation or rescheduling at least 3 days (72 hours) before their scheduled catering event. Rescheduling requests are subject to Administrator approval.</p></div>}
                 {selectedMainCategory === "Staycation" && <div className="booking-policy-notice"><strong>Payment Policy</strong><p>Customers must submit the required 30% down payment within 24 hours after creating their reservation. Payment is subject to Administrator verification. Reservations without timely payment submission may be automatically cancelled.</p></div>}
-                {service === "Event" ? <>
-                  {!eventVenueGroup ? <div className="event-venue-package-grid">
-                    {eventVenueGroups.map((group) => {
-                      const records = packageOptions.filter((item) => eventVenueGroupFor(item) === group);
-                      if (!records.length) return null;
-                      const lead = records[0];
-                      const title = group === "1" ? "Daffodil Events Place" : "Amarillo Events Place";
-                      const parentDetail = group === "3" ? lead.detail.replace(/(?:Air-conditioned|Non-air-conditioned) event venue;?\s*/i, "") : lead.detail;
-                      const subtitle = group === "1" ? lead.detail : `${parentDetail} ${group === "2" ? "Choose between the 100-pax and 60-pax options." : "Choose an Aircon or Non-Aircon option."}`;
-                      const selected = records.some((item) => item.id === selectedPackageId);
-                      return <button aria-pressed={selected} className={`event-venue-package-card ${selected ? "is-selected" : ""}`} key={group} onClick={() => {
-                        if (group === "1" && selectedPackageId === lead.id) return;
-                        if (group === "1") {
-                          transitionEventVenueGroup("");
-                          setSelectedPackageId(lead.id);
-                          setSelectedVariantId("");
-                          setDatabaseVariants([]);
-                          setVariantLoading(true);
-                          setVariantError("");
-                          setBookingError("");
-                        } else {
-                          transitionEventVenueGroup(group);
-                          setSelectedPackageId("");
-                          setSelectedVariantId("");
-                          setDatabaseVariants([]);
-                          setVariantError("");
-                          setBookingError("");
-                        }
-                      }} type="button">
-                        <PhotoPlaceholder context={`${title} Event Venue`} compact className="event-venue-package-card__photo" />
-                        <span className="event-venue-package-card__number">Package {group}</span>
-                        <strong>{title}</strong>
-                        <small>{subtitle}</small>
-                        {group === "1" && lead.guest_capacity != null && <small>Up to {lead.guest_capacity} guests</small>}
-                        {group === "1" && <b>{packageDisplayPrice(lead.price, lead.priceLabel)}</b>}
-                        {group === "1" && <span className="event-venue-package-card__inclusions">{eventVenueInclusions.map((inclusion) => <span key={inclusion}>{inclusion}</span>)}</span>}
-                        <span className="event-venue-package-card__action">{group === "1" ? "Select this package" : "Choose an option"}</span>
-                      </button>;
-                    })}
-                  </div> : <section aria-labelledby="event-venue-options-title" className="event-venue-options">
-                    <div className="event-venue-options__heading">
-                      <div><span>Package {eventVenueGroup}</span><h4 id="event-venue-options-title">Choose Your Package {eventVenueGroup} Option</h4></div>
-                      <button className="event-venue-back" onClick={() => transitionEventVenueGroup("")} type="button">Back to packages</button>
-                    </div>
-                    <div className="event-venue-option-grid">
-                      {eventVenueOptions.map((tier) => {
-                        const name = tier.name;
-                        const displayName = eventVenueGroup === "2"
-                          ? (/\b60\s*(pax|persons?|guests?)\b/i.test(name) ? "60 pax" : /\b100\s*(pax|persons?|guests?)\b/i.test(name) ? "100 pax" : name)
-                          : /non.?air\s*con/i.test(name) ? "Non-Aircon" : /air\s*con/i.test(name) ? "Aircon" : name;
-                        const selected = packageChoice?.id === tier.id;
-                        const nonAircon = /non.?air\s*con/i.test(tier.name);
-                        return <article className={`event-venue-option-card ${selected ? "is-selected" : ""}`} key={tier.id}>
-                          <PhotoPlaceholder context={`${tier.name} Event Venue`} compact className="event-venue-option-card__photo" />
-                          <span className="event-venue-option-card__name">{displayName}</span>
-                          <strong className="event-venue-option-card__price">{packageDisplayPrice(tier.price, tier.priceLabel)}</strong>
-                          {tier.guest_capacity != null && <small>Up to {tier.guest_capacity} guests</small>}
-                          <p>{tier.detail}</p>
-                          {tier.inclusions.length > 0 && <ul>{tier.inclusions.map((inclusion) => <li key={inclusion}>{inclusion}</li>)}</ul>}
-                          <ul className="event-venue-option-card__inclusions">{eventVenueInclusions.map((inclusion) => <li key={inclusion}>{nonAircon && inclusion === "4-hour venue with air conditioning" ? "4-hour venue (Non-Aircon)" : inclusion}</li>)}</ul>
-                          <button aria-pressed={selected} className="event-venue-option-card__select" onClick={() => {
-                            if (selectedPackageId === tier.id) return;
-                            setSelectedPackageId(tier.id);
-                            setSelectedVariantId("");
-                            setDatabaseVariants([]);
-                            setVariantLoading(true);
-                            setVariantError("");
-                            setBookingError("");
-                          }} type="button">{selected ? "Selected" : "Select this option"}</button>
-                        </article>;
-                      })}
-                    </div>
-                  </section>}
-                  {ungroupedEventVenueOptions.length > 0 && <div className="tier-grid event-venue-other-options">{ungroupedEventVenueOptions.map((tier) => <button className={`tier-card ${packageChoice?.id === tier.id ? "tier-card--selected" : ""}`} key={tier.id} onClick={() => { setEventVenueGroup(""); setSelectedPackageId(tier.id); setSelectedVariantId(""); setDatabaseVariants([]); setVariantLoading(true); setVariantError(""); setBookingError(""); }} type="button"><PhotoPlaceholder context={`${tier.name} Package Photo`} compact className="tier-card__photo"/><span className="tier-card__number">Venue option</span><strong>{tier.name}</strong><small>{tier.detail}</small>{tier.guest_capacity != null && <small>Up to {tier.guest_capacity} guests</small>}<ul className="tier-card__inclusions">{tier.inclusions.map((inclusion) => <li key={inclusion}>✓ {inclusion}</li>)}</ul><b>{packageDisplayPrice(tier.price, tier.priceLabel)}</b></button>)}</div>}
-                </> : <div className="tier-grid">
+                {service === "Event" ? <div className="event-venue-package-grid" aria-label="Three venue-only events places">
+                  {[...packageOptions].sort((left,right) => String(left.name).localeCompare(String(right.name))).map((venue) => {
+                    const selected = selectedPackageId === venue.id;
+                    const address = venue.name.includes("Daffodil") ? "2nd Floor Alfamart, Daffodil St., Brgy. Rizal" : venue.name.includes("4th Floor") ? "4th Floor Alfamart, Amarillo St., Brgy. Rizal" : "3rd Floor Alfamart, Amarillo St., Brgy. Rizal";
+                    return <button key={venue.id} type="button" aria-pressed={selected} className={`event-venue-package-card ${selected ? "is-selected" : ""}`}
+                      onClick={() => { setSelectedPackageId(venue.id); setSelectedVariantId(""); setDatabaseVariants([]); setVariantLoading(true); setVariantError(""); setBookingError(""); }}>
+                      <PhotoPlaceholder context={`${venue.name} event venue`} compact className="event-venue-package-card__photo" />
+                      <span className="event-venue-package-card__number">VENUE ONLY</span>
+                      <strong>{venue.name}</strong>
+                      <small>{address}</small>
+                      <small>Up to {venue.guest_capacity} guests · 4-hour venue use</small>
+                      <b>Estimated {packageDisplayPrice(venue.price, venue.priceLabel)}</b>
+                      <small>No catering or food included · Demo rate, not final quote</small>
+                      <span className="event-venue-package-card__action">{selected ? "Selected venue" : "Select this venue"}</span>
+                    </button>;
+                  })}
+                </div> : <div className="tier-grid">
                   {orderedPackageOptions.map((tier, index) => {
                     return (
                       <button
@@ -2701,7 +2593,7 @@ function ReservationFlow({
                   </div>
                 )}
                 {catalogError && <div className="booking-inline-error" role="alert">{catalogError}</div>}
-                {!catalogError && !packageOptions.length && <div className="booking-inline-error" role="alert">No active {serviceLabel(service)} packages are configured in Supabase.</div>}
+                {!catalogError && !packageOptions.length && <div className="booking-inline-error" role="alert">No active {service === "Event" ? "venue-only locations" : serviceLabel(service) + " packages"} are configured in Supabase.</div>}
                 {packageChoice && !isPoolPackage && variantLoading && <div className="package-variant-panel" aria-live="polite"><span>Loading package options…</span></div>}
                 {packageChoice && variantError && <div className="booking-inline-error" role="alert">{variantError}</div>}
                 {packageChoice && service === "Catering" && !packagePriceConfigured && !variantLoading && !variantError && <div className="catering-price-notice" role="status"><strong>Price to be announced</strong><span>Contact us for current catering-only pricing. Booking cannot continue until a valid price is configured.</span></div>}
@@ -2956,6 +2848,7 @@ function ReservationFlow({
                   <h4>Selected add-ons</h4>
                   {validatedAddOns.length || (cottageSelected && cottageFee > 0) ? <div>{cottageSelected && cottageFee > 0 && <span><strong>Cottage</strong><small>{currency(cottageFee)}</small></span>}{validatedAddOns.map((item) => <span key={item.id}><strong>{item.displayName}</strong><small>{currency(item.price)}</small></span>)}</div> : <p>No additional services selected</p>}
                 </div>
+                {service === "Event" && <div className="booking-policy-notice"><strong>Demo venue-only estimate</strong><p>Includes only venue rental. Catering, food, drinks, waiters and decorations are excluded. Venice must confirm the final rental rate and terms before any actual payment. Do not transfer funds based on this estimate.</p></div>}
                 <div className="review-price-summary">
                   <div><span>{service === "Swimming Pool" ? "Entrance charge" : "Base package price"}</span><strong>{currency(packagePrice)}</strong></div>
                   {cottageFee > 0 && <div><span>Cottage</span><strong>{currency(cottageFee)}</strong></div>}
@@ -2979,6 +2872,7 @@ function ReservationFlow({
                 </div>
                 {selectedMainCategory === "Staycation" && <div className="booking-policy-notice"><strong>Payment Policy</strong><p>Submit the required 30% down payment within 24 hours after creating your reservation. Payment is subject to Administrator verification. Timely submitted proof remains subject to Administrator review. Reservations without timely payment submission may be automatically cancelled.</p></div>}
                 {demoPaymentMode && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>This capstone demonstration records sample payment information for administrator review only. Do not send real funds based on this demo screen.</span></div>}
+                {service === "Event" && <div className="booking-demo-payment-note"><strong>Venue rate is a provisional estimate</strong><span>This capstone amount is for demonstration only. Venice must confirm the actual venue price before collecting any money. Do not transfer funds based on this estimate.</span></div>}
                 <div className="booking-payment-summary">
                   <div><span>Package or service</span><strong>{bookingSummaryCategory(service, cateringChoice, staycationChoice)} · {selectedPackageLabel}</strong></div>
                   <div><span>Booking date and time</span><strong>{selectedDate?.toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · {reservationStartTime && reservationEndTime ? `${reservationStartTime.slice(0, 5)}–${reservationEndTime.slice(0, 5)}` : "Time to be assigned by Admin"}</strong></div>
@@ -3050,7 +2944,7 @@ function ReservationFlow({
               <>
               {bookingError && <div className="booking-inline-error" role="alert">{bookingError}</div>}
               <div className="booking-controls">
-                <button className="booking-back" disabled={step === 1 || (step === 8 && Boolean(createdReservation))} type="button" onClick={() => setStep((current) => current === 5 && !hasIncludedMenu ? 3 : Math.max(1, current - 1))}>
+                <button className="booking-back" disabled={step === 1 || (step === 8 && Boolean(createdReservation))} type="button" onClick={() => setStep((current) => current === 7 && service === "Event" ? 5 : current === 5 && !hasIncludedMenu ? 3 : Math.max(1, current - 1))}>
                   Back
                 </button>
                 {step === 6 && <button className="skip-offer-button" onClick={() => setStep(7)} type="button">Skip This Offer</button>}
