@@ -1799,8 +1799,8 @@ function ReservationFlow({
       }
       if (service === "Catering") {
         return cateringChoice === "with-venue"
-          ? normalizedService(item.service_type) === "event" && item.package_category?.trim().toLowerCase() === "event_venue"
-          : normalizedService(item.service_type) === "catering";
+          ? normalizedService(item.service_type) === "catering" && item.package_category?.trim().toLowerCase() === "event_venue"
+          : normalizedService(item.service_type) === "catering" && item.package_category?.trim().toLowerCase() !== "event_venue";
       }
       if (service !== "Room Accommodation") {
         return normalizedService(item.service_type) === normalizedService(service)
@@ -3953,6 +3953,7 @@ function CustomerHistoryPage() {
   const submitCateringChangeRequest = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected || !selectedIsCatering || cateringRequestSubmitting) return;
+    if (cateringRequestAction === "reschedule" && (!cateringRequestDate || !cateringRequestStart || !cateringRequestEnd)) { setCateringRequestFeedback("Select the event date, start time and end time before submitting."); return; }
     setCateringRequestSubmitting(true);
     setCateringRequestFeedback("");
     const { data, error: requestError } = await supabase.rpc("evently_customer_request_catering_change", {
