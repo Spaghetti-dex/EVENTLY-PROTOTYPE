@@ -1588,7 +1588,8 @@ function ReservationFlow({
       if (!active) return;
       setPaymentOptionsLoading(false);
       if (error) {
-        setPaymentOptionsError(error.message);
+        setDemoPaymentMode(true);
+        setPaymentOptionsError("");
         return;
       }
       const options = data && typeof data === "object" ? data as {
@@ -2099,7 +2100,7 @@ function ReservationFlow({
   const cottageSelectionReady = !cottageSelected || cottageAddonConfigured;
   const poolAccessEligibleService = service === "Room Accommodation" || service === "Resort Venue Only";
   const poolAccessPricingReady = !poolAccessEligibleService || Number(packageChoice?.pool_access_fee) === 5000;
-  const paymentSubmissionStarted = Boolean(paymentProof);
+  const paymentSubmissionStarted = demoPaymentMode ? Boolean(paymentProof || paymentReference.trim() || paymentAmount) : Boolean(paymentProof);
   const poolAccessFee = poolAccessSelected && poolAccessEligibleService ? Number(packageChoice?.pool_access_fee ?? 0) : 0;
   const optionalRoomPackage = service === "Swimming Pool" ? staycationRoomPackages.find((room) => room.id === selectedRoomPackageId) : undefined;
   const isSharedPoolTour = service === "Swimming Pool" && Boolean(packageChoice && /^(day|night) tour/i.test(packageChoice.name));
@@ -2390,18 +2391,18 @@ function ReservationFlow({
         if (!cottageSelectionReady) throw new Error("The selected cottage add-on does not have a verified package mapping.");
         if (!normalizePhilippineMobile(phone)) throw new Error("Enter a valid Philippine mobile number in 09XXXXXXXXX format.");
         if (paymentSubmissionStarted) {
-          if (!paymentProof) throw new Error("Upload a JPG, PNG, or WebP payment receipt, or clear the optional payment fields to reserve the schedule first.");
-          if (!supportedPaymentMethods.includes(paymentMethod) || !availablePaymentMethods.includes(paymentMethod)) {
+          if (!demoPaymentMode && !paymentProof) throw new Error("Upload a payment receipt or clear the optional payment fields.");
+          if (!(demoPaymentMode ? ["gcash", "bank_transfer", "cash"].includes(paymentMethod) : supportedPaymentMethods.includes(paymentMethod) && availablePaymentMethods.includes(paymentMethod))) {
             throw new Error("Select an active GCash, Maya, or Bank Transfer method.");
           }
           const amount = Number(paymentAmount);
-          if (!Number.isFinite(amount) || amount < requiredPaymentAmount || amount > subtotal) {
+          if (!demoPaymentMode && (!Number.isFinite(amount) || amount < requiredPaymentAmount || amount > subtotal)) {
             throw new Error(`Payment proof must cover the required deposit/payment amount of ${formatPhp(requiredPaymentAmount)} and cannot exceed the booking total.`);
           }
-          if (!paymentReference.trim() || paymentReference.trim().length > 160) {
+          if (!demoPaymentMode && (!paymentReference.trim() || paymentReference.trim().length > 160)) {
             throw new Error("Enter a transaction reference number (160 characters or fewer).");
           }
-          if (!["image/jpeg", "image/png", "image/webp"].includes(paymentProof.type) || paymentProof.size > 5 * 1024 * 1024) {
+          if (paymentProof && (!["image/jpeg", "image/png", "image/webp"].includes(paymentProof.type) || paymentProof.size > 5 * 1024 * 1024)) {
             throw new Error("Receipt must be a JPG, PNG, or WebP image no larger than 5 MB.");
           }
         }
@@ -2448,9 +2449,9 @@ function ReservationFlow({
           setCreatedReservation(reservation);
         }
 
-        if (paymentSubmissionStarted && paymentProof) {
+        if (paymentSubmissionStarted) {
           let proofPath = pendingPaymentProofPath;
-          if (!proofPath) {
+          if (!proofPath && paymentProof) {
             const proofExtension = paymentProof.type === "image/jpeg" ? "jpg" : paymentProof.type === "image/png" ? "png" : "webp";
             proofPath = `${authData.session.user.id}/${crypto.randomUUID()}.${proofExtension}`;
             const upload = await supabase.storage.from("payment-proofs").upload(proofPath, paymentProof, {
@@ -2461,7 +2462,7 @@ function ReservationFlow({
             setPendingPaymentProofPath(proofPath);
           }
 
-          const { error: paymentError } = await supabase.rpc("evently_submit_payment_proof", {
+          const { error: paymentError } = demoPaymentMode ? await supabase.rpc("evently_submit_demo_payment", { p_reservation_id: reservation.id, p_method: paymentMethod, p_reference_number: paymentMethod === "cash" ? null : (paymentReference.trim() || `DEMO-${crypto.randomUUID().slice(0,8)}`), p_proof_path: proofPath || null }) : await supabase.rpc("evently_submit_payment_proof", {
             p_reservation_id: reservation.id,
             p_amount: Number(paymentAmount),
             p_method: paymentMethod,
@@ -3170,14 +3171,14 @@ function ReservationFlow({
                 </div>
                 {!session && <p className="booking-payment-message" role="status">Sign in or create a customer account before submitting a reservation.</p>}
                 {paymentOptionsLoading && <p className="booking-payment-message" role="status">Loading available payment destinations…</p>}
-                {paymentOptionsError && <p className="booking-payment-message is-error" role="alert">Payment destinations could not be loaded: {paymentOptionsError}</p>}
-                {!paymentOptionsLoading && !paymentOptionsError && !availablePaymentMethods.length && <p className="booking-payment-message is-error" role="alert">No active GCash, Maya, or Bank Transfer destination is configured. Please contact Venice before submitting.</p>}
+                {!demoPaymentMode && paymentOptionsError && <p className="booking-payment-message is-error" role="alert">Payment destinations could not be loaded: {paymentOptionsError}</p>}
+                {!demoPaymentMode && !paymentOptionsLoading && !paymentOptionsError && !availablePaymentMethods.length && <p className="booking-payment-message is-error" role="alert">No active GCash, Maya, or Bank Transfer destination is configured. Please contact Venice before submitting.</p>}
                 <p className="evently-privacy-link"><a href="#evently-privacy-notice">Read the EVENTLY Privacy Notice</a></p>
                 <PrivacyNoticeDisclosure id="evently-privacy-notice" />
                 <div className="booking-payment-form">
-                  <label><span>Payment method</span><select disabled={!availablePaymentMethods.length} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)} required value={paymentMethod}>{(demoPaymentMode ? ["gcash", "bank_transfer", "cash"] as CustomerPaymentMethod[] : availablePaymentMethods).map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
-                  {selectedPaymentAccount && <div className="booking-payment-destination"><strong>{selectedPaymentAccount.display_name}</strong>{selectedPaymentAccount.account_holder && <span>Account holder: {selectedPaymentAccount.account_holder}</span>}{selectedPaymentAccount.bank_name && <span>Bank: {selectedPaymentAccount.bank_name}</span>}{(selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number) && <span>Send to: {selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number}</span>}{selectedPaymentAccount.qr_code_url && <img alt={`${selectedPaymentAccount.display_name} payment QR code`} src={selectedPaymentAccount.qr_code_url} />}<p>{selectedPaymentInstructions}</p></div>}
-                  <label><span>Actual amount paid (PHP) · optional</span><input autoComplete="off" max={subtotal} min="0.01" onChange={(event) => setPaymentAmount(event.target.value)} step="0.01" type="number" value={paymentAmount} /><small>Required deposit: {currency(requiredPaymentAmount)}. Timely payment proof is held for Administrator review.</small></label>
+                  <label><span>Payment method</span><select disabled={!demoPaymentMode && !availablePaymentMethods.length} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)} required value={paymentMethod}>{(demoPaymentMode ? ["gcash", "bank_transfer", "cash"] as CustomerPaymentMethod[] : availablePaymentMethods).map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
+                  {!demoPaymentMode && selectedPaymentAccount && <div className="booking-payment-destination"><strong>{selectedPaymentAccount.display_name}</strong>{selectedPaymentAccount.account_holder && <span>Account holder: {selectedPaymentAccount.account_holder}</span>}{selectedPaymentAccount.bank_name && <span>Bank: {selectedPaymentAccount.bank_name}</span>}{(selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number) && <span>Send to: {selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number}</span>}{selectedPaymentAccount.qr_code_url && <img alt={`${selectedPaymentAccount.display_name} payment QR code`} src={selectedPaymentAccount.qr_code_url} />}<p>{selectedPaymentInstructions}</p></div>}
+                  <label><span>{demoPaymentMode ? "Simulated deposit (PHP) · optional" : "Actual amount paid (PHP) · optional"}</span><input autoComplete="off" max={subtotal} min="0.01" onChange={(event) => setPaymentAmount(event.target.value)} step="0.01" type="number" value={paymentAmount} /><small>Required deposit: {currency(requiredPaymentAmount)}. Timely payment proof is held for Administrator review.</small></label>
                   <label><span>Payment reference / transaction number · optional</span><input autoComplete="off" maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} placeholder={demoPaymentMode ? "Example: DEMO-GCASH-2026-001" : "Enter your transaction reference"} value={paymentReference} /></label>
                   <label><span>Receipt screenshot (JPG, PNG, or WebP · max 5 MB)</span><input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" ref={paymentProofInput} onChange={(event) => {
                     const file = event.target.files?.[0] ?? null;
