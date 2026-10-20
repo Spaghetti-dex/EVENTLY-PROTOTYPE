@@ -2099,7 +2099,9 @@ function ReservationFlow({
   const poolAccessPricingReady = !poolAccessEligibleService || Number(packageChoice?.pool_access_fee) === 5000;
   const paymentSubmissionStarted = Boolean(paymentProof);
   const poolAccessFee = poolAccessSelected && poolAccessEligibleService ? Number(packageChoice?.pool_access_fee ?? 0) : 0;
-  const optionalRoomPackage = service === "Swimming Pool" ? staycationRoomPackages.find((room) => room.id === selectedRoomPackageId) : undefined;
+  const standardRoomPackage = staycationRoomPackages.find((room) => /standard room/i.test(room.name));
+  const effectiveRoomPackageId = selectedRoomPackageId || standardRoomPackage?.id || "";
+  const optionalRoomPackage = service === "Swimming Pool" ? staycationRoomPackages.find((room) => room.id === effectiveRoomPackageId) : undefined;
   const optionalRoomTotal = optionalRoomPackage ? Number(optionalRoomPackage.price) * rooms * nights : 0;
   const packagePrice = !packageChoice
     ? 0
@@ -2897,10 +2899,10 @@ function ReservationFlow({
                     <div className="staycation-room-card__symbol"><Icon name="building" size={24} /></div>
                   </div>
                   <div className="staycation-room-card__options" role="group" aria-label="Choose room accommodation">
-                    <button type="button" className={`staycation-room-card__option ${!selectedRoomPackageId ? "is-active" : ""}`} aria-pressed={!selectedRoomPackageId} onClick={() => setSelectedRoomPackageId("")}><strong>No room needed</strong><small>Continue with your tour</small></button>
-                    {staycationRoomPackages.map((room) => <button type="button" key={room.id} className={`staycation-room-card__option ${selectedRoomPackageId === room.id ? "is-active" : ""}`} aria-pressed={selectedRoomPackageId === room.id} onClick={() => { setSelectedRoomPackageId(room.id); setRooms(1); }}><strong>{room.name}</strong><small>{currency(Number(room.price) || 0)} / room / night</small></button>)}
+                    <button type="button" className={`staycation-room-card__option ${!effectiveRoomPackageId ? "is-active" : ""}`} aria-pressed={!effectiveRoomPackageId} onClick={() => setSelectedRoomPackageId("")}><strong>No room needed</strong><small>Continue with your tour</small></button>
+                    {staycationRoomPackages.map((room) => <button type="button" key={room.id} className={`staycation-room-card__option ${effectiveRoomPackageId === room.id ? "is-active" : ""}`} aria-pressed={effectiveRoomPackageId === room.id} onClick={() => { setSelectedRoomPackageId(room.id); setRooms(1); }}><strong>{room.name}</strong><small>{currency(Number(room.price) || 0)} / room / night</small></button>)}
                   </div>
-                  {selectedRoomPackageId && <div className="staycation-room-card__details">
+                  {effectiveRoomPackageId && <div className="staycation-room-card__details">
                     <div className="staycation-room-card__fields">
                       <label><span>Number of rooms</span><div className="staycation-room-card__counter"><button type="button" aria-label="Remove one room" disabled={rooms <= 1} onClick={() => setRooms(Math.max(1, rooms - 1))}>−</button><strong>{rooms}</strong><button type="button" aria-label="Add one room" disabled={rooms >= 6} onClick={() => setRooms(Math.min(6, rooms + 1))}>+</button></div><small>Maximum 6 rooms</small></label>
                       <label><span>Number of nights</span><input aria-label="Number of nights" type="number" min="1" max="365" value={nights} onChange={(event) => setNights(Math.min(365, Math.max(1, Number(event.target.value) || 1)))} /></label>
