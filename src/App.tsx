@@ -1289,6 +1289,24 @@ const confirmationStatusLabel = (status: string, pendingLabel: string) => {
   return normalized.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 };
 
+
+function BookingTimePicker({ value, onChange, disabled = false, label }: { value: string; onChange: (time: string) => void; disabled?: boolean; label: string }) {
+  const [rawHour,rawMinute] = (value || "").slice(0,5).split(":").map(Number);
+  const valid = Number.isInteger(rawHour) && Number.isInteger(rawMinute);
+  const hour = valid ? (rawHour % 12 || 12) : 9;
+  const minute = valid ? rawMinute : 0;
+  const period = valid && rawHour >= 12 ? "PM" : "AM";
+  const update = (h:number,m:number,p:string) => onChange(`${String(h % 12 + (p==="PM"?12:0)).padStart(2,"0")}:${String(m).padStart(2,"0")}`);
+  const minutes=[0,15,30,45].includes(minute)?[0,15,30,45]:[0,15,30,45,minute].sort((a,b)=>a-b);
+  return <div className="booking-time-picker" role="group" aria-label={label}>
+    <span className="booking-time-picker__clock" aria-hidden="true">◷</span>
+    <select aria-label={`${label} hour`} disabled={disabled} value={hour} onChange={e=>update(Number(e.target.value),minute,period)}>{Array.from({length:12},(_,i)=>i+1).map(h=><option key={h} value={h}>{String(h).padStart(2,"0")}</option>)}</select>
+    <span className="booking-time-picker__colon">:</span>
+    <select aria-label={`${label} minute`} disabled={disabled} value={minute} onChange={e=>update(hour,Number(e.target.value),period)}>{minutes.map(m=><option key={m} value={m}>{String(m).padStart(2,"0")}</option>)}</select>
+    <select aria-label={`${label} AM or PM`} className="booking-time-picker__period" disabled={disabled} value={period} onChange={e=>update(hour,minute,e.target.value)}><option value="AM">AM</option><option value="PM">PM</option></select>
+  </div>;
+}
+
 function ReservationFlow({
   onRequireLogin,
   customerProfile,
@@ -2590,8 +2608,8 @@ function ReservationFlow({
                   {scheduleMode === "fixed" && packageChoice && <div><span>Confirmed package schedule</span><strong>{configuredStartTime.slice(0, 5)}–{configuredEndTime.slice(0, 5)}{configuredEndTime <= configuredStartTime ? " · ends the following day" : ""}</strong></div>}
                   {service === "Swimming Pool" && !packageChoice && <p>Choose Day Tour, Night Tour, or Overnight Tour in the next step. Its fixed hours will be applied automatically.</p>}
                   {scheduleMode === "customer_select" && <>
-                    <label><span>Start time</span><input onChange={(event) => { const nextStart = event.target.value; setStartTime(nextStart); setEndTime(requiredDuration ? addScheduleMinutes(nextStart, requiredDuration) : ""); }} type="time" value={startTime} /></label>
-                    <label><span>End time</span><input disabled={Boolean(requiredDuration)} min={requiredDuration ? undefined : startTime || undefined} onChange={(event) => setEndTime(event.target.value)} type="time" value={reservationEndTime} /></label>
+                    <label><span>Start time</span><BookingTimePicker label="Start time" value={startTime} onChange={nextStart => { setStartTime(nextStart); setEndTime(requiredDuration ? addScheduleMinutes(nextStart, requiredDuration) : ""); }} /></label>
+                    <label><span>End time</span><BookingTimePicker label="End time" disabled={Boolean(requiredDuration)} value={reservationEndTime} onChange={setEndTime} /></label>
                     {requiredDuration && <small>{requiredDuration / 60} hour venue duration. The end time is calculated automatically.</small>}
                     {!operatingHoursConfigured && packageChoice && <small className="booking-schedule-error" role="alert">This package does not have configured operating hours. Contact the administrator before booking.</small>}
                   </>}
@@ -2661,8 +2679,8 @@ function ReservationFlow({
                 </div>}
                 {packageChoice && scheduleMode === "customer_select" && (
                   <div className="booking-date-time-panel booking-package-schedule">
-                    <label><span>Event start time</span><input aria-label="Event start time" onChange={(event) => { const nextStart = event.target.value; setStartTime(nextStart); setEndTime(requiredDuration ? addScheduleMinutes(nextStart, requiredDuration) : ""); setBookingError(""); }} type="time" value={startTime} /></label>
-                    <label><span>Event end time</span><input aria-label="Event end time" disabled={Boolean(requiredDuration)} onChange={(event) => setEndTime(event.target.value)} type="time" value={reservationEndTime} /></label>
+                    <label><span>Event start time</span><BookingTimePicker label="Event start time" value={startTime} onChange={nextStart => { setStartTime(nextStart); setEndTime(requiredDuration ? addScheduleMinutes(nextStart, requiredDuration) : ""); setBookingError(""); }} /></label>
+                    <label><span>Event end time</span><BookingTimePicker label="Event end time" disabled={Boolean(requiredDuration)} value={reservationEndTime} onChange={setEndTime} /></label>
                     <div><span>Venue schedule</span><strong>{requiredDuration ? `${requiredDuration / 60}-hour duration` : "Select an event time"}{operatingHoursConfigured ? ` · ${operatingStart.slice(0, 5)}–${operatingEnd.slice(0, 5)}` : ""}</strong></div>
                     {!operatingHoursConfigured && <small className="booking-schedule-error" role="alert">Event hours are not configured for this package. EVENTLY must confirm them before booking.</small>}
                     {startTime && !validReservationTime && <small className="booking-schedule-error" role="alert">Choose a valid start time for the configured venue duration.</small>}
@@ -3964,7 +3982,7 @@ function CustomerHistoryPage() {
               {paymentCanBeSubmitted && Boolean(rowValue(selected, ["_order_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(selected, ["_order_code"]))}`)} type="button">Submit 30% Deposit</button>}
               {selectedIsCatering && !readOnlyStatus ? <form className="catering-change-request-form" onSubmit={(event) => void submitCateringChangeRequest(event)}>
                 <label><span>Request type</span><select value={cateringRequestAction} onChange={(event) => setCateringRequestAction(event.target.value as "cancel" | "reschedule")}><option value="cancel">Cancel this booking</option><option value="reschedule">Request a new schedule</option></select></label>
-                {cateringRequestAction === "reschedule" && <><label><span>Proposed event date</span><input required type="date" value={cateringRequestDate} onChange={(event) => setCateringRequestDate(event.target.value)} /></label><div><label><span>Proposed start time</span><input required type="time" value={cateringRequestStart} onChange={(event) => setCateringRequestStart(event.target.value)} /></label><label><span>Proposed end time</span><input required type="time" value={cateringRequestEnd} onChange={(event) => setCateringRequestEnd(event.target.value)} /></label></div></>}
+                {cateringRequestAction === "reschedule" && <><label><span>Proposed event date</span><input required type="date" value={cateringRequestDate} onChange={(event) => setCateringRequestDate(event.target.value)} /></label><div><label><span>Proposed start time</span><BookingTimePicker label="Proposed start time" value={cateringRequestStart} onChange={setCateringRequestStart} /></label><label><span>Proposed end time</span><BookingTimePicker label="Proposed end time" value={cateringRequestEnd} onChange={setCateringRequestEnd} /></label></div></>}
                 <label><span>Reason for your request</span><textarea required maxLength={2000} value={cateringRequestReason} onChange={(event) => setCateringRequestReason(event.target.value)} /></label>
                 <small>Submit at least 72 hours before the event. Exactly 72 hours is eligible. Rescheduling takes effect only after Administrator approval.</small>
                 <button disabled={cateringRequestSubmitting} type="submit">{cateringRequestSubmitting ? "Sending request…" : "Send to Administrator"}</button>
