@@ -1328,6 +1328,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
   const [barangay,setBarangay]=useState("");
   const [city,setCity]=useState("");
   const [notes,setNotes]=useState("");
+  const [privacyConfirmed,setPrivacyConfirmed]=useState(false);
   const [requestId]=useState(()=>crypto.randomUUID());
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -1355,7 +1356,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
   const setQty=(id:string,next:number)=>setQuantities(current=>({...current,[id]:Math.min(50,Math.max(0,next))}));
   const addressReady=mode==="pickup" || validMetroManilaDelivery(street,barangay,city);
   const timeReady=Boolean(time && time >= "07:00" && time <= "20:00");
-  const formReady=ordered.length>0 && Boolean(date && timeReady && fullName.trim().length>=2 && normalizePhilippineMobile(phone) && addressReady);
+  const formReady=ordered.length>0 && privacyConfirmed && Boolean(date && timeReady && fullName.trim().length>=2 && normalizePhilippineMobile(phone) && addressReady);
   const submit=async(e:React.FormEvent<HTMLFormElement>)=>{
     e.preventDefault();
     if(!session){onRequireLogin?.();return;}
@@ -1432,6 +1433,8 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
         <label className="food-wide">Special instructions (optional)<textarea rows={3} maxLength={500} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Food preferences or pickup instructions"/></label>
       </div>
       <p className="food-order-disclaimer">Orders are requests until Venice confirms availability and the preparation schedule. Pickup location, payment instructions, and any delivery fee will be confirmed by staff.</p>
+      <label className="food-consent"><input type="checkbox" required checked={privacyConfirmed} onChange={e=>setPrivacyConfirmed(e.target.checked)} /> <span>I acknowledge the Privacy Notice and consent to use of my information for processing this food order.</span></label>
+      <PrivacyNoticeDisclosure id="evently-food-order-privacy" />
       {error && <p className="booking-inline-error" role="alert">{error}</p>}
       {!session && <p className="food-login-note">You'll be asked to sign in before placing your order.</p>}
       <button className="booking-primary" type="submit" disabled={loading||!formReady||busy}>{busy?"Placing order…": "Place food order · "+formatPhp(total)}</button>
