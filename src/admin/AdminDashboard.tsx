@@ -27,7 +27,7 @@ const sections = [
   ["settings", "Settings", "settings"],
 ] as const;
 
-const cateringMenuCategories = ["Beef", "Pork", "Chicken", "Seafood", "Vegetable", "Pasta / Pancit", "Dessert", "Drinks"];
+const cateringMenuCategories = ["Beef", "Pork", "Chicken", "Seafood", "Vegetable", "Pancit", "Dessert", "Drinks"];
 
 const tableBySection: Record<string, string> = {
   reservations: "reservations",
@@ -768,7 +768,7 @@ function DataTable({ section, go, defaultFilter = "All" }: { section: string; go
     : section === "payments"
       ? ["All", "Pending", "Verified", "Rejected"]
     : section === "catering-menu"
-      ? ["All", "Beef", "Pork", "Chicken", "Seafood", "Vegetable", "Pasta", "Dessert", "Drinks"]
+      ? ["All", "Beef", "Pork", "Chicken", "Seafood", "Vegetable", "Pancit", "Dessert", "Drinks"]
       : [];
 
   useEffect(() => { setPage(1); }, [filter, search]);
