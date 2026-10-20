@@ -3680,3 +3680,70 @@ section[id] { scroll-margin-top: 88px; }
 .catering-delivery-panel label { display:grid; gap:7px; color:#1e4842; font-weight:650; font-size:14px; }
 .catering-delivery-panel input,.catering-delivery-panel select { width:100%; min-height:46px; padding:11px 13px; border:1px solid #a9c8bf; background:white; border-radius:9px; font-size:15px; color:#213e3d; }
 .catering-delivery-panel small { color:#a34e2f; font-size:13px; }
+
+
+/* EVENTLY consistent booking time inputs and à-la-carte food checkout */
+.booking-time-picker { display:flex;align-items:center;gap:8px;padding:7px 10px;background:#f6faf8;border:1px solid #c3d9d1;border-radius:12px;min-height:51px;width:100%;max-width:420px;color:#245d54;box-shadow:0 1px 3px #103b3010 }
+.booking-time-picker__clock { display:grid;place-items:center;width:32px;height:32px;flex:0 0 32px;background:#deeee7;border-radius:9px;color:#1b7468;font-size:23px }
+.booking-time-picker select { appearance:none;-webkit-appearance:none;background:white;border:1px solid #bad2c9;color:#153e3a;border-radius:8px;padding:10px 8px;min-height:42px;min-width:0;flex:1;font-size:15px;font-weight:750;line-height:1.3;text-align:center;cursor:pointer }
+.booking-time-picker .booking-time-picker__period {flex:1.1;background:#dfefea;color:#146a5c}
+.booking-time-picker select:focus-visible {outline:3px solid #a4d8c6;outline-offset:1px}
+.booking-time-picker select:disabled {opacity:.65;cursor:not-allowed;background:#edf0f0}
+.booking-time-picker__colon {font-weight:850;font-size:19px;line-height:1}
+.food-composer {display:grid;gap:25px;min-width:0;color:#20413e}
+.food-composer__heading {display:grid;gap:9px}
+.food-composer__heading .booking-back {justify-self:start;margin-bottom:5px}
+.food-composer__heading>span {font-weight:850;font-size:12px;letter-spacing:.13em;color:#237e72}
+.food-composer__heading h3 {font-size:clamp(25px,3vw,34px);line-height:1.18;letter-spacing:-.03em;color:#193d36;margin:0}
+.food-composer__heading p {font-size:15px;line-height:1.6;color:#516e67;max-width:800px;margin:0}
+.food-category-tabs {display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.food-category-tabs button {background:#f3f8f5;border:1px solid #d2dfd8;border-radius:99px;padding:11px 16px;min-height:43px;font-size:14px;font-weight:730;color:#365a53;cursor:pointer;transition:background .15s ease,color .15s ease}
+.food-category-tabs button.is-active,.food-category-tabs button[aria-selected=true] {color:white;background:#1c7568;border-color:#1c7568}
+.food-category-tabs button:focus-visible {outline:3px solid #98d3c5;outline-offset:3px}
+.food-order-layout {display:grid;grid-template-columns:minmax(0,1fr) minmax(245px,300px);gap:20px;align-items:start}
+.food-order-items {min-width:0}
+.food-order-items h4,.food-order-details h4 {font-size:20px;font-weight:800;color:#1e4740;margin:0 0 4px}
+.food-order-items>p {font-size:14px;color:#5e7770;margin:0 0 18px}
+.food-items-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+.food-item-card {padding:18px;border:1px solid #d6e4dd;border-radius:14px;background:#fff;box-shadow:0 3px 14px #083e2608;display:grid;gap:12px;min-height:160px}
+.food-item-card>strong {font-size:17px;line-height:1.35;color:#1b413a;overflow-wrap:anywhere}
+.food-item-card>span {font-weight:850;font-size:19px;color:#186b5a}
+.food-item-card>span small {font-weight:550;font-size:12px;color:#5c776d}
+.food-item-qty {display:flex;justify-content:flex-start;align-items:center;gap:12px}
+.food-item-qty button {height:37px;width:37px;border:1px solid #a8cfc0;border-radius:10px;background:#e9f4ed;color:#175e51;font-size:24px;font-weight:700;cursor:pointer;line-height:1}
+.food-item-qty button:disabled {opacity:.35;cursor:not-allowed}
+.food-item-qty output {font-size:17px;min-width:22px;text-align:center;font-weight:800;color:#234941}
+.food-order-cart {position:sticky;top:24px;border:1px solid #c9dfd5;border-radius:16px;padding:22px;background:#f5faf7;display:grid;gap:12px;min-width:0}
+.food-order-cart>span {font-size:11px;letter-spacing:.11em;font-weight:800;color:#277967}
+.food-order-cart h4 {font-size:23px;margin:0;color:#1c433a}
+.food-order-cart>p,.food-order-cart>small {font-size:13px;line-height:1.5;color:#59766a;margin:0}
+.food-cart-lines {display:grid;gap:10px}
+.food-cart-lines>div {display:flex;justify-content:space-between;gap:8px;padding-bottom:10px;border-bottom:1px solid #dce8e1;font-size:13px}
+.food-cart-lines>div>span {display:grid;gap:4px;min-width:0}
+.food-cart-lines strong {font-size:13px;overflow-wrap:anywhere;color:#235349}
+.food-cart-lines small {font-size:12px;color:#628174}
+.food-cart-lines b {white-space:nowrap;font-size:13px}
+.food-cart-total {border-top:1px solid #d0e0d5;padding-top:15px;display:flex;justify-content:space-between;gap:12px;font-size:14px;font-weight:750}
+.food-cart-total strong {font-size:20px;color:#14705b}
+.food-order-details {border:1px solid #d5e3db;border-radius:15px;padding:22px;background:#fff;display:grid;gap:17px}
+.food-fulfillment-options {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+.food-fulfillment-options button {text-align:left;display:grid;gap:5px;padding:15px;border:1px solid #ccdcd3;border-radius:11px;background:#f8faf8;color:#294e43;font-weight:800;font-size:16px;cursor:pointer}
+.food-fulfillment-options button.is-active {border-color:#187966;background:#e6f4ed;box-shadow:inset 0 0 0 1px #187966}
+.food-fulfillment-options small {font-size:12px;font-weight:500;line-height:1.5}
+.food-checkout-fields {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px}
+.food-checkout-fields label {display:grid;gap:7px;font-weight:700;font-size:14px;color:#315a4b;min-width:0;align-content:start}
+.food-checkout-fields label.food-wide {grid-column:1/-1}
+.food-checkout-fields :is(input,select,textarea) {box-sizing:border-box;border:1px solid #bdd3c6;border-radius:9px;min-height:44px;padding:10px 12px;font-size:15px;color:#173e37;background:#fff;max-width:100%;width:100%;font-family:inherit}
+.food-checkout-fields .booking-time-picker select {width:auto}
+.food-order-disclaimer,.food-login-note {padding:13px 16px;border-radius:10px;background:#f0f7f2;color:#426656;font-size:14px;line-height:1.5;margin:0}
+.food-order-details>.booking-primary {justify-self:start;font-size:15px;padding:13px 23px;min-height:46px}
+.food-order-details>.booking-primary:disabled {opacity:.55}
+.food-success {display:grid;gap:14px;padding:30px;border:1px solid #b3d6c4;border-radius:15px;background:#f1f9f4;color:#22483a}
+.food-success>span {font-size:12px;letter-spacing:.13em;font-weight:800;color:#16745e}
+.food-success h3 {font-size:26px;margin:0;color:#194b3e}
+.food-success p {font-size:15px;line-height:1.6;margin:0}
+.food-success button {background:#1b7766;color:#fff;padding:13px 20px;border-radius:9px;border:0;justify-self:start;font-size:14px;cursor:pointer}
+@media(max-width:900px){.food-order-layout{grid-template-columns:1fr}.food-order-cart{position:static}}
+@media(max-width:620px){.food-items-grid,.food-checkout-fields,.food-fulfillment-options{grid-template-columns:1fr}.food-checkout-fields label.food-wide{grid-column:auto}.food-composer__heading h3{font-size:26px}.food-item-card{min-height:unset}.food-order-details{padding:16px}.booking-time-picker{gap:4px;padding:7px}.booking-time-picker select{font-size:14px;padding:8px 4px}.booking-time-picker__clock{display:none}}
+
+.food-consent {display:flex;align-items:flex-start;gap:11px;font-size:14px;line-height:1.5;color:#234b42}.food-consent input {width:20px;height:20px;accent-color:#1a7b68;flex-shrink:0;margin-top:1px}.food-consent span {flex:1}

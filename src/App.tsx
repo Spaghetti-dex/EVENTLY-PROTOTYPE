@@ -1047,7 +1047,7 @@ const mainCategoryForService = (serviceId: string): BookingMainCategory | null =
   return null;
 };
 const bookingSummaryCategory = (serviceId: string, cateringChoice: CateringChoice, staycationChoice: StaycationChoice = null) => {
-  if (cateringChoice === "with-venue" && serviceId === "Event") return "Events Place · Venue Only";
+  if (cateringChoice === "with-venue" && serviceId === "Catering") return "Catering With Venue";
   if (cateringChoice === "without-venue" && serviceId === "Catering") return "Catering Only";
   if (serviceId === "Swimming Pool" && staycationChoice) return `Staycation · ${staycationChoice === "day" ? "Day Tour" : staycationChoice === "night" ? "Night Tour" : "Overnight Tour"}`;
   if (serviceId === "Room Accommodation") return "Staycation · Room Accommodation";
@@ -1288,6 +1288,159 @@ const confirmationStatusLabel = (status: string, pendingLabel: string) => {
   if (normalized === "pending") return pendingLabel;
   return normalized.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 };
+
+
+function BookingTimePicker({ value, onChange, disabled = false, label }: { value: string; onChange: (time: string) => void; disabled?: boolean; label: string }) {
+  const [rawHour,rawMinute] = (value || "").slice(0,5).split(":").map(Number);
+  const valid = Number.isInteger(rawHour) && Number.isInteger(rawMinute);
+  const hour = valid ? (rawHour % 12 || 12) : 9;
+  const minute = valid ? rawMinute : 0;
+  const period = valid && rawHour >= 12 ? "PM" : "AM";
+  const update = (h:number,m:number,p:string) => onChange(`${String(h % 12 + (p==="PM"?12:0)).padStart(2,"0")}:${String(m).padStart(2,"0")}`);
+  const minutes=[0,15,30,45].includes(minute)?[0,15,30,45]:[0,15,30,45,minute].sort((a,b)=>a-b);
+  return <div className="booking-time-picker" role="group" aria-label={label}>
+    <span className="booking-time-picker__clock" aria-hidden="true">◷</span>
+    <select aria-label={`${label} hour`} disabled={disabled} value={valid ? hour : ""} onChange={e=>update(Number(e.target.value),minute,period)}><option value="" disabled>Hour</option>{Array.from({length:12},(_,i)=>i+1).map(h=><option key={h} value={h}>{String(h).padStart(2,"0")}</option>)}</select>
+    <span className="booking-time-picker__colon">:</span>
+    <select aria-label={`${label} minute`} disabled={disabled} value={minute} onChange={e=>update(hour,Number(e.target.value),period)}>{minutes.map(m=><option key={m} value={m}>{String(m).padStart(2,"0")}</option>)}</select>
+    <select aria-label={`${label} AM or PM`} className="booking-time-picker__period" disabled={disabled} value={period} onChange={e=>update(hour,minute,e.target.value)}><option value="AM">AM</option><option value="PM">PM</option></select>
+  </div>;
+}
+
+
+type IndividualFoodItem = {id:string; name:string; category:string; tray_price:number; is_active:boolean; is_available:boolean};
+function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
+  onBack:()=>void; onRequireLogin?:()=>void; customerProfile?:CustomerAccountProfile|null
+}) {
+  const {session}=useAuth();
+  const [items,setItems]=useState<IndividualFoodItem[]>([]);
+  const [quantities,setQuantities]=useState<Record<string,number>>({});
+  const [activeCategory,setActiveCategory]=useState("Beef");
+  const [loading,setLoading]=useState(true);
+  const [loadError,setLoadError]=useState("");
+  const [mode,setMode]=useState<"pickup"|"delivery">("pickup");
+  const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
+  const [date,setDate]=useState(today);
+  const [time,setTime]=useState("12:00");
+  const [fullName,setFullName]=useState(customerProfile?.fullName??"");
+  const [phone,setPhone]=useState(customerProfile?.mobile??"");
+  const [street,setStreet]=useState("");
+  const [barangay,setBarangay]=useState("");
+  const [city,setCity]=useState("");
+  const [notes,setNotes]=useState("");
+  const [privacyConfirmed,setPrivacyConfirmed]=useState(false);
+  const [requestId]=useState(()=>crypto.randomUUID());
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  const [receipt,setReceipt]=useState<{code:string;total:number}|null>(null);
+  useEffect(()=>{
+    let live=true;
+    const load=async()=>{
+      setLoading(true);
+      const result=await supabase.from("catering_menu_items").select("id,name,category,tray_price,is_active,is_available")
+        .eq("is_active",true).eq("is_available",true).order("category").order("name");
+      if(!live)return;
+      setLoading(false);
+      if(result.error){setLoadError(result.error.message);return;}
+      const rows=((result.data??[]) as IndividualFoodItem[]).filter(item=>Number(item.tray_price)>0);
+      setItems(rows);
+      setLoadError("");
+    };
+    void load();
+    return()=>{live=false;};
+  },[]);
+  const categories=[...new Set(items.map(item=>item.category))];
+  const ordered=items.filter(item=>(quantities[item.id]??0)>0).map(item=>({...item,quantity:quantities[item.id]}));
+  const total=ordered.reduce((sum,item)=>sum+Number(item.tray_price)*item.quantity,0);
+  const itemCount=ordered.reduce((sum,item)=>sum+item.quantity,0);
+  const setQty=(id:string,next:number)=>setQuantities(current=>({...current,[id]:Math.min(50,Math.max(0,next))}));
+  const addressReady=mode==="pickup" || validMetroManilaDelivery(street,barangay,city);
+  const timeReady=Boolean(time && time >= "07:00" && time <= "20:00");
+  const formReady=ordered.length>0 && privacyConfirmed && Boolean(date && timeReady && fullName.trim().length>=2 && normalizePhilippineMobile(phone) && addressReady);
+  const submit=async(e:React.FormEvent<HTMLFormElement>)=>{
+    e.preventDefault();
+    if(!session){onRequireLogin?.();return;}
+    if(!formReady||busy)return;
+    setBusy(true);setError("");
+    try{
+      const {data,error:rpcError}=await supabase.rpc("evently_customer_create_food_order",{p_payload:{
+        request_id:requestId,date,time,fulfillment:mode,customer_name:fullName.trim(),
+        customer_phone:normalizePhilippineMobile(phone),notes:notes.trim(),
+        address:mode==="delivery"?{street:street.trim(),barangay:barangay.trim(),city}:null,
+        items:ordered.map(item=>({id:item.id,quantity:item.quantity}))
+      }});
+      if(rpcError)throw rpcError;
+      const result=data as {order_code:string;total:number};
+      if(!result?.order_code)throw new Error("The system did not return an order confirmation.");
+      setReceipt({code:result.order_code,total:Number(result.total)});
+      sessionStorage.removeItem("evently-booking-draft");
+    }catch(err){setError(err instanceof Error?err.message:"Could not place food order. Please try again.");}
+    finally{setBusy(false);}
+  };
+  if(receipt)return <div className="food-success" role="status">
+    <span>ORDER RECEIVED</span><h3>Thanks! Your food order is pending confirmation.</h3>
+    <p>Order number: <strong>{receipt.code}</strong></p>
+    <p>Total item price: <strong>{formatPhp(receipt.total)}</strong></p>
+    <p>Your order appears in Admin → Orders for confirmation and preparation. Payment and any delivery charges, if applicable, are confirmed by Venice before collection.</p>
+    <button type="button" onClick={()=>{window.location.href="/account/history";}}>View My Orders</button>
+  </div>;
+  return <form onSubmit={e=>void submit(e)} className="food-composer">
+    <div className="food-composer__heading">
+      <button type="button" className="booking-back" onClick={onBack}>← Change catering type</button>
+      <span>FOOD ORDERS &amp; PARTY TRAYS</span>
+      <h3>Pick your favorites. Build your own order.</h3>
+      <p>Order any combination of Venice's listed ulam, noodles, desserts and drinks. Each selection has its own per-tray or per-container price; you pay for only what you choose. Listed prices are initial estimates that the Owner can adjust.</p>
+    </div>
+    {loadError && <div role="alert" className="booking-inline-error">Menu unavailable: {loadError}</div>}
+    {loading ? <p>Loading Venice's available food menu…</p> : !items.length ? <p>No individually priced menu items are available. Please contact Venice.</p> : <>
+      <div className="food-category-tabs" role="tablist" aria-label="Food categories">
+        {categories.map(category=><button type="button" role="tab" aria-selected={activeCategory===category} className={activeCategory===category?"is-active":""} key={category} onClick={()=>setActiveCategory(category)}>{category}</button>)}
+      </div>
+      <div className="food-order-layout">
+        <div className="food-order-items">
+          <h4>{activeCategory}</h4><p>Use + and − to choose how many trays or containers to order.</p>
+          <div className="food-items-grid">{items.filter(item=>item.category===activeCategory).map(item=><article key={item.id} className="food-item-card">
+            <strong>{item.name}</strong><span>{formatPhp(Number(item.tray_price))} <small>/ {item.category==="Drinks"?"container":"tray"}</small></span>
+            <div className="food-item-qty"><button type="button" aria-label={"Remove one "+item.name} disabled={(quantities[item.id]??0)===0} onClick={()=>setQty(item.id,(quantities[item.id]??0)-1)}>−</button>
+              <output aria-label={"Quantity of "+item.name}>{quantities[item.id]??0}</output>
+              <button type="button" aria-label={"Add one "+item.name} disabled={(quantities[item.id]??0)>=50} onClick={()=>setQty(item.id,(quantities[item.id]??0)+1)}>+</button></div>
+          </article>)}</div>
+        </div>
+        <aside className="food-order-cart" aria-label="Your food order">
+          <span>YOUR SELECTIONS</span><h4>{itemCount} items</h4>
+          {ordered.length===0?<p>No items selected yet.</p>:<div className="food-cart-lines">{ordered.map(item=><div key={item.id}><span><strong>{item.name}</strong><small>{item.quantity} × {formatPhp(Number(item.tray_price))}</small></span><b>{formatPhp(item.quantity*Number(item.tray_price))}</b></div>)}</div>}
+          <div className="food-cart-total"><span>Items subtotal</span><strong>{formatPhp(total)}</strong></div>
+          <small>All menu prices are per tray/container, not per catering guest. Delivery charges, if any, are confirmed separately.</small>
+        </aside>
+      </div>
+    </>}
+    <section className="food-order-details">
+      <h4>Pickup or Metro Manila delivery</h4>
+      <div className="food-fulfillment-options">
+        <button type="button" aria-pressed={mode==="pickup"} className={mode==="pickup"?"is-active":""} onClick={()=>setMode("pickup")}>Pickup <small>Venice pickup location confirmed by staff</small></button>
+        <button type="button" aria-pressed={mode==="delivery"} className={mode==="delivery"?"is-active":""} onClick={()=>setMode("delivery")}>Delivery <small>Metro Manila addresses only</small></button>
+      </div>
+      <div className="food-checkout-fields">
+        <label>Full name<input required minLength={2} value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Your name"/></label>
+        <label>Mobile number<input required inputMode="numeric" maxLength={11} value={phone} onChange={e=>setPhone(e.target.value)} placeholder="09XXXXXXXXX"/></label>
+        <label>Requested date<input required type="date" min={today()} value={date} onChange={e=>setDate(e.target.value)}/></label>
+        <label>Requested time (7 AM–8 PM)<BookingTimePicker label="Food pickup or delivery time" value={time} onChange={setTime}/>{!timeReady && <small className="booking-schedule-error">Select a time between 7:00 AM and 8:00 PM.</small>}</label>
+        {mode==="delivery" && <>
+          <label className="food-wide">Street / building / house number<input required minLength={5} value={street} onChange={e=>setStreet(e.target.value)} placeholder="Full street and house / building number"/></label>
+          <label>Barangay<input required minLength={2} value={barangay} onChange={e=>setBarangay(e.target.value)} placeholder="Barangay"/></label>
+          <label>City / municipality<select required value={city} onChange={e=>setCity(e.target.value)}><option value="">Select Metro Manila city</option>{metroManilaCities.map(m=><option key={m} value={m}>{m}</option>)}</select></label>
+        </>}
+        <label className="food-wide">Special instructions (optional)<textarea rows={3} maxLength={500} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Food preferences or pickup instructions"/></label>
+      </div>
+      <p className="food-order-disclaimer">Orders are requests until Venice confirms availability and the preparation schedule. Pickup location, payment instructions, and any delivery fee will be confirmed by staff.</p>
+      <label className="food-consent"><input type="checkbox" required checked={privacyConfirmed} onChange={e=>setPrivacyConfirmed(e.target.checked)} /> <span>I acknowledge the Privacy Notice and consent to use of my information for processing this food order.</span></label>
+      <PrivacyNoticeDisclosure id="evently-food-order-privacy" />
+      {error && <p className="booking-inline-error" role="alert">{error}</p>}
+      {!session && <p className="food-login-note">You'll be asked to sign in before placing your order.</p>}
+      <button className="booking-primary" type="submit" disabled={loading||!formReady||busy}>{busy?"Placing order…": "Place food order · "+formatPhp(total)}</button>
+    </section>
+  </form>;
+}
 
 function ReservationFlow({
   onRequireLogin,
@@ -1604,7 +1757,8 @@ function ReservationFlow({
   }, [addOns, adults, cateringChoice, children, clientRequestId, cottageSelected, email, endTime, guestName, guests, itemQuantity, menuSelections, month, nights, paymentAmount, paymentMethod, paymentReference, phone, poolAccessSelected, privacyAcknowledged, rooms, selectedDate, selectedMainCategory, selectedPackageId, selectedVariantId, service, specialRequests, deliveryStreet, deliveryBarangay, deliveryCity, startTime, staycationChoice, step]);
 
   const hasIncludedMenu = service === "Catering";
-  const steps = hasIncludedMenu
+  const steps = service === "Food Orders & Party Trays" ? [{ id: 1, label: "Choose Service" }, { id: 2, label: "Build Your Food Order" }]
+    : hasIncludedMenu
     ? [
       { id: 1, label: "Choose Service" },
       { id: 2, label: "Choose Date" },
@@ -1644,7 +1798,9 @@ function ReservationFlow({
           && resortVenueTier(item.name) !== null;
       }
       if (service === "Catering") {
-        return normalizedService(item.service_type) === "catering";
+        return cateringChoice === "with-venue"
+          ? normalizedService(item.service_type) === "catering" && item.package_category?.trim().toLowerCase() === "event_venue"
+          : normalizedService(item.service_type) === "catering" && item.package_category?.trim().toLowerCase() !== "event_venue";
       }
       if (service !== "Room Accommodation") {
         return normalizedService(item.service_type) === normalizedService(service)
@@ -2430,20 +2586,23 @@ function ReservationFlow({
                           <small>{serviceOption.description}</small>
                           <span className="choice-card__check">✓</span>
                         </button>
-                        {selected && cateringChoice !== "party-trays" && <div aria-label="Choose catering type" className="booking-catering-choices" role="group">
-                          <button aria-pressed={cateringChoice === "with-venue"} className={`booking-catering-choice ${cateringChoice === "with-venue" ? "is-selected" : ""}`} onClick={() => { setCateringChoice("with-venue"); chooseBookingService("Event"); }} type="button">
+                        {selected && <div aria-label="Choose catering type" className="booking-catering-choices" role="group">
+                          <button aria-pressed={cateringChoice === "with-venue"} className={`booking-catering-choice ${cateringChoice === "with-venue" ? "is-selected" : ""}`} onClick={() => { chooseBookingService("Catering"); setCateringChoice("with-venue"); }} type="button">
                             <span className="booking-catering-choice__icon"><Icon name="building" size={19} /></span>
-                            <span className="booking-catering-choice__copy"><strong>Events Place (Venue Only)</strong><small>Explore three Daffodil and Amarillo event venues. Catering is not included.</small></span>
+                            <span className="booking-catering-choice__copy"><strong>Catering With Venue</strong><small>Choose a catering-with-venue package, including the six dishes, dessert and drinks.</small></span>
                             <span className="booking-catering-choice__check">✓</span>
                           </button>
-                          <button aria-pressed={cateringChoice === "without-venue"} className={`booking-catering-choice ${cateringChoice === "without-venue" ? "is-selected" : ""}`} onClick={() => { setCateringChoice("without-venue"); chooseBookingService("Catering"); }} type="button">
+                          <button aria-pressed={cateringChoice === "without-venue"} className={`booking-catering-choice ${cateringChoice === "without-venue" ? "is-selected" : ""}`} onClick={() => { chooseBookingService("Catering"); setCateringChoice("without-venue"); }} type="button">
                             <span className="booking-catering-choice__icon"><Icon name="food" size={19} /></span>
                             <span className="booking-catering-choice__copy"><strong>Catering Without Venue</strong><small>Enjoy catering services at your own event location.</small></span>
                             <span className="booking-catering-choice__check">✓</span>
                           </button>
+                          <button aria-pressed={cateringChoice === "party-trays"} className={`booking-catering-choice ${cateringChoice === "party-trays" ? "is-selected" : ""}`} onClick={() => { chooseBookingService("Food Orders & Party Trays"); setCateringChoice("party-trays"); }} type="button">
+                            <span className="booking-catering-choice__icon"><Icon name="food" size={19} /></span>
+                            <span className="booking-catering-choice__copy"><strong>Food Orders &amp; Party Trays</strong><small>Create a custom tray order from Venice's preset dishes, desserts and drinks. Pickup or Metro Manila delivery.</small></span>
+                            <span className="booking-catering-choice__check">✓</span>
+                          </button>
                         </div>}
-                        {selected && cateringChoice !== "party-trays" && <button className="booking-party-trays-link" onClick={() => { setCateringChoice("party-trays"); chooseBookingService("Food Orders & Party Trays"); }} type="button">Looking for ready-made food? Browse Food Orders &amp; Party Trays <Icon name="arrow" size={15} /></button>}
-                        {selected && cateringChoice === "party-trays" && <p className="booking-party-trays-selected">Food Orders &amp; Party Trays selected. <button onClick={() => { setCateringChoice(null); chooseBookingService("Catering"); }} type="button">Return to catering choices</button></p>}
                       </article>
                     );
                     if (category === "Staycation") return (
@@ -2508,7 +2667,7 @@ function ReservationFlow({
               </div>
             )}
 
-            {step === 2 && (
+            {step === 2 && service !== "Food Orders & Party Trays" && (
               <div className="booking-step booking-step--enter">
                 <div className="booking-step__heading">
                   <span>Step 2 of {steps.length}</span>
@@ -2585,8 +2744,8 @@ function ReservationFlow({
                   {scheduleMode === "fixed" && packageChoice && <div><span>Confirmed package schedule</span><strong>{configuredStartTime.slice(0, 5)}–{configuredEndTime.slice(0, 5)}{configuredEndTime <= configuredStartTime ? " · ends the following day" : ""}</strong></div>}
                   {service === "Swimming Pool" && !packageChoice && <p>Choose Day Tour, Night Tour, or Overnight Tour in the next step. Its fixed hours will be applied automatically.</p>}
                   {scheduleMode === "customer_select" && <>
-                    <label><span>Start time</span><input onChange={(event) => { const nextStart = event.target.value; setStartTime(nextStart); setEndTime(requiredDuration ? addScheduleMinutes(nextStart, requiredDuration) : ""); }} type="time" value={startTime} /></label>
-                    <label><span>End time</span><input disabled={Boolean(requiredDuration)} min={requiredDuration ? undefined : startTime || undefined} onChange={(event) => setEndTime(event.target.value)} type="time" value={reservationEndTime} /></label>
+                    <label><span>Start time</span><BookingTimePicker label="Start time" value={startTime} onChange={nextStart => { setStartTime(nextStart); setEndTime(requiredDuration ? addScheduleMinutes(nextStart, requiredDuration) : ""); }} /></label>
+                    <label><span>End time</span><BookingTimePicker label="End time" disabled={Boolean(requiredDuration)} value={reservationEndTime} onChange={setEndTime} /></label>
                     {requiredDuration && <small>{requiredDuration / 60} hour venue duration. The end time is calculated automatically.</small>}
                     {!operatingHoursConfigured && packageChoice && <small className="booking-schedule-error" role="alert">This package does not have configured operating hours. Contact the administrator before booking.</small>}
                   </>}
@@ -2594,6 +2753,8 @@ function ReservationFlow({
                 </div>
               </div>
             )}
+
+            {step === 2 && service === "Food Orders & Party Trays" && <FoodOrderComposer onBack={()=>setStep(1)} onRequireLogin={onRequireLogin} customerProfile={customerProfile}/>}
 
             {step === 3 && (
               <div className="booking-step booking-step--enter">
@@ -2656,8 +2817,8 @@ function ReservationFlow({
                 </div>}
                 {packageChoice && scheduleMode === "customer_select" && (
                   <div className="booking-date-time-panel booking-package-schedule">
-                    <label><span>Event start time</span><input aria-label="Event start time" onChange={(event) => { const nextStart = event.target.value; setStartTime(nextStart); setEndTime(requiredDuration ? addScheduleMinutes(nextStart, requiredDuration) : ""); setBookingError(""); }} type="time" value={startTime} /></label>
-                    <label><span>Event end time</span><input aria-label="Event end time" disabled={Boolean(requiredDuration)} onChange={(event) => setEndTime(event.target.value)} type="time" value={reservationEndTime} /></label>
+                    <label><span>Event start time</span><BookingTimePicker label="Event start time" value={startTime} onChange={nextStart => { setStartTime(nextStart); setEndTime(requiredDuration ? addScheduleMinutes(nextStart, requiredDuration) : ""); setBookingError(""); }} /></label>
+                    <label><span>Event end time</span><BookingTimePicker label="Event end time" disabled={Boolean(requiredDuration)} value={reservationEndTime} onChange={setEndTime} /></label>
                     <div><span>Venue schedule</span><strong>{requiredDuration ? `${requiredDuration / 60}-hour duration` : "Select an event time"}{operatingHoursConfigured ? ` · ${operatingStart.slice(0, 5)}–${operatingEnd.slice(0, 5)}` : ""}</strong></div>
                     {!operatingHoursConfigured && <small className="booking-schedule-error" role="alert">Event hours are not configured for this package. EVENTLY must confirm them before booking.</small>}
                     {startTime && !validReservationTime && <small className="booking-schedule-error" role="alert">Choose a valid start time for the configured venue duration.</small>}
@@ -3024,7 +3185,7 @@ function ReservationFlow({
               </div>
             )}
 
-            {step < 9 && (
+            {step < 9 && !(service === "Food Orders & Party Trays" && step === 2) && (
               <>
               {bookingError && <div className="booking-inline-error" role="alert">{bookingError}</div>}
               <div className="booking-controls">
@@ -3040,7 +3201,7 @@ function ReservationFlow({
             )}
           </div>
 
-          {step < 9 && (
+          {step < 9 && !(service === "Food Orders & Party Trays" && step === 2) && (
             <aside className="reservation-summary">
               <div className="reservation-summary__top">
                 <span>Your reservation</span>
@@ -3792,6 +3953,7 @@ function CustomerHistoryPage() {
   const submitCateringChangeRequest = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected || !selectedIsCatering || cateringRequestSubmitting) return;
+    if (cateringRequestAction === "reschedule" && (!cateringRequestDate || !cateringRequestStart || !cateringRequestEnd)) { setCateringRequestFeedback("Select the event date, start time and end time before submitting."); return; }
     setCateringRequestSubmitting(true);
     setCateringRequestFeedback("");
     const { data, error: requestError } = await supabase.rpc("evently_customer_request_catering_change", {
@@ -3959,7 +4121,7 @@ function CustomerHistoryPage() {
               {paymentCanBeSubmitted && Boolean(rowValue(selected, ["_order_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(selected, ["_order_code"]))}`)} type="button">Submit 30% Deposit</button>}
               {selectedIsCatering && !readOnlyStatus ? <form className="catering-change-request-form" onSubmit={(event) => void submitCateringChangeRequest(event)}>
                 <label><span>Request type</span><select value={cateringRequestAction} onChange={(event) => setCateringRequestAction(event.target.value as "cancel" | "reschedule")}><option value="cancel">Cancel this booking</option><option value="reschedule">Request a new schedule</option></select></label>
-                {cateringRequestAction === "reschedule" && <><label><span>Proposed event date</span><input required type="date" value={cateringRequestDate} onChange={(event) => setCateringRequestDate(event.target.value)} /></label><div><label><span>Proposed start time</span><input required type="time" value={cateringRequestStart} onChange={(event) => setCateringRequestStart(event.target.value)} /></label><label><span>Proposed end time</span><input required type="time" value={cateringRequestEnd} onChange={(event) => setCateringRequestEnd(event.target.value)} /></label></div></>}
+                {cateringRequestAction === "reschedule" && <><label><span>Proposed event date</span><input required type="date" value={cateringRequestDate} onChange={(event) => setCateringRequestDate(event.target.value)} /></label><div><label><span>Proposed start time</span><BookingTimePicker label="Proposed start time" value={cateringRequestStart} onChange={setCateringRequestStart} /></label><label><span>Proposed end time</span><BookingTimePicker label="Proposed end time" value={cateringRequestEnd} onChange={setCateringRequestEnd} /></label></div></>}
                 <label><span>Reason for your request</span><textarea required maxLength={2000} value={cateringRequestReason} onChange={(event) => setCateringRequestReason(event.target.value)} /></label>
                 <small>Submit at least 72 hours before the event. Exactly 72 hours is eligible. Rescheduling takes effect only after Administrator approval.</small>
                 <button disabled={cateringRequestSubmitting} type="submit">{cateringRequestSubmitting ? "Sending request…" : "Send to Administrator"}</button>
@@ -5318,11 +5480,12 @@ function Homepage() {
             <h3>Celebrate Your Way</h3>
             <p>Book one of our existing venue packages with catering, or order catering for your own venue.</p>
             <div className="catering-events-package-card__choices">
-              <button data-booking-cta="true" onClick={() => chooseService("Event")} type="button"><strong>Catering with Venue</strong><small>View Daffodil and Amarillo venue packages</small><span>Explore packages <Icon name="arrow" size={15} /></span></button>
+              <button data-booking-cta="true" onClick={() => chooseService("Catering")} type="button"><strong>Catering with Venue</strong><small>Packages include venue, catering and ulam selection</small><span>Explore packages <Icon name="arrow" size={15} /></span></button>
               <button data-booking-cta="true" onClick={() => chooseService("Catering")} type="button"><strong>Catering Only (Without Venue)</strong><small>For a customer-provided venue</small><span>Order Catering Without Venue <Icon name="arrow" size={15} /></span><b>Price to be announced</b></button>
+              <button data-booking-cta="true" onClick={() => chooseService("Food Orders & Party Trays")} type="button"><strong>Food Orders &amp; Party Trays</strong><small>Choose individual ulam trays, desserts and drinks for pickup or Metro Manila delivery.</small><span>Create my order <Icon name="arrow" size={15} /></span></button>
             </div>
           </article>
-          {serviceCatalog.filter((serviceOption) => !["Catering", "Event"].includes(serviceOption.id)).map((serviceOption, index) => {
+          {serviceCatalog.filter((serviceOption) => !["Catering", "Event", "Food Orders & Party Trays"].includes(serviceOption.id)).map((serviceOption, index) => {
             const firstPackage = serviceOption.packages[0];
             const lowestPrice = Math.min(...serviceOption.packages.map((item) => item.price).filter((price) => price > 0));
             return (

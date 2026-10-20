@@ -1014,3 +1014,20 @@
 .evently-admin .review-confirm>div{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
 @media(max-width:1180px){.evently-admin .review-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.evently-admin .review-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:690px){.evently-admin .review-filters{grid-template-columns:repeat(2,minmax(0,1fr));padding:0 16px 18px}.evently-admin .review-search{grid-column:1/-1}.evently-admin .review-records-head{padding:19px 16px}.evently-admin .review-modal-header,.evently-admin .review-modal-body{padding:20px}.evently-admin .review-summary{gap:10px}.evently-admin .review-summary article{padding:14px}.evently-admin .review-modal-backdrop{padding:8px}}
+
+
+/* Customized standalone food orders in the Admin → Orders detail drawer */
+.evently-admin .admin-food-order-detail { display:grid;gap:13px;padding:22px 0 }
+.evently-admin .admin-food-order-detail h3 { font-size:16px;font-weight:800;color:#206759;margin:4px 0 5px }
+.evently-admin .admin-food-order-detail dl { display:grid;gap:0;margin:0 }
+.evently-admin .admin-food-order-detail dl>div { display:grid;grid-template-columns:minmax(125px,37%) minmax(0,1fr);gap:10px;padding:11px 3px;border-bottom:1px solid #e2ebe6 }
+.evently-admin .admin-food-order-detail dt {font-size:13px;color:#59746b;font-weight:700}
+.evently-admin .admin-food-order-detail dd {font-size:14px;color:#24473f;font-weight:650;overflow-wrap:anywhere;margin:0}
+.evently-admin .admin-food-line-items {display:grid;gap:10px;background:#f3f9f5;border:1px solid #d3e7da;border-radius:11px;padding:15px}
+.evently-admin .admin-food-line-items>div {display:flex;align-items:center;justify-content:space-between;gap:14px;padding-bottom:11px;border-bottom:1px solid #dbe7df}
+.evently-admin .admin-food-line-items>div:last-child {border-bottom:0;padding-bottom:0}
+.evently-admin .admin-food-line-items>div>span {display:grid;gap:4px;min-width:0}
+.evently-admin .admin-food-line-items strong {font-size:14px;color:#1d4b3d}
+.evently-admin .admin-food-line-items small {font-size:13px;color:#5b7668}
+.evently-admin .admin-food-line-items b {font-size:15px;color:#1b6b55;white-space:nowrap}
+.evently-admin .admin-food-order-detail>p {font-size:13px;line-height:1.5;color:#60796c;margin:0}
