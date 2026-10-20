@@ -3818,3 +3818,16 @@ section[id] { scroll-margin-top: 88px; }
 .staycation-room-card__total small{flex-basis:100%;font-size:11px;color:#6b8071}
 @media(max-width:600px){.staycation-room-card{padding:19px;border-radius:16px}.staycation-room-card__header h4{font-size:23px}.staycation-room-card__options{grid-template-columns:1fr 1fr}.staycation-room-card__fields{grid-template-columns:1fr}.staycation-room-card__symbol{display:none}}
 @media(max-width:390px){.staycation-room-card__options{grid-template-columns:1fr}}
+
+
+/* Accessible, high-contrast five-star review ratings */
+.review-card__stars.review-rating { display: flex; align-items: center; gap: 5px; min-height: 26px; }
+.review-card__stars .review-star { font-size: 21px; line-height: 1.2; letter-spacing: 0; opacity: 1; }
+.review-card__stars .review-star--filled { color: #f5c453; text-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.review-card__stars .review-star--empty { color: #cbd5d1; text-shadow: 0 1px 2px rgba(0,0,0,.22); }
+.customer-review-form .review-star-picker button,
+.booking-review-form .review-star-picker button { color: #667a72; font-size: 32px; line-height: 1.2; }
+.customer-review-form .review-star-picker button.is-selected,
+.booking-review-form .review-star-picker button.is-selected { color: #b37a12; }
+.customer-review-form .review-star-picker button:hover,
+.booking-review-form .review-star-picker button:hover { filter: brightness(.9); }
