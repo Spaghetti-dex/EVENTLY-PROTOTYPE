@@ -1491,6 +1491,7 @@ function ReservationFlow({
   const [adults, setAdults] = useState(initialDraft.adults ?? 2);
   const [children, setChildren] = useState(initialDraft.children ?? 0);
   const [rooms, setRooms] = useState(initialDraft.rooms ?? 1);
+  const [selectedRoomPackageId, setSelectedRoomPackageId] = useState("");
   const [nights, setNights] = useState(initialDraft.nights ?? 1);
   const [cottageSelected, setCottageSelected] = useState(initialDraft.cottageSelected ?? false);
   const [poolAccessSelected, setPoolAccessSelected] = useState(initialDraft.poolAccessSelected ?? false);
@@ -1856,7 +1857,9 @@ function ReservationFlow({
     .filter((item) => normalizedService(item.service_type) === "resort" && item.package_category?.trim().toLowerCase() === "event_venue")
     .map((item) => `${resortVenueTier(item.name) === "non_aircon" ? "Non-Aircon" : "Aircon"} ${formatPhp(Number(item.price) || 0)} / ${Number(item.duration_minutes) ? `${Number(item.duration_minutes) / 60} hours` : "configured duration"}`)
     .join(" · ");
-  const packageChoice = packageOptions.find((item) => item.id === selectedPackageId)
+  const packageChoice = (service === "Swimming Pool" && staycationChoice && staycationChoice !== "venue"
+    ? packageOptions.find((item) => staycationTourKey(item.name) === staycationChoice)
+    : undefined) ?? packageOptions.find((item) => item.id === selectedPackageId)
     ?? packageOptions.find((item) => item.name === selectedPackageId);
   const isPoolPackage = service === "Swimming Pool" || Boolean(packageChoice && (
     ["4ae972a8-6503-4776-90c9-899246cbc4dc", "5afda244-a615-4bd3-98eb-d360d000100b", "925a1e5e-e59b-41d5-9b7a-f63fe74fe0f8"].includes(packageChoice.id)
@@ -2073,6 +2076,8 @@ function ReservationFlow({
   const poolAccessPricingReady = !poolAccessEligibleService || Number(packageChoice?.pool_access_fee) === 5000;
   const paymentSubmissionStarted = Boolean(paymentProof);
   const poolAccessFee = poolAccessSelected && poolAccessEligibleService ? Number(packageChoice?.pool_access_fee ?? 0) : 0;
+  const optionalRoomPackage = service === "Swimming Pool" ? staycationRoomPackages.find((room) => room.id === selectedRoomPackageId) : undefined;
+  const optionalRoomTotal = optionalRoomPackage ? Number(optionalRoomPackage.price) * rooms * nights : 0;
   const packagePrice = !packageChoice
     ? 0
     : activeService?.quantityMode === "items"
@@ -2102,7 +2107,7 @@ function ReservationFlow({
       return total + Number(item?.price ?? 0) * guests;
     }, 0)
     : 0;
-  const subtotal = packagePrice + cottageFee + poolAccessFee + addOnTotal + selectedMenuTotal;
+  const subtotal = packagePrice + optionalRoomTotal + cottageFee + poolAccessFee + addOnTotal + selectedMenuTotal;
   const menuOptions = cateringMenu.map(({ key }) => ({
     key,
     items: menuCatalogState === "legacy"
@@ -2393,8 +2398,9 @@ function ReservationFlow({
               cottage_addon_id: cottageSelected ? packageChoice.cottage_addon_id : null,
               pool_access_selected: poolAccessSelected,
               item_quantity: itemQuantity,
-              rooms,
+              rooms: service === "Swimming Pool" && !optionalRoomPackage ? 0 : rooms,
               nights,
+              room_package_id: optionalRoomPackage?.id ?? null,
               special_requests: specialRequests.trim() || null,
               delivery_address: cateringWithoutVenue ? { street: deliveryStreet.trim(), barangay: deliveryBarangay.trim(), city: deliveryCity } : null,
             },
@@ -2751,8 +2757,8 @@ function ReservationFlow({
               <div className="booking-step booking-step--enter">
                 <div className="booking-step__heading">
                   <span>Step 3 of {steps.length}</span>
-                  <h3>{service === "Resort Venue Only" ? "Choose your VENICE Resort venue" : service === "Event" ? "Choose your events place" : service === "Swimming Pool" ? "Choose your tour time slot" : service === "Catering" ? "Choose your catering package" : "Pick your package"}</h3>
-                  <p>{service === "Event" ? "Choose one of three venue-only locations. Catering, meals, decorations and waiters are not included. Prices below are demonstration estimates." : service === "Swimming Pool" ? "Tour hours are fixed and cannot be changed." : "Each package can be refined with our team after your reservation."}</p>
+                  <h3>{service === "Resort Venue Only" ? "Choose your VENICE Resort venue" : service === "Event" ? "Choose your events place" : service === "Swimming Pool" ? "Your selected tour and optional rooms" : service === "Catering" ? "Choose your catering package" : "Pick your package"}</h3>
+                  <p>{service === "Event" ? "Choose one of three venue-only locations. Catering, meals, decorations and waiters are not included. Prices below are demonstration estimates." : service === "Swimming Pool" ? "Your tour was selected in Step 1. Review its rate and optionally request accommodation below." : "Each package can be refined with our team after your reservation."}</p>
                 </div>
                 {["Room Accommodation", "Resort Venue Only"].includes(service) && <div className="booking-policy-notice"><strong>VENICE Resort · Sariaya, Quezon</strong><p>{sariayaLocation}. This is separate from the three Events Place locations on Daffodil and Amarillo Streets.</p>{service === "Resort Venue Only" && <p>Choose Aircon or Non-Aircon venue rental. Catering is not included; Pool Access is optional for ₱5,000. Venue capacity requires Owner confirmation.</p>}</div>}
                 {service === "Catering" && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Customers must request any cancellation or rescheduling at least 3 days (72 hours) before their scheduled catering event. Rescheduling requests are subject to Administrator approval.</p></div>}
@@ -2774,7 +2780,7 @@ function ReservationFlow({
                     </button>;
                   })}
                 </div> : <div className="tier-grid">
-                  {orderedPackageOptions.map((tier, index) => {
+                  {(service === "Swimming Pool" && packageChoice ? [packageChoice] : orderedPackageOptions).map((tier, index) => {
                     return (
                       <button
                         className={`tier-card ${packageChoice?.id === tier.id ? "tier-card--selected" : ""}`}
@@ -2862,6 +2868,11 @@ function ReservationFlow({
                     <label><span>Quantity</span><input aria-label="Tray quantity" min="1" onChange={(event) => setItemQuantity(Math.max(1, Number(event.target.value)))} type="number" value={itemQuantity} /></label>
                   </div>
                 )}
+                {service === "Swimming Pool" && packageChoice && <div className="booking-quantity-panel" aria-label="Optional room accommodation">
+                  <div><strong>Optional Room Accommodation</strong><span>Rooms are separate from tour admission. Subject to availability and administrator confirmation.</span></div>
+                  <label><span>Room type</span><select value={selectedRoomPackageId} onChange={(event) => { setSelectedRoomPackageId(event.target.value); setRooms(1); }}><option value="">No room accommodation</option>{staycationRoomPackages.map((room) => <option key={room.id} value={room.id}>{room.name} — {currency(Number(room.price) || 0)} / room / night</option>)}</select></label>
+                  {selectedRoomPackageId && <><label><span>Rooms (maximum 6)</span><input type="number" min="1" max="6" value={rooms} onChange={(event) => setRooms(Math.min(6, Math.max(1, Number(event.target.value) || 1)))} /></label><label><span>Nights</span><input type="number" min="1" max="365" value={nights} onChange={(event) => setNights(Math.min(365, Math.max(1, Number(event.target.value) || 1)))} /></label><small>Room requests require a separate inventory check before confirmation.</small></>}
+                </div>}
                 {packageChoice && activeService?.quantityMode === "tour" && (
                   <div className="booking-quantity-panel">
                     {service === "Swimming Pool" && !poolCapacityRecordReady && <div className="booking-inline-error" role="status">Pool bookings are paused until the Administrator verifies and audits the physical maximum capacity. The legacy guest_capacity value is not treated as a confirmed pool maximum.</div>}
@@ -3088,6 +3099,7 @@ function ReservationFlow({
                 <div className="review-price-summary">
                   <div><span>{service === "Swimming Pool" ? "Entrance charge" : "Base package price"}</span><strong>{currency(packagePrice)}</strong></div>
                   {cottageFee > 0 && <div><span>Cottage</span><strong>{currency(cottageFee)}</strong></div>}
+                  {optionalRoomPackage && <div><span>Requested rooms · {rooms} × {nights} night(s)</span><strong>{currency(optionalRoomTotal)}</strong></div>}
                   <div><span>Add-on subtotal</span><strong>{currency(addOnTotal)}</strong></div>
                   {poolAccessFee > 0 && <div><span>Optional pool access</span><strong>{currency(poolAccessFee)}</strong></div>}
                   <div><span>Total booking amount</span><strong>{currency(subtotal)}</strong></div>
