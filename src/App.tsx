@@ -2714,7 +2714,7 @@ function ReservationFlow({
                   <span><i className="status-dot status-dot--available" />Available</span>
                   <span><i className="status-dot status-dot--reserved" />Reserved</span>
                   <span><i className="status-dot status-dot--unavailable" />Unavailable (booked)</span>
-                  <span><i className="status-dot status-dot--unavailable" />🔒 Advance booking restriction ({advanceBookingDays} days)</span>
+                  <span><i className="status-dot status-dot--restricted" />Date restricted ({advanceBookingDays}-day notice)</span>
                 </div>
                 <p className="calendar-context-note"><strong>Advance booking notice:</strong> Reservations must be made at least {advanceBookingDays} calendar days before the event. The earliest selectable date is {earliestBookingDate.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}.</p>
                 {!packageChoice && <p className="calendar-context-note">Choose a package or venue in the next step to see its specific booked dates and time overlaps. Return to this calendar after selecting it.</p>}
@@ -2758,7 +2758,7 @@ function ReservationFlow({
                         selectedDate?.getDate() === day;
                       return (
                         <button
-                          className={`calendar-day calendar-day--${advanceRestricted ? "unavailable" : status} ${advanceRestricted ? "calendar-day--advance-restricted" : ""} ${isSelected ? "calendar-day--selected" : ""}`}
+                          className={`calendar-day calendar-day--${advanceRestricted ? "restricted" : status} ${advanceRestricted ? "calendar-day--advance-restricted" : ""} ${isSelected ? "calendar-day--selected" : ""}`}
                           disabled={status === "unavailable" || advanceRestricted}
                           key={day}
                           onClick={() => selectDate(day)}
@@ -2766,7 +2766,7 @@ function ReservationFlow({
                           aria-label={`${month.toLocaleDateString("en-PH", { month: "long" })} ${day}, ${restrictionReason}`}
                           title={restrictionReason}
                         >
-                          <span>{day}</span>{advanceRestricted ? <span aria-hidden="true" style={{ fontSize: "0.7em", lineHeight: 1 }}>🔒</span> : <i />}
+                          <span>{day}</span><i />
                         </button>
                       );
                     })}
