@@ -2668,7 +2668,7 @@ function ReservationFlow({
                       ? "EVENTLY will confirm an available room and check-in/check-out schedule before approving your reservation."
                       : "EVENTLY will confirm the appropriate venue or resource and event schedule before approving your reservation."}</p>
                 )}
-                {packageChoice && poolAccessEligibleService && packageChoice.pool_access_fee === 5000 && (
+                {packageChoice && poolAccessEligibleService && Number(packageChoice.pool_access_fee) === 5000 && (
                   <label className="booking-pool-access"><input checked={poolAccessSelected} onChange={(event) => setPoolAccessSelected(event.target.checked)} type="checkbox" /><span>Add optional pool access</span><strong>{currency(packageChoice.pool_access_fee ?? 0)}</strong></label>
                 )}
                 {packageChoice && hasIncludedMenu && (
