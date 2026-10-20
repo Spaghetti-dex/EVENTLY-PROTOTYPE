@@ -3862,3 +3862,8 @@ section[id] { scroll-margin-top: 88px; }
   .service-photo-showcase--right .resort-showcase__content { left: auto; right: clamp(24px, 9vw, 140px); width: min(610px, 42vw); }
   .service-photo-showcase--right .resort-showcase__overlay { background: linear-gradient(270deg, rgba(7,47,40,.88), rgba(12,58,51,.48) 55%, rgba(11,49,43,.06)); }
 }
+
+/* Advance-booking restrictions are visually distinct from occupied dates. */
+.availability-legend .status-dot--restricted { background: #b88732; }
+.calendar-day--restricted { background: rgba(184,135,50,.13); border: 1px dashed rgba(184,135,50,.55); color: #93641d; cursor: not-allowed; text-decoration: none; }
+.calendar-day--restricted i { background: #b88732; }
