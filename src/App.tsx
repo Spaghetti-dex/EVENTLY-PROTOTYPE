@@ -5524,44 +5524,6 @@ function Homepage() {
         </div>
       </section>
 
-      <section className="packages-section" id="packages">
-        <div className="packages-heading" data-reveal>
-          <div>
-            <span className="section-kicker">Thoughtfully bundled</span>
-            <h2>Choose your kind<br />of <em>celebration.</em></h2>
-          </div>
-          <p>Start with a package, then make it personal with the help of our Venice team.</p>
-        </div>
-        <div className="package-grid stagger-group" data-reveal>
-          <article className="package-card package-card--1 catering-events-package-card" key="catering-events-place">
-            <PhotoPlaceholder context="Event + Catering Photo" compact className="package-card__photo" />
-            <span className="package-card__type">Catering &amp; Events Place</span>
-            <h3>Celebrate Your Way</h3>
-            <p>Book one of our existing venue packages with catering, or order catering for your own venue.</p>
-            <div className="catering-events-package-card__choices">
-              <button data-booking-cta="true" onClick={() => chooseService("Catering")} type="button"><strong>Catering with Venue</strong><small>Packages include venue, catering and ulam selection</small><span>Explore packages <Icon name="arrow" size={15} /></span></button>
-              <button data-booking-cta="true" onClick={() => chooseService("Catering")} type="button"><strong>Catering Only (Without Venue)</strong><small>For a customer-provided venue</small><span>Order Catering Without Venue <Icon name="arrow" size={15} /></span><b>Price to be announced</b></button>
-              <button data-booking-cta="true" onClick={() => chooseService("Food Orders & Party Trays")} type="button"><strong>Food Orders &amp; Party Trays</strong><small>Choose individual ulam trays, desserts and drinks for pickup or Metro Manila delivery.</small><span>Create my order <Icon name="arrow" size={15} /></span></button>
-            </div>
-          </article>
-          {serviceCatalog.filter((serviceOption) => !["Catering", "Event", "Food Orders & Party Trays"].includes(serviceOption.id)).map((serviceOption, index) => {
-            const firstPackage = serviceOption.packages[0];
-            const lowestPrice = Math.min(...serviceOption.packages.map((item) => item.price).filter((price) => price > 0));
-            return (
-            <article className={`package-card package-card--${index + 2}`} key={serviceOption.id}>
-              <PhotoPlaceholder context={serviceOption.imageContext} compact className="package-card__photo" />
-              <span className="package-card__type">{serviceOption.label}</span>
-              <h3>{firstPackage.name}</h3>
-              <p>{firstPackage.detail}. {firstPackage.inclusions.join(" · ")}.</p>
-              <div className="package-card__detail"><Icon name="people" size={18} /> {firstPackage.priceLabel ?? `Packages from ${formatPhp(lowestPrice)}`}</div>
-              <button className="package-card__link" data-booking-cta="true" onClick={() => chooseService(serviceOption.id)} type="button">
-                View packages <Icon name="arrow" size={18} />
-              </button>
-            </article>
-          )})}
-        </div>
-      </section>
-
       <section className="gallery-section" id="gallery">
         <div className="gallery-heading" data-reveal>
           <span className="section-kicker">A glimpse of Venice</span>
