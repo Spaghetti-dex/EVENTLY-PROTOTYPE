@@ -861,3 +861,93 @@
 @media(max-width:1000px){.evently-admin .team-extras{grid-template-columns:1fr}.evently-admin .team-permissions{grid-template-columns:1fr}}
 @media(max-width:750px){.evently-admin .team-columns{grid-template-columns:1fr}.evently-admin .team-list{border-right:0;border-bottom:1px solid #e2eaeb}.evently-admin .team-list-items{max-height:250px}.evently-admin .team-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.evently-admin .team-stats{grid-template-columns:1fr}.evently-admin .team-header-actions{width:100%}.evently-admin .team-header-actions button{flex:1}.evently-admin .team-details{padding:19px}.evently-admin .team-workspace-title{padding:18px}.evently-admin .team-count{display:none}}
+
+
+/* Accessible operational pages — shared Admin and Staff presentation layer.
+   Typography and visual hierarchy only; existing actions and permissions unchanged. */
+.evently-admin {
+  --admin-bg: #f4f7f7;
+  --admin-ink: #193b40;
+  --admin-muted: #526b72;
+  --admin-border: #dce6e7;
+  --admin-surface: #ffffff;
+  --admin-surface-muted: #f4f8f8;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.evently-admin .admin-content { max-width: 1550px; padding: 30px clamp(18px, 3vw, 44px) 56px; }
+.evently-admin .admin-page-heading { gap: 18px; align-items: center; margin-bottom: 24px; }
+.evently-admin .admin-page-heading span { font-size: 12px; font-weight: 800; letter-spacing: .085em; color: #24766f; }
+.evently-admin .admin-page-heading h1 { font-size: clamp(27px, 2.6vw, 35px); line-height: 1.25; letter-spacing: -.025em; color: #1a373e; }
+.evently-admin .admin-page-heading p { color: #526a72; font-size: 15px; line-height: 1.55; }
+.evently-admin .admin-card { background: #fff; border-color: #dce6e7; border-radius: 14px; box-shadow: 0 3px 18px rgba(28,57,66,.045); }
+.evently-admin .admin-card-heading { gap: 16px; flex-wrap: wrap; margin-bottom: 17px; }
+.evently-admin .admin-card-heading h2, .evently-admin .admin-schema-note h2, .evently-admin .admin-password-card h2 { color: #1c3a43; font-size: 19px; line-height: 1.35; font-weight: 750; letter-spacing: -.015em; }
+.evently-admin .admin-card-heading p, .evently-admin .admin-schema-note p, .evently-admin .admin-password-card p { color: #536c73; font-size: 14px; line-height: 1.5; }
+.evently-admin .admin-search { min-width: min(100%,260px); }
+.evently-admin .admin-search input, .evently-admin .admin-password-card input, .evently-admin .admin-table-tools input, .evently-admin .admin-table-tools select,
+.evently-admin .staff-table-tools input, .evently-admin .staff-table-tools select,
+.evently-admin .staff-date-filter input, .evently-admin .admin-filter-select, .evently-admin .admin-toolbar select {
+  min-height: 44px; border-color: #ccd9dc; border-radius: 10px; background: #fff;
+  font-size: 14px; color: #1d4048; padding: 10px 12px; line-height: 1.4;
+}
+.evently-admin input::placeholder { color: #728891; opacity: 1; }
+.evently-admin .admin-secondary-button, .evently-admin .admin-quiet-button { min-height: 42px; padding: 10px 14px; font-size: 14px; font-weight: 700; border-radius: 9px; }
+.evently-admin .admin-filter-tabs button, .evently-admin .admin-status-tabs button { min-height: 42px; padding: 10px 14px; font-size: 14px; font-weight: 650; }
+.evently-admin .admin-table-scroll { max-width: 100%; border-radius: 0 0 12px 12px; }
+.evently-admin .admin-table-scroll table { width: 100%; min-width: 900px; border-collapse: separate; border-spacing: 0; }
+.evently-admin .admin-table-scroll th { background: #f0f5f5; color: #395c66; font-size: 12px; font-weight: 800; letter-spacing: .05em; line-height: 1.35; text-align: left; padding: 15px 16px; vertical-align: middle; white-space: normal; }
+.evently-admin .admin-table-scroll td { color: #284850; font-size: 14px; font-weight: 450; line-height: 1.5; padding: 15px 16px; max-width: 300px; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; vertical-align: middle; border-top: 1px solid #e7eeee; }
+.evently-admin .admin-table-scroll td strong { color: #1b3c47; font-size: 14px; font-weight: 750; }
+.evently-admin .admin-table-scroll td small { display: block; margin-top: 4px; font-size: 13px; line-height: 1.4; color: #567078; }
+.evently-admin .admin-table-scroll tbody tr:hover td { background: #f6faf9; }
+.evently-admin .admin-row-action { font-size: 14px; font-weight: 700; min-height: 36px; padding: 7px 10px; }
+.evently-admin .admin-action-menu__trigger { width: 42px; height: 42px; font-size: 23px; border: 1px solid #ccdadd; border-radius: 10px; }
+.evently-admin .admin-action-menu__items { padding: 7px; min-width: 218px; border-color: #d4e0e2; border-radius: 12px; box-shadow: 0 18px 46px rgba(23,57,64,.16); }
+.evently-admin .admin-action-menu__items button { min-height: 42px; padding: 11px 13px; font-size: 14px; line-height: 1.4; color: #20434b; border-radius: 8px; }
+.evently-admin .admin-action-menu__items button:hover { background: #edf7f5; }
+.evently-admin .admin-action-menu__items button:focus-visible { outline: 2px solid #128b80; outline-offset: -2px; }
+.evently-admin .admin-status { font-size: 12px; line-height: 1.3; padding: 7px 11px; font-weight: 750; }
+.evently-admin .admin-status::before { height: 6px; width: 6px; margin-right: 6px; }
+.evently-admin .admin-pagination { gap: 14px; flex-wrap: wrap; font-size: 14px; padding: 16px 20px; color: #48626b; }
+.evently-admin .admin-pagination button, .evently-admin .admin-pagination b { font-size: 14px; }
+.evently-admin .admin-pagination button { min-height: 38px; padding: 8px 13px; }
+.evently-admin .admin-empty { min-height: 190px; }
+.evently-admin .admin-empty strong, .evently-admin .admin-state strong { font-size: 18px; }
+.evently-admin .admin-empty p, .evently-admin .admin-state p { font-size: 14px; line-height: 1.55; }
+.evently-admin .admin-detail-drawer { width: min(640px, 100%); padding: clamp(20px, 2.5vw, 32px); background: #fff; color: #20414a; }
+.evently-admin .admin-drawer-heading { gap: 18px; padding-bottom: 22px; }
+.evently-admin .admin-drawer-heading span { font-size: 12px; font-weight: 800; letter-spacing: .08em; color: #157e73; }
+.evently-admin .admin-drawer-heading h2 { font-size: clamp(23px, 2.2vw, 29px); line-height: 1.3; font-weight: 800; color: #173742; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.evently-admin .admin-drawer-heading button { min-height: 42px; padding: 8px 14px; font-size: 14px; border-radius: 9px; color: #25454e; }
+.evently-admin .admin-detail-section { padding: 24px 0 18px; }
+.evently-admin .admin-detail-section h3 { color: #13796f; font-size: 13px; font-weight: 800; letter-spacing: .06em; line-height: 1.4; margin-bottom: 13px; }
+.evently-admin .admin-detail-drawer dl div { display: grid; grid-template-columns: minmax(140px, 39%) minmax(0,1fr); align-items: baseline; gap: 14px; padding: 12px 4px; border-bottom: 1px solid #eef1f2; }
+.evently-admin .admin-detail-drawer dt { color: #527078; font-size: 13px; font-weight: 650; line-height: 1.45; }
+.evently-admin .admin-detail-drawer dd { color: #233e48; font-size: 15px; line-height: 1.55; font-weight: 550; margin: 0; overflow-wrap: anywhere; }
+.evently-admin .admin-detail-drawer p, .evently-admin .admin-detail-drawer label, .evently-admin .admin-detail-drawer input, .evently-admin .admin-detail-drawer select, .evently-admin .admin-detail-drawer textarea { font-size: 14px; line-height: 1.55; }
+.evently-admin .admin-detail-drawer button { font-size: 14px; }
+.evently-admin .staff-table-tools > label > span, .evently-admin .staff-date-filter > span { color: #48666d; font-size: 12px; font-weight: 800; letter-spacing: .05em; }
+.evently-admin .staff-table-tools { gap: 14px; padding: 4px 20px 19px; }
+.evently-admin .staff-dashboard-table { margin-top: 20px; }
+.evently-admin .staff-portal .admin-stat-grid article > span { font-size: 14px; color: #526a72; }
+.evently-admin .staff-portal .admin-stat-grid article { padding: 22px; min-height: 146px; }
+.evently-admin .staff-portal .staff-quick-actions button { font-size: 14px; min-height: 43px; }
+.evently-admin .staff-portal-badge { font-size: 12px; line-height: 1.3; }
+.evently-admin .staff-portal .admin-card-heading > button { font-size: 14px; }
+.evently-admin .admin-sidebar nav button { font-size: 14px; line-height: 1.4; min-height: 42px; }
+.evently-admin .admin-sidebar-footer strong { font-size: 13px; }
+.evently-admin .admin-sidebar-footer small { font-size: 12px; }
+.evently-admin .admin-logo small { font-size: 11px; }
+.evently-admin :is(button,input,select,textarea,a):focus-visible { outline: 3px solid #19a99b; outline-offset: 2px; }
+@media (max-width: 800px) {
+ .evently-admin .admin-content { padding: 20px 14px 42px; }
+ .evently-admin .admin-table-scroll table { min-width: 780px; }
+ .evently-admin .admin-detail-drawer dl div { grid-template-columns: minmax(110px, 36%) minmax(0, 1fr); }
+ .evently-admin .admin-table-scroll td, .evently-admin .admin-table-scroll th { padding: 13px 12px; }
+}
+@media (max-width: 480px) {
+ .evently-admin .admin-detail-drawer dl div { grid-template-columns: 1fr; gap: 3px; }
+ .evently-admin .admin-drawer-heading h2 { font-size: 22px; }
+ .evently-admin .admin-page-heading h1 { font-size: 26px; }
+}
