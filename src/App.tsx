@@ -2102,7 +2102,8 @@ function ReservationFlow({
   const paymentSubmissionStarted = Boolean(paymentProof);
   const poolAccessFee = poolAccessSelected && poolAccessEligibleService ? Number(packageChoice?.pool_access_fee ?? 0) : 0;
   const optionalRoomPackage = service === "Swimming Pool" ? staycationRoomPackages.find((room) => room.id === selectedRoomPackageId) : undefined;
-  const tourAccommodationChosen = service !== "Swimming Pool" || cottageSelected || Boolean(optionalRoomPackage);
+  const isSharedPoolTour = service === "Swimming Pool" && Boolean(packageChoice && /^(day|night) tour/i.test(packageChoice.name));
+  const tourAccommodationChosen = !isSharedPoolTour || cottageSelected || Boolean(optionalRoomPackage);
   const optionalRoomTotal = optionalRoomPackage ? Number(optionalRoomPackage.price) * rooms * nights : 0;
   const packagePrice = !packageChoice
     ? 0
@@ -2903,7 +2904,7 @@ function ReservationFlow({
                 )}
                 {service === "Swimming Pool" && packageChoice && <section className="staycation-room-card" aria-label="Optional room accommodation">
                   <div className="staycation-room-card__header">
-                    <div><span className="staycation-room-card__eyebrow">MAKE YOUR VISIT MORE COMFORTABLE</span><h4>Choose Your Accommodation <span>Required</span></h4><p>Select Cottage, Kubo Room, or Standard Room to continue.</p></div>
+                    <div><span className="staycation-room-card__eyebrow">MAKE YOUR VISIT MORE COMFORTABLE</span><h4>Choose Your Accommodation <span>{isSharedPoolTour ? "Required" : "Optional"}</span></h4><p>{isSharedPoolTour ? "Select Cottage, Kubo Room, or Standard Room to continue." : "You may add Cottage, Kubo Room, or Standard Room to your overnight tour."}</p></div>
                     <div className="staycation-room-card__symbol"><Icon name="building" size={24} /></div>
                   </div>
                   <div className="staycation-room-card__options" role="group" aria-label="Choose room accommodation">
