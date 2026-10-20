@@ -1161,8 +1161,7 @@ const normalizeMenuCategory = (value: unknown) => {
 };
 
 const requiredMenuCategories = cateringMenu.map(({ key }) => key);
-const hasCustomMenuSelection = (value: string | undefined) => Boolean(value?.startsWith("Others: "));
-const completedMenuSelection = (value: string | undefined) => Boolean(value?.trim() && (!hasCustomMenuSelection(value) || value.slice(8).trim().length >= 2));
+const completedMenuSelection = (value: string | undefined) => Boolean(value?.trim());
 
 // Keep derived legacy bindings during Fast Refresh so a component retained from
 // an earlier module version cannot crash while Vite swaps in the new catalog.
@@ -1376,7 +1375,6 @@ function ReservationFlow({
   const [endTime, setEndTime] = useState(initialDraft.endTime ?? "");
   const [menuSelections, setMenuSelections] = useState<Record<string, string>>(initialDraft.menuSelections ?? {});
   const [activeMenuCategory, setActiveMenuCategory] = useState("Beef");
-  const [customMenuCategory, setCustomMenuCategory] = useState("Beef");
   const [conflictReason, setConflictReason] = useState("");
   const [confirmationCode, setConfirmationCode] = useState("");
   const [createdReservation, setCreatedReservation] = useState<{ id: string; code: string; paymentDueAt?: string } | null>(null);
@@ -1581,7 +1579,7 @@ function ReservationFlow({
       ? new Set(cateringMenu.flatMap(({ key, items }) => items.map((name) => `${normalizeMenuCategory(key)}::${name.trim().toLowerCase()}`)))
       : new Set(databaseMenuItems.map((item) => `${normalizeMenuCategory(item.category)}::${item.name.trim().toLowerCase()}`));
     setMenuSelections((current) => Object.fromEntries(
-      Object.entries(current).filter(([category, name]) => (hasCustomMenuSelection(name) || availableItems.has(`${normalizeMenuCategory(category)}::${name.trim().toLowerCase()}`))),
+      Object.entries(current).filter(([category, name]) => availableItems.has(`${normalizeMenuCategory(category)}::${name.trim().toLowerCase()}`)),
     ));
   }, [databaseMenuItems, menuCatalogState]);
 
@@ -2804,48 +2802,7 @@ function ReservationFlow({
                       <span>{completedMenuSelection(menuSelections[key]) ? "✓" : requiredMenuCategories.indexOf(key) + 1}</span>{key}
                     </button>
                   ))}
-                  <button
-                    aria-selected={activeMenuCategory === "Others"}
-                    className={activeMenuCategory === "Others" ? "menu-category-tab--active" : ""}
-                    onClick={() => setActiveMenuCategory("Others")}
-                    role="tab"
-                    type="button"
-                  >
-                    <span>{requiredMenuCategories.some((key) => hasCustomMenuSelection(menuSelections[key])) ? "✓" : "+"}</span>Others
-                  </button>
                 </div>
-                {activeMenuCategory === "Others" && (
-                  <div className="ulam-category-panel" role="tabpanel">
-                    <div className="ulam-category-panel__heading">
-                      <div><span>CUSTOM MENU</span><h4>Request another dish or drink</h4></div>
-                      <small>Optional customization</small>
-                    </div>
-                    <div className="ulam-custom-request" style={{ display: "grid", gap: 16, padding: 20, background: "#f7faf8", border: "1px solid #cbded8", borderRadius: 14 }}>
-                      <p style={{ margin: 0, color: "#3a5c56", fontSize: 15 }}>Choose which menu category you want to customize, then enter your preferred dish. This replaces the selection for that category.</p>
-                      <label style={{ display: "grid", gap: 7, color: "#204b43", fontSize: 14, fontWeight: 700 }}>
-                        Menu category
-                        <select value={customMenuCategory} onChange={(event) => setCustomMenuCategory(event.target.value)} style={{ width: "100%", minHeight: 46, border: "1px solid #b9d0c9", borderRadius: 9, background: "white", color: "#204b43", padding: "10px 12px", fontSize: 15 }}>
-                          {requiredMenuCategories.map((key) => <option key={key} value={key}>{key}</option>)}
-                        </select>
-                      </label>
-                      <label style={{ display: "grid", gap: 7, color: "#204b43", fontSize: 14, fontWeight: 700 }}>
-                        Custom dish or drink
-                        <input
-                          type="text"
-                          maxLength={120}
-                          value={hasCustomMenuSelection(menuSelections[customMenuCategory]) ? menuSelections[customMenuCategory].slice(8) : ""}
-                          onChange={(event) => setMenuSelections((current) => ({ ...current, [customMenuCategory]: `Others: ${event.target.value}` }))}
-                          placeholder={`Type your preferred ${customMenuCategory.toLowerCase()} option`}
-                          style={{ width: "100%", minHeight: 46, padding: "10px 12px", border: "1px solid #b9d0c9", borderRadius: 9, background: "white", color: "#204b43", fontSize: 15 }}
-                        />
-                      </label>
-                      <small style={{ fontSize: 13, color: "#56726b", lineHeight: 1.5 }}>A custom request is subject to availability and confirmation. Any price adjustment must be reviewed before approval.</small>
-                      {hasCustomMenuSelection(menuSelections[customMenuCategory]) && (
-                        <button type="button" className="booking-back" onClick={() => setMenuSelections((current) => { const next = { ...current }; delete next[customMenuCategory]; return next; })} style={{ justifySelf: "start" }}>Clear custom {customMenuCategory.toLowerCase()} request</button>
-                      )}
-                    </div>
-                  </div>
-                )}
                 {menuOptions.filter(({ key }) => key === activeMenuCategory).map(({ key, items }) => (
                   <div className="ulam-category-panel" key={key} role="tabpanel">
                     <div className="ulam-category-panel__heading">
@@ -2867,7 +2824,7 @@ function ReservationFlow({
                           <span className="ulam-choice-card__check">✓</span>
                         </label>
                       ))}
-                    </div> : menuCatalogState === "ready" ? <p className="menu-catalog-empty"><strong>No available items in this category</strong><span>You can request a custom option from the Others tab.</span></p> : null}
+                    </div> : menuCatalogState === "ready" ? <p className="menu-catalog-empty"><strong>No available items in this category</strong><span>Please contact Venice if this category has no available dishes.</span></p> : null}
 
                   </div>
                 ))}
@@ -2878,7 +2835,7 @@ function ReservationFlow({
                     <li className="menu-selection-complete"><span>Rice</span><strong>Included</strong></li>
                   </ul>
                   {selectedMenuTotal > 0 && <p>Menu price: {currency(selectedMenuTotal)} for {guests} guests.</p>}
-                  {!menuComplete && <p>Select all eight menu categories. For Others, enter a specific dish or drink to continue.</p>}
+                  {!menuComplete && <p>Select one available dish from each of the eight menu categories to continue.</p>}
                 </aside>
               </div>
             )}
