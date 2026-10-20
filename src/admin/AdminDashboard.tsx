@@ -1763,7 +1763,7 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
             <div><dt>Requested time</dt><dd>{String(row.requested_time ?? "To be confirmed").slice(0,5)}</dd></div>
             <div><dt>Customer</dt><dd>{show(first(row,["customer_name","_customer_name"]))}</dd></div>
             <div><dt>Contact</dt><dd>{show(row.customer_phone)}</dd></div>
-            {row.delivery_address && typeof row.delivery_address === "object" && (()=>{const address=row.delivery_address as Row;return <div><dt>Delivery address</dt><dd>{[address.street,"Brgy. "+String(address.barangay??""),address.city,"Metro Manila"].filter(Boolean).join(", ")}</dd></div>})()}
+            {Boolean(row.delivery_address) && typeof row.delivery_address === "object" && (()=>{const address=row.delivery_address as Row;return <div><dt>Delivery address</dt><dd>{[address.street,"Brgy. "+String(address.barangay??""),address.city,"Metro Manila"].filter(Boolean).join(", ")}</dd></div>})()}
             <div><dt>Payment</dt><dd>{show(row.payment_status)} · {money.format(Number(row.remaining_balance??0))} balance</dd></div>
           </dl>
           <h3>Selected dishes, desserts and drinks</h3>
