@@ -1388,7 +1388,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
       <button type="button" className="booking-back" onClick={onBack}>← Change catering type</button>
       <span>FOOD ORDERS &amp; PARTY TRAYS</span>
       <h3>Pick your favorites. Build your own order.</h3>
-      <p>Order any combination of Venice\'s listed ulam, noodles, desserts and drinks. Each selection has its own per-tray or per-container price; you pay for only what you choose. Listed prices are initial estimates that the Owner can adjust.</p>
+      <p>Order any combination of Venice's listed ulam, noodles, desserts and drinks. Each selection has its own per-tray or per-container price; you pay for only what you choose. Listed prices are initial estimates that the Owner can adjust.</p>
     </div>
     {loadError && <div role="alert" className="booking-inline-error">Menu unavailable: {loadError}</div>}
     {loading ? <p>Loading Venice's available food menu…</p> : !items.length ? <p>No individually priced menu items are available. Please contact Venice.</p> : <>
@@ -5481,7 +5481,7 @@ function Homepage() {
               <button data-booking-cta="true" onClick={() => chooseService("Food Orders & Party Trays")} type="button"><strong>Food Orders &amp; Party Trays</strong><small>Choose individual ulam trays, desserts and drinks for pickup or Metro Manila delivery.</small><span>Create my order <Icon name="arrow" size={15} /></span></button>
             </div>
           </article>
-          {serviceCatalog.filter((serviceOption) => !["Catering", "Event"].includes(serviceOption.id)).map((serviceOption, index) => {
+          {serviceCatalog.filter((serviceOption) => !["Catering", "Event", "Food Orders & Party Trays"].includes(serviceOption.id)).map((serviceOption, index) => {
             const firstPackage = serviceOption.packages[0];
             const lowestPrice = Math.min(...serviceOption.packages.map((item) => item.price).filter((price) => price > 0));
             return (
