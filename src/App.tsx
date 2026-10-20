@@ -5539,7 +5539,7 @@ function Homepage() {
           <div className="gallery-lightbox" role="dialog" aria-modal="true" aria-label="Gallery image">
             <button className="gallery-lightbox__backdrop" aria-label="Close image" onClick={() => setLightbox(null)} type="button" />
             <div className="gallery-lightbox__content">
-              <PhotoPlaceholder context={lightbox.context} className="gallery-lightbox__placeholder" />
+              {lightbox.context.startsWith("featured:") ? <img className="gallery-lightbox__placeholder" src={storyPhotos[lightbox.context.split(":")[1]]?.[Number(lightbox.context.split(":")[2])]} alt={lightbox.alt} /> : <PhotoPlaceholder context={lightbox.context} className="gallery-lightbox__placeholder" />}
               <span>{lightbox.alt}</span>
               <button aria-label="Close image" onClick={() => setLightbox(null)} type="button"><Icon name="close" /></button>
             </div>
