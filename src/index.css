@@ -3665,3 +3665,18 @@ section[id] { scroll-margin-top: 88px; }
   .history-card-actions { grid-template-columns: 1fr; }
   .history-card-actions button.history-card-actions__primary { grid-column: auto; }
 }
+
+
+/* Booking availability and Metro Manila delivery validation */
+.status-dot--unavailable { background:#89949a; }
+.calendar-day--unavailable { background:#e9edee; border-color:#d4dcdf; color:#66757c; cursor:not-allowed; text-decoration:none; }
+.calendar-day--unavailable i { background:#8d999f; }
+.calendar-day--unavailable:disabled { opacity:.78; }
+.calendar-day--reserved { background:#edf3fa; color:#315c89; border-color:#c9d9ed; }
+.calendar-context-note { margin:10px 0 16px; padding:12px 15px; background:#f2f8f6; border-left:3px solid #24766c; border-radius:9px; color:#385b59; font-size:13px; line-height:1.55; }
+.catering-delivery-panel { display:grid; gap:15px; padding:20px; background:#f4faf8; border:1px solid #b8d6ce; border-radius:12px; }
+.catering-delivery-panel>strong { color:#1c554e; font-size:18px; }
+.catering-delivery-panel>p { color:#4c6b66; font-size:14px; margin:0; line-height:1.5; }
+.catering-delivery-panel label { display:grid; gap:7px; color:#1e4842; font-weight:650; font-size:14px; }
+.catering-delivery-panel input,.catering-delivery-panel select { width:100%; min-height:46px; padding:11px 13px; border:1px solid #a9c8bf; background:white; border-radius:9px; font-size:15px; color:#213e3d; }
+.catering-delivery-panel small { color:#a34e2f; font-size:13px; }
