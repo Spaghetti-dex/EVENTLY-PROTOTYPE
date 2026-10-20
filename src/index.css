@@ -3745,3 +3745,5 @@ section[id] { scroll-margin-top: 88px; }
 .food-success button {background:#1b7766;color:#fff;padding:13px 20px;border-radius:9px;border:0;justify-self:start;font-size:14px;cursor:pointer}
 @media(max-width:900px){.food-order-layout{grid-template-columns:1fr}.food-order-cart{position:static}}
 @media(max-width:620px){.food-items-grid,.food-checkout-fields,.food-fulfillment-options{grid-template-columns:1fr}.food-checkout-fields label.food-wide{grid-column:auto}.food-composer__heading h3{font-size:26px}.food-item-card{min-height:unset}.food-order-details{padding:16px}.booking-time-picker{gap:4px;padding:7px}.booking-time-picker select{font-size:14px;padding:8px 4px}.booking-time-picker__clock{display:none}}
+
+.food-consent {display:flex;align-items:flex-start;gap:11px;font-size:14px;line-height:1.5;color:#234b42}.food-consent input {width:20px;height:20px;accent-color:#1a7b68;flex-shrink:0;margin-top:1px}.food-consent span {flex:1}
