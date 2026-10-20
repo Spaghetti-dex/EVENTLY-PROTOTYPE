@@ -998,11 +998,11 @@ const serviceCatalog: VeniceService[] = [
   {
     id: "Room Accommodation",
     label: "Room Accommodation",
-    description: "Comfortable rooms for guests who want to stay close.",
+    description: "Stay at VENICE Resort in Sitio Pontor, Bignay II, Sariaya, Quezon Province.",
     imageContext: "Resort Room Accommodation Photo",
     packages: [
       { name: "Standard Room", detail: "4–5 guests per room · ₱3,000 per room/night", inclusions: ["Configured check-in and checkout required", "Optional Pool Access ₱5,000"], price: 3000, priceLabel: "₱3,000 / room / night" },
-      { name: "Kubo Room", detail: "₱1,500 per room/night · no capacity limit configured", inclusions: ["Configured check-in and checkout required", "Optional Pool Access ₱5,000"], price: 1500, priceLabel: "₱1,500 / room / night" },
+      { name: "Kubo Room", detail: "₱1,500 per room/night · Kubo occupancy subject to Owner confirmation", inclusions: ["Configured check-in and checkout required", "Optional Pool Access ₱5,000"], price: 1500, priceLabel: "₱1,500 / room / night" },
     ],
     extras: [
       { name: "Extra mattress", price: 800 },
@@ -1012,7 +1012,7 @@ const serviceCatalog: VeniceService[] = [
   {
     id: "Resort Venue Only",
     label: "Venue Only",
-    description: "Reserve the resort venue without catering or bundled activities.",
+    description: "Venue-only rental at VENICE Resort, Sitio Pontor, Bignay II, Sariaya, Quezon Province. Catering is not included.",
     imageContext: "Pool & Resort Facilities Photo",
     packages: [
       { name: "Non-Air-Conditioned Venue", detail: "Venue-only access for 5 hours", inclusions: ["Venue access only", "Optional Pool Access ₱5,000"], price: 10000, priceLabel: "₱10,000" },
@@ -1047,7 +1047,7 @@ const mainCategoryForService = (serviceId: string): BookingMainCategory | null =
   return null;
 };
 const bookingSummaryCategory = (serviceId: string, cateringChoice: CateringChoice, staycationChoice: StaycationChoice = null) => {
-  if (cateringChoice === "with-venue" && serviceId === "Event") return "Catering + Events Place";
+  if (cateringChoice === "with-venue" && serviceId === "Event") return "Events Place · Venue Only";
   if (cateringChoice === "without-venue" && serviceId === "Catering") return "Catering Only";
   if (serviceId === "Swimming Pool" && staycationChoice) return `Staycation · ${staycationChoice === "day" ? "Day Tour" : staycationChoice === "night" ? "Night Tour" : "Overnight Tour"}`;
   if (serviceId === "Room Accommodation") return "Staycation · Room Accommodation";
@@ -2373,7 +2373,7 @@ function ReservationFlow({
                         {selected && cateringChoice !== "party-trays" && <div aria-label="Choose catering type" className="booking-catering-choices" role="group">
                           <button aria-pressed={cateringChoice === "with-venue"} className={`booking-catering-choice ${cateringChoice === "with-venue" ? "is-selected" : ""}`} onClick={() => { setCateringChoice("with-venue"); chooseBookingService("Event"); }} type="button">
                             <span className="booking-catering-choice__icon"><Icon name="building" size={19} /></span>
-                            <span className="booking-catering-choice__copy"><strong>Catering with Venue</strong><small>Enjoy catering services with an EVENTLY events place.</small></span>
+                            <span className="booking-catering-choice__copy"><strong>Events Place (Venue Only)</strong><small>Explore three Daffodil and Amarillo event venues. Catering is not included.</small></span>
                             <span className="booking-catering-choice__check">✓</span>
                           </button>
                           <button aria-pressed={cateringChoice === "without-venue"} className={`booking-catering-choice ${cateringChoice === "without-venue" ? "is-selected" : ""}`} onClick={() => { setCateringChoice("without-venue"); chooseBookingService("Catering"); }} type="button">
@@ -2534,7 +2534,7 @@ function ReservationFlow({
               <div className="booking-step booking-step--enter">
                 <div className="booking-step__heading">
                   <span>Step 3 of {steps.length}</span>
-                  <h3>{service === "Event" ? "Choose your events place" : service === "Swimming Pool" ? "Choose your tour time slot" : service === "Catering" ? "Choose your catering package" : "Pick your package"}</h3>
+                  <h3>{service === "Resort Venue Only" ? "Choose your VENICE Resort venue" : service === "Event" ? "Choose your events place" : service === "Swimming Pool" ? "Choose your tour time slot" : service === "Catering" ? "Choose your catering package" : "Pick your package"}</h3>
                   <p>{service === "Event" ? "Choose one of three venue-only locations. Catering, meals, decorations and waiters are not included. Prices below are demonstration estimates." : service === "Swimming Pool" ? "Tour hours are fixed and cannot be changed." : "Each package can be refined with our team after your reservation."}</p>
                 </div>
                 {["Room Accommodation", "Resort Venue Only"].includes(service) && <div className="booking-policy-notice"><strong>VENICE Resort · Sariaya, Quezon</strong><p>{sariayaLocation}. This is separate from the three Events Place locations on Daffodil and Amarillo Streets.</p>{service === "Resort Venue Only" && <p>Choose Aircon or Non-Aircon venue rental. Catering is not included; Pool Access is optional for ₱5,000. Venue capacity requires Owner confirmation.</p>}</div>}
@@ -5135,8 +5135,8 @@ function Homepage() {
         <div className="services-overview__grid stagger-group" data-reveal>
           {[
             { label: "Catering", description: "A complete six-dish buffet with rice, dessert, drinks, and your preferred menu selections.", imageContext: "Food & Catering Photo", serviceId: "Catering" },
-            { label: "Staycation", description: "Choose swimming tours, room stays, or Venue Only with optional Pool Access.", imageContext: "Overnight Resort Stay Photo", serviceId: "staycation" },
-            { label: "Events Place", description: "Explore Daffodil and Amarillo venues for your next celebration.", imageContext: "Event & Venue Photo", serviceId: "Event" },
+            { label: "Staycation", description: "Swimming, room stays, and Venue Only at VENICE Resort in Sitio Pontor, Sariaya, Quezon.", imageContext: "Overnight Resort Stay Photo", serviceId: "staycation" },
+            { label: "Events Place", description: "Three venue-only locations at Alfamart, Daffodil and Amarillo Streets, Brgy. Rizal. No catering included.", imageContext: "Event & Venue Photo", serviceId: "Event" },
           ].map((experience, index) => (
             <article className={`service-overview-card service-overview-card--${index + 1}`} key={experience.label}>
               <PhotoPlaceholder context={experience.imageContext} compact className="service-overview-card__photo" />
