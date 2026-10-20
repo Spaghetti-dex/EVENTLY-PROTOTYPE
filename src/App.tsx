@@ -1380,10 +1380,20 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
   const addressReady=mode==="pickup" || validMetroManilaDelivery(street,barangay,city);
   const timeReady=Boolean(time && time >= "07:00" && time <= "20:00");
   const formReady=ordered.length>0 && privacyConfirmed && Boolean(date && timeReady && fullName.trim().length>=2 && normalizePhilippineMobile(phone) && addressReady);
+  const missingRequirements = [
+    ...(ordered.length === 0 ? ["Select at least one food item"] : []),
+    ...(fullName.trim().length < 2 ? ["Enter your full name"] : []),
+    ...(!normalizePhilippineMobile(phone) ? ["Enter a valid 11-digit mobile number starting with 09"] : []),
+    ...(!date || date < today() ? ["Choose a valid requested date"] : []),
+    ...(!timeReady ? ["Choose a time between 7 AM and 8 PM"] : []),
+    ...(!addressReady ? ["Complete your Metro Manila delivery address"] : []),
+    ...(!privacyConfirmed ? ["Accept the Privacy Notice"] : []),
+  ];
   const submit=async(e:React.FormEvent<HTMLFormElement>)=>{
     e.preventDefault();
     if(!session){onRequireLogin?.();return;}
-    if(!formReady||busy)return;
+    if(busy)return;
+    if(!formReady || missingRequirements.length){setError("Please complete the following before placing your order: "+missingRequirements.join("; ")+".");return;}
     setBusy(true);setError("");
     try{
       const {data,error:rpcError}=await supabase.rpc("evently_customer_create_food_order",{p_payload:{
@@ -1411,7 +1421,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
     <div className="food-composer__heading">
       <button type="button" className="booking-back" onClick={onBack}>← Change catering type</button>
       <span>FOOD ORDERS &amp; PARTY TRAYS</span>
-      <h3>Pick your favorites. Build your own order.</h3>
+      <h3>Build your food order</h3>
       <p>Order any combination of Venice's listed ulam, noodles, desserts and drinks. Each selection has its own per-tray or per-container price; you pay for only what you choose. Listed prices are initial estimates that the Owner can adjust.</p>
     </div>
     {loadError && <div role="alert" className="booking-inline-error">Menu unavailable: {loadError}</div>}
@@ -1430,7 +1440,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
           </article>)}</div>
         </div>
         <aside className="food-order-cart" aria-label="Your food order">
-          <span>YOUR SELECTIONS</span><h4>{itemCount} items</h4>
+          <span>YOUR ORDER SUMMARY</span><h4>{itemCount} {itemCount===1?"item":"items"} selected</h4>
           {ordered.length===0?<p>No items selected yet.</p>:<div className="food-cart-lines">{ordered.map(item=><div key={item.id}><span><strong>{item.name}</strong><small>{item.quantity} × {formatPhp(Number(item.tray_price))}</small></span><b>{formatPhp(item.quantity*Number(item.tray_price))}</b></div>)}</div>}
           <div className="food-cart-total"><span>Items subtotal</span><strong>{formatPhp(total)}</strong></div>
           <small>All menu prices are per tray/container, not per catering guest. Delivery charges, if any, are confirmed separately.</small>
@@ -1438,7 +1448,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
       </div>
     </>}
     <section className="food-order-details">
-      <h4>Pickup or Metro Manila delivery</h4>
+      <div className="food-checkout-heading"><span>CHECKOUT DETAILS</span><h4>How would you like to receive your order?</h4><p>Choose pickup or delivery and provide your preferred schedule.</p></div>
       <div className="food-fulfillment-options">
         <button type="button" aria-pressed={mode==="pickup"} className={mode==="pickup"?"is-active":""} onClick={()=>setMode("pickup")}>Pickup <small>Venice pickup location confirmed by staff</small></button>
         <button type="button" aria-pressed={mode==="delivery"} className={mode==="delivery"?"is-active":""} onClick={()=>setMode("delivery")}>Delivery <small>Metro Manila addresses only</small></button>
@@ -1458,9 +1468,10 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
       <p className="food-order-disclaimer">Orders are requests until Venice confirms availability and the preparation schedule. Pickup location, payment instructions, and any delivery fee will be confirmed by staff.</p>
       <label className="food-consent"><input type="checkbox" required checked={privacyConfirmed} onChange={e=>setPrivacyConfirmed(e.target.checked)} /> <span>I acknowledge the Privacy Notice and consent to use of my information for processing this food order.</span></label>
       <PrivacyNoticeDisclosure id="evently-food-order-privacy" />
+      {missingRequirements.length>0 && <div className="food-form-guidance" role="status"><strong>Before placing your order</strong><ul>{missingRequirements.map(requirement=><li key={requirement}>{requirement}</li>)}</ul></div>}
       {error && <p className="booking-inline-error" role="alert">{error}</p>}
       {!session && <p className="food-login-note">You'll be asked to sign in before placing your order.</p>}
-      <button className="booking-primary" type="submit" disabled={loading||!formReady||busy}>{busy?"Placing order…": "Place food order · "+formatPhp(total)}</button>
+      <button className="booking-primary" type="submit" disabled={loading||busy}>{busy?"Placing order…": "Place food order · "+formatPhp(total)}</button>
     </section>
   </form>;
 }
