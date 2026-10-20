@@ -5054,6 +5054,17 @@ function Homepage() {
   const [reviewIndex, setReviewIndex] = useState(0);
   const [publicReviews, setPublicReviews] = useState<Array<{ key: number; rating: number; review: string; service: string; date: string; displayName: string; verified: boolean }>>([]);
   const [publicReviewError, setPublicReviewError] = useState("");
+  const [storyIndexes, setStoryIndexes] = useState<Record<string, number>>({ catering: 3, events: 4, resort: 3 });
+  const storyPhotos: Record<string, string[]> = { catering: officialVenicePhotos.catering, events: officialVenicePhotos.events, resort: officialVenicePhotos.resort };
+  const storyLabels: Record<string, string> = { catering: "Catering", events: "Events", resort: "Resort / Staycation" };
+  const moveStory = (category: string, direction: number) => setStoryIndexes((previous) => ({ ...previous, [category]: ((previous[category] ?? 0) + direction + storyPhotos[category].length) % storyPhotos[category].length }));
+  useEffect(() => {
+    let active = true;
+    supabase.from("evently_featured_photos").select("category,photo_index").then(({ data }) => {
+      if (active && data) setStoryIndexes((previous) => ({ ...previous, ...Object.fromEntries(data.map((row) => [row.category, Number(row.photo_index)])) }));
+    });
+    return () => { active = false; };
+  }, []);
   const [lightbox, setLightbox] = useState<{ context: string; alt: string } | null>(null);
   const [bookingLoginOpen, setBookingLoginOpen] = useState(false);
   const [customerProfile, setCustomerProfile] = useState<CustomerAccountProfile | null>(() => readCustomerProfile());
@@ -5510,28 +5521,18 @@ function Homepage() {
           <h2>Moments made <em>beautiful.</em></h2>
           <a className="text-link" href="#booking">Plan Your Event <Icon name="arrow" size={17} /></a>
         </div>
-        <div className="gallery-grid stagger-group" data-reveal>
-          {[
-            ["Resort Photo #4", "Venice resort and accommodations"],
-            ["Food & Catering Photo #3", "Venice food and catering"],
-            ["Events Photo #3", "A memorable Venice event"],
-            ["Venue Photo #4", "Venice event venue"],
-            ["Pool & Outdoor Photo #5", "Venice pool and outdoor facilities"],
-            ["Decorations & Setups Photo #5", "Venice decorations and event setups"],
-          ].map(([context, alt], index) => (
-            <figure
-              className={`gallery-item gallery-item--${index + 1}`}
-              key={context}
-              onClick={() => setLightbox({ context, alt })}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") setLightbox({ context, alt });
-              }}
-              role="button"
-              tabIndex={0}
-            >
-              <PhotoPlaceholder context={context} />
-              <figcaption>{["Resort", "Food & Catering", "Events", "Venue", "Pool / Outdoor", "Decorations / Setups"][index]}</figcaption>
-            </figure>
+        <div className="featured-story-grid" data-reveal>
+          {(["catering", "events", "resort"] as const).map((category) => (
+            <article className="featured-story" key={category}>
+              <button className="featured-story__photo" type="button" aria-label={"Open " + storyLabels[category] + " photo"} onClick={() => setLightbox({ context: "featured:" + category + ":" + storyIndexes[category], alt: storyLabels[category] })}>
+                <img src={storyPhotos[category][storyIndexes[category] % storyPhotos[category].length]} alt={storyLabels[category] + " at Venice"} loading="lazy" />
+              </button>
+              <div className="featured-story__shade" />
+              <div className="featured-story__header"><span>{storyLabels[category]}</span><small>{storyIndexes[category] + 1} / {storyPhotos[category].length}</small></div>
+              <button className="featured-story__arrow featured-story__arrow--left" type="button" aria-label={"Previous " + storyLabels[category] + " photo"} onClick={() => moveStory(category, -1)}>‹</button>
+              <button className="featured-story__arrow featured-story__arrow--right" type="button" aria-label={"Next " + storyLabels[category] + " photo"} onClick={() => moveStory(category, 1)}>›</button>
+              <div className="featured-story__progress">{storyPhotos[category].map((_, index) => <span key={index} className={index === storyIndexes[category] ? "is-current" : ""} />)}</div>
+            </article>
           ))}
         </div>
         {lightbox && (
