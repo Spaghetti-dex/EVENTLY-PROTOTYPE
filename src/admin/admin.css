@@ -784,3 +784,80 @@
 @media (prefers-reduced-motion: reduce) {
   .admin-sidebar,.admin-workspace,.admin-stat-grid button,.staff-quick-actions > div:last-child > button { transition-duration: .01ms !important; }
 }
+
+/* Staff Management: responsive, readable, focused workspace */
+.evently-admin .team-page{display:grid;gap:20px;min-width:0;color:#203d44}
+.evently-admin .team-header{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap}
+.evently-admin .team-header h2{font-size:clamp(25px,3vw,32px);margin:4px 0 8px;color:#143c3d;line-height:1.2}
+.evently-admin .team-header p,.evently-admin .team-workspace-title p{font-size:15px;color:#4c626c;margin:0;line-height:1.5}
+.evently-admin .team-kicker{font-size:12px;letter-spacing:.11em;color:#167a75;font-weight:800}
+.evently-admin .team-header-actions{display:flex;gap:10px;flex-wrap:wrap}
+.evently-admin .team-primary{background:#0b746c;color:#fff;border:1px solid #0b746c;border-radius:10px;min-height:44px;padding:10px 18px;font-size:15px;font-weight:750;cursor:pointer}
+.evently-admin .team-primary:hover{background:#095f59}
+.evently-admin .team-primary:disabled{opacity:.65;cursor:wait}
+.evently-admin .team-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px}
+.evently-admin .team-stats>div{display:grid;gap:5px;background:#fff;border:1px solid #dbe6e7;border-radius:13px;padding:20px;box-shadow:0 2px 9px #11393b08}
+.evently-admin .team-stats span{font-size:14px;color:#4c616a;font-weight:700}
+.evently-admin .team-stats strong{font-size:27px;color:#163f42;line-height:1.3}
+.evently-admin .team-stats small{font-size:13px;color:#5d7178}
+.evently-admin .team-message{display:flex;justify-content:space-between;gap:16px;border:1px solid #b7d6d2;border-radius:10px;background:#eff8f6;padding:13px 16px;font-size:15px;overflow-wrap:anywhere}
+.evently-admin .team-message button{border:0;background:none;font-size:22px;cursor:pointer}
+.evently-admin .team-workspace{padding:0;overflow:hidden;border-radius:14px}
+.evently-admin .team-workspace-title{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:22px 25px;border-bottom:1px solid #e2eaeb}
+.evently-admin .team-workspace-title h3{font-size:22px;color:#193e42;margin:4px 0 5px}
+.evently-admin .team-count{border-radius:99px;background:#f0f5f5;color:#3b6263;font-size:13px;padding:8px 13px;white-space:nowrap}
+.evently-admin .team-columns{display:grid;grid-template-columns:minmax(230px,300px) minmax(0,1fr);min-width:0}
+.evently-admin .team-list{background:#f8fbfb;border-right:1px solid #e2eaeb;padding:20px 14px;min-width:0}
+.evently-admin .team-list label{display:grid;gap:8px;font-size:14px;font-weight:700;color:#28484e}
+.evently-admin .team-list input,.evently-admin .team-invite-form input{min-height:44px;width:100%;border:1px solid #b8caca;border-radius:9px;padding:10px 12px;font-size:15px;background:#fff;color:#243e44}
+.evently-admin .team-list-items{display:grid;gap:9px;max-height:640px;overflow-y:auto;margin-top:15px}
+.evently-admin .team-person{display:flex;gap:11px;align-items:center;text-align:left;padding:13px;border:1px solid transparent;border-radius:11px;background:transparent;min-width:0;cursor:pointer;color:#243e44}
+.evently-admin .team-person:hover{background:#ecf5f3}
+.evently-admin .team-person.selected{border-color:#9accc3;background:#eaf5f2}
+.evently-admin .team-avatar{display:grid;place-items:center;width:40px;height:40px;flex:0 0 40px;border-radius:12px;background:#d9ede8;color:#116e66;font-size:18px;font-weight:800}
+.evently-admin .team-person>span:last-child{display:grid;min-width:0;gap:3px}
+.evently-admin .team-person strong{font-size:15px;color:#173e41}
+.evently-admin .team-person small{font-size:13px;color:#536972;overflow-wrap:anywhere}
+.evently-admin .team-details{padding:24px 27px 28px;min-width:0}
+.evently-admin .team-person-heading{display:flex;align-items:center;justify-content:space-between;gap:15px}
+.evently-admin .team-person-heading h3{font-size:24px;margin:4px 0;color:#173d41}
+.evently-admin .team-person-heading p{font-size:14px;color:#576d74;margin:0;overflow-wrap:anywhere}
+.evently-admin .team-state{border-radius:99px;background:#e0f3e9;color:#176947;padding:7px 12px;font-size:13px;font-weight:700}
+.evently-admin .team-state.inactive{background:#f3ecec;color:#9b4444}
+.evently-admin .team-person-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:20px 0 23px;padding-bottom:20px;border-bottom:1px solid #e3ebeb}
+.evently-admin .team-person-actions span{font-size:14px;color:#44645f;font-weight:650;margin-right:auto}
+.evently-admin .team-details h4{font-size:19px;color:#173e41;margin:0 0 6px}
+.evently-admin .team-help{font-size:14px;color:#526a73;line-height:1.5;margin:0 0 18px}
+.evently-admin .team-permission-group{margin:0 0 24px}
+.evently-admin .team-permission-group h5{font-size:16px;color:#24494e;margin:0 0 4px}
+.evently-admin .team-permission-group>p{font-size:13px;color:#5c7279;margin:0 0 10px}
+.evently-admin .team-permissions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.evently-admin .team-permission{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1px solid #dce7e7;border-radius:10px;background:#fff;min-height:70px;padding:13px}
+.evently-admin .team-permission.locked{background:#f6f8f8;opacity:.76}
+.evently-admin .team-permission span{display:grid;gap:4px}
+.evently-admin .team-permission strong{font-size:14px;color:#1c4447}
+.evently-admin .team-permission small{font-size:13px;color:#557079}
+.evently-admin .team-permission input,.evently-admin .team-policy input{width:19px;height:19px;accent-color:#0e8577;flex-shrink:0;cursor:pointer}
+.evently-admin .team-activity{border:1px solid #e0ece9;background:#f5faf8;border-radius:11px;padding:14px 17px}
+.evently-admin .team-activity strong{font-size:15px}
+.evently-admin .team-activity p{font-size:14px;margin:5px 0 0;color:#546b72}
+.evently-admin .team-extras{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:16px}
+.evently-admin .team-disclosure{padding:0;border:1px solid #dce7e7;border-radius:13px;overflow:hidden;background:#fff}
+.evently-admin .team-disclosure>summary{display:flex;align-items:center;gap:13px;min-height:84px;padding:19px;cursor:pointer;list-style:none}
+.evently-admin .team-disclosure>summary::-webkit-details-marker{display:none}
+.evently-admin .team-disclosure>summary>span:nth-child(2){display:grid;gap:5px;flex:1;min-width:0}
+.evently-admin .team-disclosure>summary strong{font-size:16px;color:#20464b}
+.evently-admin .team-disclosure>summary small{font-size:13px;color:#587078;line-height:1.4}
+.evently-admin .team-square{display:grid;place-items:center;background:#e3f3ed;color:#137b72;border-radius:10px;height:40px;width:40px;flex-shrink:0;font-size:21px}
+.evently-admin .team-disclosure-body{border-top:1px solid #e2eceb;padding:20px}
+.evently-admin .team-disclosure-body>p{font-size:14px;line-height:1.5;color:#4b666d;margin:0 0 16px}
+.evently-admin .team-policy-group{display:grid;gap:8px;margin-bottom:18px}
+.evently-admin .team-policy-group h4{font-size:15px;color:#244a4e;margin:0 0 4px}
+.evently-admin .team-policy{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid #e2e9e8;border-radius:9px;font-size:14px}
+.evently-admin .team-policy>span:last-child{display:flex;align-items:center;gap:10px;color:#557079;font-size:13px;white-space:nowrap}
+.evently-admin .team-invite-form{display:grid;gap:15px}
+.evently-admin .team-invite-form label{display:grid;gap:7px;font-size:14px;font-weight:700;color:#294a50}
+.evently-admin .team-invite-form button{justify-self:start}
+@media(max-width:1000px){.evently-admin .team-extras{grid-template-columns:1fr}.evently-admin .team-permissions{grid-template-columns:1fr}}
+@media(max-width:750px){.evently-admin .team-columns{grid-template-columns:1fr}.evently-admin .team-list{border-right:0;border-bottom:1px solid #e2eaeb}.evently-admin .team-list-items{max-height:250px}.evently-admin .team-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.evently-admin .team-stats{grid-template-columns:1fr}.evently-admin .team-header-actions{width:100%}.evently-admin .team-header-actions button{flex:1}.evently-admin .team-details{padding:19px}.evently-admin .team-workspace-title{padding:18px}.evently-admin .team-count{display:none}}
