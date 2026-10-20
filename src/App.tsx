@@ -2180,6 +2180,8 @@ function ReservationFlow({
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const earliestBookingDate = new Date(today);
+  earliestBookingDate.setDate(earliestBookingDate.getDate() + 7);
   const firstDay = new Date(month.getFullYear(), month.getMonth(), 1);
   const startOffset = firstDay.getDay();
   const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
@@ -2712,6 +2714,7 @@ function ReservationFlow({
                   <span><i className="status-dot status-dot--reserved" />Reserved</span>
                   <span><i className="status-dot status-dot--unavailable" />Unavailable (gray)</span>
                 </div>
+                <p className="calendar-context-note"><strong>Advance booking notice:</strong> Reservations must be made at least 7 calendar days before the event. The earliest selectable date is {earliestBookingDate.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}.</p>
                 {!packageChoice && <p className="calendar-context-note">Choose a package or venue in the next step to see its specific booked dates and time overlaps. Return to this calendar after selecting it.</p>}
                 {packageChoice && <p className="calendar-context-note">Availability for <strong>{selectedPackageLabel}</strong>. Gray means your requested time overlaps an existing booking; blue means a reservation exists but no confirmed overlap was found.</p>}
                 {calendarAvailabilityLoading && <p className="calendar-context-note" role="status">Checking reservation conflicts…</p>}
@@ -2752,7 +2755,7 @@ function ReservationFlow({
                       return (
                         <button
                           className={`calendar-day calendar-day--${status} ${isSelected ? "calendar-day--selected" : ""}`}
-                          disabled={status === "unavailable"}
+                          disabled={status === "unavailable" || new Date(month.getFullYear(), month.getMonth(), day) < earliestBookingDate}
                           key={day}
                           onClick={() => selectDate(day)}
                           type="button"
@@ -2765,9 +2768,9 @@ function ReservationFlow({
                   </div>
                 </div>
                 <div className="booking-date-time-panel">
-                  <label><span>Reservation date</span><input min={dateKey(today)} onChange={(event) => {
+                  <label><span>Reservation date</span><input min={dateKey(earliestBookingDate)} onChange={(event) => {
                     const nextDate = new Date(`${event.target.value}T00:00:00`);
-                    if (!Number.isNaN(nextDate.getTime()) && nextDate >= today && nextDate.getDay() !== 0 && calendarAvailability[dateKey(nextDate)] !== "unavailable") {
+                    if (!Number.isNaN(nextDate.getTime()) && nextDate >= earliestBookingDate && nextDate.getDay() !== 0 && calendarAvailability[dateKey(nextDate)] !== "unavailable") {
                       setSelectedDate(nextDate);
                       setMonth(new Date(nextDate.getFullYear(), nextDate.getMonth(), 1));
                       setConflictReason("");
