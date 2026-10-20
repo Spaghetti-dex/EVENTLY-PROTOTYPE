@@ -2367,7 +2367,7 @@ function ReservationFlow({
       }
       if (!available) {
         setBookingError("");
-        setConflictReason("This package is not eligible for the selected date. This does not represent a confirmed venue or time-slot overlap.");
+        setConflictReason("This package is currently not eligible for booking. Check that the package is active and that your guest count meets its minimum and maximum limits. The selected date is not necessarily fully booked.");
         setStep(2);
         return;
       }
@@ -2764,7 +2764,7 @@ function ReservationFlow({
                       if (!day) return <span className="calendar__blank" key={`blank-${index}`} />;
                       const status = getStatus(day);
                       const advanceRestricted = new Date(month.getFullYear(), month.getMonth(), day) < earliestBookingDate;
-                      const restrictionReason = advanceRestricted ? `Unavailable: ${advanceBookingDays}-day advance booking rule. Earliest date: ${earliestBookingDate.toLocaleDateString("en-PH", { month: "short", day: "numeric" })}.` : status === "unavailable" ? "Unavailable: already booked or conflicting schedule." : status;
+                      const restrictionReason = advanceRestricted ? `Unavailable: ${advanceBookingDays}-day advance booking rule. Earliest date: ${earliestBookingDate.toLocaleDateString("en-PH", { month: "short", day: "numeric" })}.` : status === "unavailable" ? "Fully booked for the selected venue and time." : status === "reserved" ? "Another reservation exists; your selected time may still be available." : "Available";
                       const isSelected =
                         selectedDate?.getFullYear() === month.getFullYear() &&
                         selectedDate?.getMonth() === month.getMonth() &&
@@ -2779,7 +2779,7 @@ function ReservationFlow({
                           aria-label={`${month.toLocaleDateString("en-PH", { month: "long" })} ${day}, ${restrictionReason}`}
                           title={restrictionReason}
                         >
-                          <span>{day}</span><i />
+                          <span>{day}</span><i />{status === "unavailable" && !advanceRestricted && <small className="calendar-day__booked-label">Full</small>}
                         </button>
                       );
                     })}
