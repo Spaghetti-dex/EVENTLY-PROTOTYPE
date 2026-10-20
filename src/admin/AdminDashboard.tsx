@@ -2495,6 +2495,7 @@ function StaffManagement({ isOwner }: { isOwner: boolean }) {
   const [search, setSearch] = useState("");
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
+  const [staffUsername, setStaffUsername] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
   const [loading, setLoading] = useState(true);
@@ -2564,7 +2565,12 @@ function StaffManagement({ isOwner }: { isOwner: boolean }) {
   const invite = async (event:React.FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setBusy("invite"); setMessage("");
     try {
-      const {error} = await supabase.functions.invoke("evently-staff-invite",{body:{email:email.trim(),full_name:fullName.trim()}});
+      const normalizedUsername = staffUsername.trim().toLowerCase();
+      if (!/^[a-z][a-z0-9._-]{2,29}$/.test(normalizedUsername)) {
+        setMessage("Username must be 3–30 characters, start with a letter, and contain only lowercase letters, numbers, dots, underscores, or hyphens.");
+        return;
+      }
+      const {error} = await supabase.functions.invoke("evently-staff-invite",{body:{email:email.trim(),full_name:fullName.trim(),username:normalizedUsername}});
       if (error) {
         let detail = error.message;
         if ("context" in error && error.context instanceof Response) {
@@ -2574,7 +2580,7 @@ function StaffManagement({ isOwner }: { isOwner: boolean }) {
         setMessage("Invitation failed: " + detail);
       } else {
         setMessage("Invitation sent to " + email.trim() + ".");
-        setEmail(""); setFullName(""); await load();
+        setEmail(""); setFullName(""); setStaffUsername(""); await load();
       }
     } catch (err) { setMessage(err instanceof Error ? err.message : "Could not invite staff."); }
     finally { setBusy(""); }
@@ -2625,8 +2631,9 @@ function StaffManagement({ isOwner }: { isOwner: boolean }) {
         </div>
       </details>
       <details className="team-disclosure admin-card" id="team-invite"><summary><span className="team-square">+</span><span><strong>Invite a team member</strong><small>Send a secure invitation to a new staff account</small></span><span aria-hidden="true">⌄</span></summary>
-        <div className="team-disclosure-body"><p>Staff members activate their account through an invitation email before receiving access.</p><form onSubmit={e=>void invite(e)} className="team-invite-form">
+        <div className="team-disclosure-body"><p>Assign a unique username and email. Staff members set their own password through a secure invitation email before receiving access.</p><form onSubmit={e=>void invite(e)} className="team-invite-form">
           <label>Full name<input required value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Full name" /></label>
+          <label>Username<input required autoComplete="off" minLength={3} maxLength={30} pattern="[A-Za-z][A-Za-z0-9._-]{2,29}" value={staffUsername} onChange={e=>setStaffUsername(e.target.value)} placeholder="e.g. maria.santos" /></label>
           <label>Email address<input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="name@example.com" /></label>
           <button className="team-primary" disabled={Boolean(busy)} type="submit">{busy==="invite"?"Sending invitation…":"Send invitation"}</button>
         </form></div>
