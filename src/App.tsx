@@ -306,6 +306,26 @@ const stockPhotos = {
   resortVilla: "https://images.unsplash.com/photo-1584132869994-873f9363a562?auto=format&fit=crop&w=1200&q=82",
 } as const;
 
+const venicePhoto = (folder: string, filename: string) => `/venice-photos/${folder}/${filename}`;
+const officialVenicePhotos = {
+  catering: Array.from({ length: 10 }, (_, i) => venicePhoto("CATERING", `catering_sample${i + 1}.jpg`)),
+  events: Array.from({ length: 15 }, (_, i) => venicePhoto("EVENTS PLACE", `eventsplace_sample${i + 1}.jpg`)),
+  resort: Array.from({ length: 9 }, (_, i) => venicePhoto("STAYCATION-RESORT", `resort_sample${i + 1}.jpg`)),
+  bookingCatering: venicePhoto("MAJOR", "booking_catering.png"),
+  bookingEvents: venicePhoto("MAJOR", "booking_eventsplace.png"),
+  bookingResort: venicePhoto("MAJOR", "booking_resort.png"),
+};
+function officialPhotoForContext(context: string): string {
+  const normalized = context.toLowerCase();
+  if (normalized.includes("booking") && normalized.includes("catering")) return officialVenicePhotos.bookingCatering;
+  if (normalized.includes("booking") && /event|venue/.test(normalized)) return officialVenicePhotos.bookingEvents;
+  if (normalized.includes("booking") && /resort|pool|stay/.test(normalized)) return officialVenicePhotos.bookingResort;
+  if (/catering|food|buffet|menu|ulam|dessert/.test(normalized)) return officialVenicePhotos.catering[0];
+  if (/event|venue|decorations|wedding|celebration/.test(normalized)) return officialVenicePhotos.events[0];
+  if (/resort|stay|pool|room|tour|overnight|kubo/.test(normalized)) return officialVenicePhotos.resort[0];
+  return officialVenicePhotos.events[0];
+}
+
 function photoForContext(context: string) {
   const normalized = context.toLowerCase();
 
@@ -367,7 +387,7 @@ function PhotoPlaceholder({
 
   return (
     <div className={`photo-placeholder ${compact ? "photo-placeholder--compact" : ""} ${className}`}>
-      <img alt={photo.alt} decoding="async" loading="lazy" src={photo.src} />
+      <img alt={photo.alt} decoding="async" loading="lazy" src={officialPhotoForContext(context)} onError={(event) => { if (event.currentTarget.src !== photo.src) event.currentTarget.src = photo.src; }} />
     </div>
   );
 }
