@@ -3061,7 +3061,7 @@ function ReservationFlow({
               <>
               {bookingError && <div className="booking-inline-error" role="alert">{bookingError}</div>}
               <div className="booking-controls">
-                <button className="booking-back" disabled={step === 1 || (step === 8 && Boolean(createdReservation))} type="button" onClick={() => setStep((current) => current === 5 && service !== "Catering" ? 3 : Math.max(1, current - 1))}>
+                <button className="booking-back" disabled={step === 1 || (step === 8 && Boolean(createdReservation))} type="button" onClick={() => setStep((current) => current === 5 && !hasIncludedMenu ? 3 : Math.max(1, current - 1))}>
                   Back
                 </button>
                 {step === 6 && <button className="skip-offer-button" onClick={() => setStep(7)} type="button">Skip This Offer</button>}
