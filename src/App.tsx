@@ -5304,7 +5304,8 @@ function Homepage() {
     ["Contact", "#contact"],
   ];
   const serviceLinks = [
-    ["Catering & Events Place", "#catering"],
+    ["Catering", "#catering"],
+    ["Events", "#events"],
     ["Resort/Staycation", "#resort"],
   ];
 
