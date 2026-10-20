@@ -2580,7 +2580,7 @@ function ReservationFlow({
                         <small>{tier.detail}</small>
                         {service === "Resort Venue Only" && <small>VENICE Resort · {sariayaLocation}</small>}
                         {service === "Room Accommodation" && /kubo room/i.test(tier.name) && <small>Currently configured for 1 guest; Owner confirmation required for higher occupancy.</small>}
-                        {tier.guest_capacity != null && service !== "Swimming Pool" && <small>Up to {tier.guest_capacity} guests</small>}
+                        {service === "Resort Venue Only" ? <small>Guest capacity requires Owner verification (demo booking limit applies).</small> : tier.guest_capacity != null && service !== "Swimming Pool" && <small>Up to {tier.guest_capacity} guests</small>}
                         <ul className="tier-card__inclusions">
                           {tier.inclusions.map((inclusion) => <li key={inclusion}>✓ {inclusion}</li>)}
                         </ul>
@@ -2767,7 +2767,7 @@ function ReservationFlow({
                   <label>
                     <span>Number of guests</span>
                     <input max={effectiveGuestCapacity ?? undefined} min={minimumGuests} type="number" value={guests} onChange={(event) => setGuests(Math.max(minimumGuests, Number(event.target.value)))} />
-                    {effectiveGuestCapacity != null && <small>Maximum capacity for {selectedPackageLabel}: {effectiveGuestCapacity} guests.</small>}
+                    {effectiveGuestCapacity != null && <small>{service === "Resort Venue Only" ? "Demo booking guest limit; actual venue capacity requires Owner confirmation." : `Maximum capacity for ${selectedPackageLabel}: ${effectiveGuestCapacity} guests.`}</small>}
                     {effectiveGuestCapacity != null && guests > effectiveGuestCapacity && <small role="alert">Reduce the guest count to continue with this package.</small>}
                   </label>
                 </div>
