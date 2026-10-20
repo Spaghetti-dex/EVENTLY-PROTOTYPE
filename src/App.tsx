@@ -1343,7 +1343,8 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
   const [loadError,setLoadError]=useState("");
   const [mode,setMode]=useState<"pickup"|"delivery">("pickup");
   const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
-  const [date,setDate]=useState(today);
+  const earliestFoodOrderDate=()=>{const d=new Date();d.setDate(d.getDate()+5);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
+  const [date,setDate]=useState(earliestFoodOrderDate);
   const [time,setTime]=useState("12:00");
   const [fullName,setFullName]=useState(customerProfile?.fullName??"");
   const [phone,setPhone]=useState(customerProfile?.mobile??"");
@@ -1384,7 +1385,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
     ...(ordered.length === 0 ? ["Select at least one food item"] : []),
     ...(fullName.trim().length < 2 ? ["Enter your full name"] : []),
     ...(!normalizePhilippineMobile(phone) ? ["Enter a valid 11-digit mobile number starting with 09"] : []),
-    ...(!date || date < today() ? ["Choose a valid requested date"] : []),
+    ...(!date || date < earliestFoodOrderDate() ? ["Choose a date at least 5 days ahead"] : []),
     ...(!timeReady ? ["Choose a time between 7 AM and 8 PM"] : []),
     ...(!addressReady ? ["Complete your Metro Manila delivery address"] : []),
     ...(!privacyConfirmed ? ["Accept the Privacy Notice"] : []),
@@ -1453,10 +1454,11 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
         <button type="button" aria-pressed={mode==="pickup"} className={mode==="pickup"?"is-active":""} onClick={()=>setMode("pickup")}>Pickup <small>Venice pickup location confirmed by staff</small></button>
         <button type="button" aria-pressed={mode==="delivery"} className={mode==="delivery"?"is-active":""} onClick={()=>setMode("delivery")}>Delivery <small>Metro Manila addresses only</small></button>
       </div>
+      <p className="food-order-advance-notice"><strong>5-day advance notice:</strong> Please order at least 5 calendar days before your requested pickup or delivery date.</p>
       <div className="food-checkout-fields">
         <label>Full name<input required minLength={2} value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Your name"/></label>
         <label>Mobile number<input required inputMode="numeric" maxLength={11} value={phone} onChange={e=>setPhone(e.target.value)} placeholder="09XXXXXXXXX"/></label>
-        <label>Requested date<input required type="date" min={today()} value={date} onChange={e=>setDate(e.target.value)}/></label>
+        <label>Requested date<input required type="date" min={earliestFoodOrderDate()} value={date} onChange={e=>setDate(e.target.value)}/></label>
         <label>Requested time (7 AM–8 PM)<BookingTimePicker label="Food pickup or delivery time" value={time} onChange={setTime}/>{!timeReady && <small className="booking-schedule-error">Select a time between 7:00 AM and 8:00 PM.</small>}</label>
         {mode==="delivery" && <>
           <label className="food-wide">Street / building / house number<input required minLength={5} value={street} onChange={e=>setStreet(e.target.value)} placeholder="Full street and house / building number"/></label>
