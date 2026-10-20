@@ -2100,7 +2100,7 @@ function ReservationFlow({
   const cottageSelectionReady = !cottageSelected || cottageAddonConfigured;
   const poolAccessEligibleService = service === "Room Accommodation" || service === "Resort Venue Only";
   const poolAccessPricingReady = !poolAccessEligibleService || Number(packageChoice?.pool_access_fee) === 5000;
-  const paymentSubmissionStarted = demoPaymentMode ? Boolean(paymentProof || paymentReference.trim() || paymentAmount) : Boolean(paymentProof);
+  const paymentSubmissionStarted = demoPaymentMode ? true : Boolean(paymentProof);
   const poolAccessFee = poolAccessSelected && poolAccessEligibleService ? Number(packageChoice?.pool_access_fee ?? 0) : 0;
   const optionalRoomPackage = service === "Swimming Pool" ? staycationRoomPackages.find((room) => room.id === selectedRoomPackageId) : undefined;
   const isSharedPoolTour = service === "Swimming Pool" && Boolean(packageChoice && /^(day|night) tour/i.test(packageChoice.name));
@@ -2276,7 +2276,7 @@ function ReservationFlow({
       && tourAccommodationChosen
       && privacyAcknowledged
       && subtotal > 0
-      && (!paymentSubmissionStarted || (
+      && (demoPaymentMode || !paymentSubmissionStarted || (
         paymentMethod
         && availablePaymentMethods.includes(paymentMethod)
         && paymentReference.trim()
@@ -3178,7 +3178,7 @@ function ReservationFlow({
                 <div className="booking-payment-form">
                   <label><span>Payment method</span><select disabled={!demoPaymentMode && !availablePaymentMethods.length} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)} required value={paymentMethod}>{(demoPaymentMode ? ["gcash", "bank_transfer", "cash"] as CustomerPaymentMethod[] : availablePaymentMethods).map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
                   {!demoPaymentMode && selectedPaymentAccount && <div className="booking-payment-destination"><strong>{selectedPaymentAccount.display_name}</strong>{selectedPaymentAccount.account_holder && <span>Account holder: {selectedPaymentAccount.account_holder}</span>}{selectedPaymentAccount.bank_name && <span>Bank: {selectedPaymentAccount.bank_name}</span>}{(selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number) && <span>Send to: {selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number}</span>}{selectedPaymentAccount.qr_code_url && <img alt={`${selectedPaymentAccount.display_name} payment QR code`} src={selectedPaymentAccount.qr_code_url} />}<p>{selectedPaymentInstructions}</p></div>}
-                  <label><span>{demoPaymentMode ? "Simulated deposit (PHP) · optional" : "Actual amount paid (PHP) · optional"}</span><input autoComplete="off" max={subtotal} min="0.01" onChange={(event) => setPaymentAmount(event.target.value)} step="0.01" type="number" value={paymentAmount} /><small>Required deposit: {currency(requiredPaymentAmount)}. Timely payment proof is held for Administrator review.</small></label>
+                  <label><span>{demoPaymentMode ? "Simulated deposit (PHP) · 30% automatically calculated" : "Actual amount paid (PHP) · optional"}</span><input autoComplete="off" max={subtotal} min="0.01" onChange={(event) => setPaymentAmount(event.target.value)} readOnly={demoPaymentMode} step="0.01" type="number" value={demoPaymentMode ? requiredPaymentAmount : paymentAmount} /><small>Required deposit: {currency(requiredPaymentAmount)}. Timely payment proof is held for Administrator review.</small></label>
                   <label><span>Payment reference / transaction number · optional</span><input autoComplete="off" maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} placeholder={demoPaymentMode ? "Example: DEMO-GCASH-2026-001" : "Enter your transaction reference"} value={paymentReference} /></label>
                   <label><span>Receipt screenshot (JPG, PNG, or WebP · max 5 MB)</span><input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" ref={paymentProofInput} onChange={(event) => {
                     const file = event.target.files?.[0] ?? null;
