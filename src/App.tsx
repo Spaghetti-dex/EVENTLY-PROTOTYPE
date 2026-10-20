@@ -1300,7 +1300,7 @@ function BookingTimePicker({ value, onChange, disabled = false, label }: { value
   const minutes=[0,15,30,45].includes(minute)?[0,15,30,45]:[0,15,30,45,minute].sort((a,b)=>a-b);
   return <div className="booking-time-picker" role="group" aria-label={label}>
     <span className="booking-time-picker__clock" aria-hidden="true">◷</span>
-    <select aria-label={`${label} hour`} disabled={disabled} value={hour} onChange={e=>update(Number(e.target.value),minute,period)}>{Array.from({length:12},(_,i)=>i+1).map(h=><option key={h} value={h}>{String(h).padStart(2,"0")}</option>)}</select>
+    <select aria-label={`${label} hour`} disabled={disabled} value={valid ? hour : ""} onChange={e=>update(Number(e.target.value),minute,period)}><option value="" disabled>Hour</option>{Array.from({length:12},(_,i)=>i+1).map(h=><option key={h} value={h}>{String(h).padStart(2,"0")}</option>)}</select>
     <span className="booking-time-picker__colon">:</span>
     <select aria-label={`${label} minute`} disabled={disabled} value={minute} onChange={e=>update(hour,Number(e.target.value),period)}>{minutes.map(m=><option key={m} value={m}>{String(m).padStart(2,"0")}</option>)}</select>
     <select aria-label={`${label} AM or PM`} className="booking-time-picker__period" disabled={disabled} value={period} onChange={e=>update(hour,minute,e.target.value)}><option value="AM">AM</option><option value="PM">PM</option></select>
@@ -1354,7 +1354,8 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
   const itemCount=ordered.reduce((sum,item)=>sum+item.quantity,0);
   const setQty=(id:string,next:number)=>setQuantities(current=>({...current,[id]:Math.min(50,Math.max(0,next))}));
   const addressReady=mode==="pickup" || validMetroManilaDelivery(street,barangay,city);
-  const formReady=ordered.length>0 && Boolean(date && time && fullName.trim().length>=2 && normalizePhilippineMobile(phone) && addressReady);
+  const timeReady=Boolean(time && time >= "07:00" && time <= "20:00");
+  const formReady=ordered.length>0 && Boolean(date && timeReady && fullName.trim().length>=2 && normalizePhilippineMobile(phone) && addressReady);
   const submit=async(e:React.FormEvent<HTMLFormElement>)=>{
     e.preventDefault();
     if(!session){onRequireLogin?.();return;}
@@ -1387,7 +1388,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
       <button type="button" className="booking-back" onClick={onBack}>← Change catering type</button>
       <span>FOOD ORDERS &amp; PARTY TRAYS</span>
       <h3>Pick your favorites. Build your own order.</h3>
-      <p>Order any combination of Venice's listed ulam, noodles, desserts and drinks. Each selection has its own per-tray or per-container price; you pay for only what you choose.</p>
+      <p>Order any combination of Venice\'s listed ulam, noodles, desserts and drinks. Each selection has its own per-tray or per-container price; you pay for only what you choose. Listed prices are initial estimates that the Owner can adjust.</p>
     </div>
     {loadError && <div role="alert" className="booking-inline-error">Menu unavailable: {loadError}</div>}
     {loading ? <p>Loading Venice's available food menu…</p> : !items.length ? <p>No individually priced menu items are available. Please contact Venice.</p> : <>
@@ -1422,7 +1423,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
         <label>Full name<input required minLength={2} value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Your name"/></label>
         <label>Mobile number<input required inputMode="numeric" maxLength={11} value={phone} onChange={e=>setPhone(e.target.value)} placeholder="09XXXXXXXXX"/></label>
         <label>Requested date<input required type="date" min={today()} value={date} onChange={e=>setDate(e.target.value)}/></label>
-        <label>Requested time (7 AM–8 PM)<BookingTimePicker label="Food pickup or delivery time" value={time} onChange={setTime}/></label>
+        <label>Requested time (7 AM–8 PM)<BookingTimePicker label="Food pickup or delivery time" value={time} onChange={setTime}/>{!timeReady && <small className="booking-schedule-error">Select a time between 7:00 AM and 8:00 PM.</small>}</label>
         {mode==="delivery" && <>
           <label className="food-wide">Street / building / house number<input required minLength={5} value={street} onChange={e=>setStreet(e.target.value)} placeholder="Full street and house / building number"/></label>
           <label>Barangay<input required minLength={2} value={barangay} onChange={e=>setBarangay(e.target.value)} placeholder="Barangay"/></label>
