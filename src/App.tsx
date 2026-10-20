@@ -317,13 +317,16 @@ const officialVenicePhotos = {
 };
 function officialPhotoForContext(context: string): string {
   const normalized = context.toLowerCase();
+  const indexMatch = normalized.match(/(?:photo|image)\s*#(\d+)/);
+  const requestedIndex = indexMatch ? Number(indexMatch[1]) - 1 : null;
+  const choose = (photos: string[]) => photos[requestedIndex !== null ? Math.max(0, requestedIndex) % photos.length : 0];
   if (normalized.includes("booking") && normalized.includes("catering")) return officialVenicePhotos.bookingCatering;
   if (normalized.includes("booking") && /event|venue/.test(normalized)) return officialVenicePhotos.bookingEvents;
   if (normalized.includes("booking") && /resort|pool|stay/.test(normalized)) return officialVenicePhotos.bookingResort;
-  if (/catering|food|buffet|menu|ulam|dessert/.test(normalized)) return officialVenicePhotos.catering[0];
-  if (/event|venue|decorations|wedding|celebration/.test(normalized)) return officialVenicePhotos.events[0];
-  if (/resort|stay|pool|room|tour|overnight|kubo/.test(normalized)) return officialVenicePhotos.resort[0];
-  return officialVenicePhotos.events[0];
+  if (/catering|food|buffet|menu|ulam|dessert/.test(normalized)) return choose(officialVenicePhotos.catering);
+  if (/event|venue|decorations|wedding|celebration/.test(normalized)) return choose(officialVenicePhotos.events);
+  if (/resort|stay|pool|room|tour|overnight|kubo/.test(normalized)) return choose(officialVenicePhotos.resort);
+  return choose(officialVenicePhotos.events);
 }
 
 function photoForContext(context: string) {
@@ -5387,7 +5390,7 @@ function Homepage() {
             alt="Tropical resort pool surrounded by lush greenery"
             decoding="async"
             fetchPriority="high"
-            src="https://images.unsplash.com/photo-1596178067639-5c6e68aea6dc?auto=format&fit=crop&w=2000&q=85"
+            src={officialVenicePhotos.resort[0]}
           />
         </div>
         <div className="home-hero__veil" />
@@ -5453,7 +5456,7 @@ function Homepage() {
             <img
               alt="Elegant place settings arranged for a catered celebration"
               loading="lazy"
-              src="https://images.unsplash.com/photo-1561593367-66c79c2294e6?auto=format&fit=crop&w=1400&q=85"
+              src={officialVenicePhotos.catering[1]}
             />
           </div>
           <span className="floating-note">Prepared with care</span>
@@ -5476,7 +5479,7 @@ function Homepage() {
       <section className="editorial-feature editorial-feature--reverse" id="events">
         <div className="editorial-feature__image image-reveal" data-reveal>
           <div className="parallax-image" data-parallax>
-            <PhotoPlaceholder context="Event & Venue Photo" />
+            <PhotoPlaceholder context="Event & Venue Photo #2" />
           </div>
           <span className="floating-note floating-note--orange">Made to be remembered</span>
         </div>
@@ -5497,7 +5500,7 @@ function Homepage() {
 
       <section className="resort-showcase" id="resort">
         <div className="resort-showcase__media" data-parallax>
-          <PhotoPlaceholder context="Pool & Resort Facilities Photo" />
+          <PhotoPlaceholder context="Pool & Resort Facilities Photo #3" />
         </div>
         <div className="resort-showcase__overlay" />
         <div className="resort-showcase__content" data-reveal>
@@ -5562,12 +5565,12 @@ function Homepage() {
         </div>
         <div className="gallery-grid stagger-group" data-reveal>
           {[
-            ["Resort Photo", "Venice resort and accommodations"],
-            ["Food & Catering Photo", "Venice food and catering"],
-            ["Events Photo", "A memorable Venice event"],
-            ["Venue Photo", "Venice event venue"],
-            ["Pool & Outdoor Photo", "Venice pool and outdoor facilities"],
-            ["Decorations & Setups Photo", "Venice decorations and event setups"],
+            ["Resort Photo #4", "Venice resort and accommodations"],
+            ["Food & Catering Photo #3", "Venice food and catering"],
+            ["Events Photo #3", "A memorable Venice event"],
+            ["Venue Photo #4", "Venice event venue"],
+            ["Pool & Outdoor Photo #5", "Venice pool and outdoor facilities"],
+            ["Decorations & Setups Photo #5", "Venice decorations and event setups"],
           ].map(([context, alt], index) => (
             <figure
               className={`gallery-item gallery-item--${index + 1}`}
