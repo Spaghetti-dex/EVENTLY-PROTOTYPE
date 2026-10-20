@@ -5027,6 +5027,23 @@ function Homepage() {
   const authenticated = Boolean(session);
   const headerActiveSection = pathname === "/" && hash === "#booking" ? "booking" : activeSection;
 
+  // Opening the site root should always begin at the hero. Preserve explicit
+  // #booking / #locations deep links when a visitor deliberately uses them.
+  useEffect(() => {
+    if (window.location.pathname !== "/" || window.location.hash) return;
+    const previousRestoration = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      setActiveSection("home");
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.history.scrollRestoration = previousRestoration;
+    };
+  }, []);
+
   useEffect(() => {
     if (!authProfile) return;
     const customer = toCustomerAccountProfile(authProfile);
@@ -5243,9 +5260,9 @@ function Homepage() {
   return (
     <main>
       <header className={`public-header ${scrolled ? "public-header--scrolled" : ""}`}>
-        <a className="brand-link" href="#home" aria-label="Venice home"><Brand /></a>
+        <a className="brand-link" href="/" aria-label="Venice home"><Brand /></a>
         <nav className="public-nav" aria-label="Main navigation">
-          <a aria-current={headerActiveSection === "home" ? "page" : undefined} className={headerActiveSection === "home" ? "nav-link--active" : ""} href="#home" onClick={() => setServicesMenuOpen(false)}>Home</a>
+          <a aria-current={headerActiveSection === "home" ? "page" : undefined} className={headerActiveSection === "home" ? "nav-link--active" : ""} href="/" onClick={() => setServicesMenuOpen(false)}>Home</a>
           <div className="public-services-nav">
             <button aria-expanded={servicesMenuOpen} aria-current={headerActiveSection === "services" ? "page" : undefined} className={headerActiveSection === "services" ? "nav-link--active" : ""} onClick={() => setServicesMenuOpen((open) => !open)} type="button">Services <Icon name="chevron" size={13} /></button>
             {servicesMenuOpen && <div>{serviceLinks.map(([label, href]) => <a href={href} key={label} onClick={() => setServicesMenuOpen(false)}>{label}</a>)}</div>}
@@ -5353,7 +5370,7 @@ function Homepage() {
           </div>
         </div>
         <div className="home-hero__details">
-          <span><Icon name="pin" size={17} /> Bulacan, Philippines</span>
+          <span><Icon name="pin" size={17} /> Taguig / Sariaya, Quezon Province</span>
           <span>Scroll to discover</span>
         </div>
         <div className="home-hero__curve" />
@@ -5658,7 +5675,7 @@ function Homepage() {
         <PrivacyNoticeDisclosure id="evently-privacy-notice-footer" />
         <div className="footer__bottom">
           <span>© {new Date().getFullYear()} Venice Catering Services &amp; Events Place</span>
-          <div><span>Bulacan, Philippines</span><a href="tel:+630000000000">Call our team</a><a href="/track-order">Track an existing order</a></div>
+          <div><span>Taguig / Sariaya, Quezon Province</span><a href="tel:+630000000000">Call our team</a><a href="/track-order">Track an existing order</a></div>
         </div>
       </footer>
     </main>
