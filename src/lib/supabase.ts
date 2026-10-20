@@ -43,6 +43,36 @@ export function describeSupabaseAuthError(error: unknown, fallback: string) {
   return message || fallback;
 }
 
+export function isMissingSupabaseRpc(error: { code?: string; message?: string } | null | undefined) {
+  return Boolean(error && (
+    error.code === "PGRST202"
+    || error.code === "42883"
+    || /could not find the function|function .* does not exist/i.test(error.message ?? "")
+  ));
+}
+
+export async function markOwnEventlyNotificationsRead(ids: string[]) {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  if (!uniqueIds.length) return { error: null };
+
+  const { data, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) return { error: sessionError };
+  const userId = data.session?.user.id;
+  if (!userId) return { error: new Error("Sign in before updating notifications.") };
+
+  const result = await supabase.rpc("mark_evently_notifications_read", { p_ids: uniqueIds });
+  if (!result.error) return { error: null };
+  if (!isMissingSupabaseRpc(result.error)) return { error: result.error };
+
+  // Older deployed schemas may not yet have the notification RPC. This fallback
+  // still goes through RLS and can only update the signed-in user's own rows.
+  const fallback = await supabase.from("notifications")
+    .update({ is_read: true })
+    .eq("user_id", userId)
+    .in("id", uniqueIds);
+  return { error: fallback.error };
+}
+
 type RoleReadinessError = { code?: string; message?: string } | null;
 
 export function staffRoleReadinessMessage(error: RoleReadinessError, ready: boolean | null) {
