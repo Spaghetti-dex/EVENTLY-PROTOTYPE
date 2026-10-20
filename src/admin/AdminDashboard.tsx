@@ -2682,71 +2682,162 @@ function CateringChangeRequestsPanel({ requests, onChanged, canManage }: { reque
   </article>)}{feedback && <p className="admin-action-message" role="status">{feedback}</p>}</section>;
 }
 
+
 function ReviewsWorkspace() {
   const [reviews, setReviews] = useState<Row[]>([]);
-  const [filter, setFilter] = useState("All"); const [moderation, setModeration] = useState("All"); const [serviceFilter, setServiceFilter] = useState("All"); const [ratingFilter, setRatingFilter] = useState("All"); const [dateFrom, setDateFrom] = useState(""); const [dateTo, setDateTo] = useState(""); const [message, setMessage] = useState("");
+  const [customers, setCustomers] = useState<Record<string, string>>({});
   const [schemaReady, setSchemaReady] = useState<boolean | null>(null);
-  const load = useCallback(async () => {
-    const readiness = await supabase.rpc("evently_review_features_ready");
-    if (readiness.error || readiness.data !== true) {
-      setSchemaReady(false);
-      setMessage("Review migrations are not applied or the schema is incomplete. Apply the pending Supabase migrations before using this workspace.");
-      return;
-    }
-    setSchemaReady(true);
-    const reviewsResult = await supabase.from("reviews").select("*").order("created_at", { ascending: false }).limit(1000);
-    if (reviewsResult.error) { setMessage(reviewsResult.error.message); return; }
-    setReviews((reviewsResult.data ?? []) as Row[]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [message, setMessage] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [serviceFilter, setServiceFilter] = useState("All");
+  const [ratingFilter, setRatingFilter] = useState("All");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [decision, setDecision] = useState<"approved" | "flagged" | "rejected" | null>(null);
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const ready = await supabase.rpc("evently_review_features_ready");
+      if (ready.error || ready.data !== true) {
+        setSchemaReady(false);
+        setLoadError(ready.error?.message ?? "Review database features are unavailable.");
+        return;
+      }
+      setSchemaReady(true);
+      const result = await supabase.from("reviews").select("*").order("created_at",{ascending:false}).limit(1000);
+      if (result.error) { setLoadError(result.error.message); return; }
+      const rows = (result.data ?? []) as Row[];
+      const ids = [...new Set(rows.map(row=>String(row.customer_id ?? "")).filter(Boolean))];
+      if (ids.length) {
+        const profiles = await supabase.from("profiles").select("id,full_name").in("id",ids);
+        if (!profiles.error) setCustomers(Object.fromEntries((profiles.data ?? []).map(row=>[row.id,String(row.full_name || "Customer")])));
+      }
+      setReviews(rows);
+      setLoadError("");
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Unable to load reviews.");
+    } finally { setLoading(false); }
   }, []);
   useEffect(() => {
     void load();
-    const refresh = () => { void load(); };
-    const interval = window.setInterval(refresh, 30000);
-    window.addEventListener("evently-admin-data-changed", refresh);
-    const channel = supabase.channel("admin-review-workspace")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reviews" }, refresh)
-      .subscribe();
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("evently-admin-data-changed", refresh);
-      void supabase.removeChannel(channel);
-    };
-  }, [load]);
-  const reviewText = (row: Row) => first(row,["review_text","comment","content"]);
-  const serviceFor = (row: Row) => String(row.service_category ?? "Uncategorized");
-  const visible = reviews.filter((row) => (filter === "All" || String(row.sentiment_label ?? "pending") === filter.toLowerCase()) && (moderation === "All" || String(row.moderation_status ?? "pending") === moderation.toLowerCase()) && (serviceFilter === "All" || serviceFor(row) === serviceFilter) && (ratingFilter === "All" || Number(row.rating) === Number(ratingFilter)) && (!dateFrom || String(row.created_at ?? "").slice(0,10) >= dateFrom) && (!dateTo || String(row.created_at ?? "").slice(0,10) <= dateTo));
-  const published = reviews.filter((row) => row.is_published === true && row.moderation_status === "approved");
-  const distribution = ["positive","neutral","negative"].map((sentiment) => ({ sentiment, count: published.filter((row) => row.sentiment_label === sentiment).length }));
-  const average = published.length ? published.reduce((sum,row) => sum + Number(row.rating ?? 0),0) / published.length : 0;
-  const months = Array.from({length: 6}, (_, index) => { const date = new Date(); date.setDate(1); date.setMonth(date.getMonth() - (5 - index)); return date; });
-  const trendSeries = ["positive","neutral","negative"].map((sentiment) => ({ sentiment, points: months.map((month) => published.filter((row) => row.sentiment_label === sentiment && new Date(String(row.created_at)).getFullYear() === month.getFullYear() && new Date(String(row.created_at)).getMonth() === month.getMonth()).length) }));
-  const trendMax = Math.max(...trendSeries.flatMap((series) => series.points), 1);
-  const serviceNames = ["Catering","Staycation","Events Place","Venice experience"];
-  const serviceRows = published.reduce<Record<string, number[]>>((totals, row) => {
-    const service = serviceFor(row).toLowerCase();
-    const category = service.includes("event") || service.includes("venue") ? serviceNames[2]
-      : service.includes("staycation") || service.includes("room") || service.includes("accommodation") ? serviceNames[1]
-      : service.includes("catering") ? serviceNames[0] : service.includes("resort") || service.includes("pool") || service.includes("swim") ? serviceNames[1] : service.includes("venice") ? serviceNames[3] : "Other";
-    if (!totals[category]) totals[category] = [0,0,0];
-    const index = ["positive","neutral","negative"].indexOf(String(row.sentiment_label));
-    if (index >= 0) totals[category][index] += 1;
-    return totals;
-  }, {});
-  const moderate = async (row: Row, decision: "approved" | "rejected" | "flagged") => { const reason = decision === "approved" ? null : window.prompt("Record a moderation reason:")?.trim(); if (decision !== "approved" && !reason) return; const { error } = await supabase.rpc("evently_admin_moderate_review", { p_review_id: String(row.id), p_decision: decision, p_reason: reason }); setMessage(error ? error.message : `Review ${decision}.`); if (!error) void load(); };
-  const analyze = async (row: Row) => { if (!String(reviewText(row) ?? "").trim()) { setMessage("Sentiment is unavailable for a star-only review."); return; } const { data } = await supabase.auth.getSession(); const response = await fetch(`${eventlyFunctionBaseUrl}/reviews/analyze`, { method:"POST", headers:{ Authorization:`Bearer ${data.session?.access_token ?? ""}`, "Content-Type":"application/json" }, body:JSON.stringify({review_id:row.id}) }); const result = await response.json().catch(()=>({})); setMessage(response.ok ? `Analysis: ${result.sentiment} (${Math.round(result.confidence * 100)}% confidence).` : String(result.error ?? "Analysis unavailable.")); if (response.ok) void load(); };
-  const max = Math.max(...distribution.map((item) => item.count), 1);
-  const totalAnalyzed = distribution.reduce((sum, item) => sum + item.count, 0);
-  if (schemaReady === null) return <LoadingState />;
-  if (!schemaReady) return <section className="admin-card admin-schema-note"><span>Migration required</span><h2>Review moderation is not ready</h2><p>{message}</p><p>The application checks for the review edit, moderation, and sentiment schema before querying those fields.</p></section>;
-  return <>
-    <section className="admin-card"><div className="admin-card-heading"><div><h2>Review filters</h2><p>Filter by service, rating, sentiment, and submission date.</p></div><div className="admin-inline-filters"><label>Service<select value={serviceFilter} onChange={(event)=>setServiceFilter(event.target.value)}><option>All</option>{serviceNames.map((name)=><option key={name}>{name}</option>)}</select></label><label>Rating<select value={ratingFilter} onChange={(event)=>setRatingFilter(event.target.value)}><option>All</option>{[5,4,3,2,1].map((stars)=><option key={stars} value={stars}>{stars} stars</option>)}</select></label><label>From<input type="date" value={dateFrom} onChange={(event)=>setDateFrom(event.target.value)}/></label><label>To<input type="date" value={dateTo} onChange={(event)=>setDateTo(event.target.value)}/></label></div></div></section>
-    {reviews.some((row) => !row.sentiment_label && Boolean(String(reviewText(row) ?? "").trim())) && <section className="admin-card admin-attention-card"><div className="admin-card-heading"><div><h2>Sentiment analysis pending</h2><p>Unprocessed or failed written reviews remain pending; retrying analyzes the stored text.</p></div><b>{reviews.filter((row) => !row.sentiment_label && Boolean(String(reviewText(row) ?? "").trim())).length}</b></div><div className="admin-review-pending-list">{reviews.filter((row) => !row.sentiment_label && Boolean(String(reviewText(row) ?? "").trim())).slice(0, 6).map((row) => <article key={String(row.id)}><span><strong>{String(reviewText(row) ?? "").slice(0, 120)}</strong><small>{serviceFor(row)} · {show(row.created_at)}</small></span><button className="admin-row-action" onClick={() => void analyze(row)} type="button">Analyze / retry</button></article>)}</div></section>}
-     <div className="admin-stat-grid"><article className="admin-card"><span>Total reviews</span><strong>{reviews.length}</strong></article><article className="admin-card"><span>Average rating</span><strong>{reviews.length ? (reviews.reduce((sum,row) => sum + Number(row.rating ?? 0),0) / reviews.length).toFixed(1) : "—"} ★</strong></article><article className="admin-card"><span>Positive</span><strong>{reviews.filter((row) => row.sentiment_label === "positive").length}</strong></article><article className="admin-card"><span>Neutral</span><strong>{reviews.filter((row) => row.sentiment_label === "neutral").length}</strong></article><article className="admin-card"><span>Negative</span><strong>{reviews.filter((row) => row.sentiment_label === "negative").length}</strong></article><article className="admin-card"><span>Moderation queue</span><strong>{reviews.filter((row) => ["pending","flagged"].includes(String(row.moderation_status))).length}</strong></article></div>
-    <div className="admin-overview-grid" style={{ marginTop: 14 }}><section className="admin-card"><div className="admin-card-heading"><div><h2>Sentiment distribution</h2><p>From actual published review text with completed analysis.</p></div></div><div className="admin-donut-wrap"><svg aria-label="Sentiment distribution donut chart" role="img" viewBox="0 0 80 80"><circle cx="40" cy="40" r="30" fill="none" stroke="#edf1f1" strokeWidth="12"/><g transform="rotate(-90 40 40)">{distribution.map((item,index)=>{const circumference=188.5;const offset=distribution.slice(0,index).reduce((sum,previous)=>sum+previous.count/Math.max(totalAnalyzed,1)*circumference,0);return <circle key={item.sentiment} cx="40" cy="40" r="30" fill="none" stroke={["#148d88","#c9973d","#bc4a4f"][index]} strokeWidth="12" strokeDasharray={`${item.count/Math.max(totalAnalyzed,1)*circumference} ${circumference}`} strokeDashoffset={-offset}/>;})}</g><text x="40" y="39" textAnchor="middle" className="admin-donut-total">{totalAnalyzed}</text><text x="40" y="48" textAnchor="middle" className="admin-donut-label">ANALYZED</text></svg><div className="admin-sentiment-bars">{distribution.map((item) => <div key={item.sentiment}><span>{item.sentiment}</span><i><b style={{ width:`${item.count / max * 100}%` }}/></i><strong>{item.count}</strong></div>)}</div></div></section><section className="admin-card"><div className="admin-card-heading"><div><h2>Sentiment trends</h2><p>Monthly analyzed published reviews · last six months.</p></div></div>{published.some((row)=>row.sentiment_label) ? <div className="admin-sentiment-trend"><svg aria-label="Monthly review sentiment trends" role="img" viewBox="0 0 600 220" preserveAspectRatio="none"><path d="M35 15V185H590" fill="none" stroke="#dce5e5" strokeWidth="2"/>{trendSeries.map((series)=>{const points=series.points.map((value,index)=>`${45+index*105},${180-value/trendMax*150}`).join(" ");return <g key={series.sentiment}><polyline fill="none" points={points} stroke={series.sentiment === "positive" ? "#148d88" : series.sentiment === "neutral" ? "#c9973d" : "#bc4a4f"} strokeWidth="4"/>{series.points.map((value,index)=><circle key={index} cx={45+index*105} cy={180-value/trendMax*150} r="5" fill={series.sentiment === "positive" ? "#148d88" : series.sentiment === "neutral" ? "#c9973d" : "#bc4a4f"}/>)}</g>;})}</svg><div className="admin-sentiment-months">{months.map((month)=><span key={month.toISOString()}>{month.toLocaleDateString("en",{month:"short"})}</span>)}</div><div className="admin-sentiment-legend">{trendSeries.map((series)=><span key={series.sentiment}><i className={`is-${series.sentiment}`}/>{series.sentiment}</span>)}</div></div> : <div className="admin-chart-empty">Sentiment trends will appear after reviews are analyzed.</div>}</section></div>
-    <section className="admin-card" style={{ marginTop:14 }}><div className="admin-card-heading"><div><h2>Reviews by service</h2><p>Analyzed review counts for actual linked services and packages.</p></div></div><div className="admin-review-services">{serviceNames.map((service,index)=>{const values=serviceRows[service]??[0,0,0];const total=values.reduce((sum,value)=>sum+value,0);return <article key={service}><strong>{service}</strong><span>{total} analyzed review{total===1?"":"s"}</span><div>{values.map((value,seriesIndex)=><i key={seriesIndex} style={{width:`${total ? value/total*100 : 0}%`,background:["#148d88","#c9973d","#bc4a4f"][seriesIndex]}} title={`${["Positive","Neutral","Negative"][seriesIndex]}: ${value}`}/>)}</div><small>Positive {values[0]} · Neutral {values[1]} · Negative {values[2]}</small></article>;})}</div></section>
-    <div className="admin-overview-grid" style={{ marginTop: 14 }}><section className="admin-card"><div className="admin-card-heading"><div><h2>Recent customer feedback</h2><p>Latest published reviews with actual sentiment analysis.</p></div></div>{published.slice(0,4).map((row)=><article className="admin-review-excerpt" key={String(row.id)}><strong>{"★".repeat(Number(row.rating ?? 0))} · {String(row.sentiment_label ?? "Pending")}</strong><span>{serviceFor(row)} · {show(row.created_at)}</span><p>{String(reviewText(row) ?? "").slice(0,180)}</p></article>)}{!published.length && <div className="admin-chart-empty">No published reviews with data yet.</div>}</section><section className="admin-card"><div className="admin-card-heading"><div><h2>Moderation queue</h2><p>Pending and flagged customer submissions.</p></div></div>{reviews.filter((row)=>["pending","flagged"].includes(String(row.moderation_status))).slice(0,5).map((row)=><article className="admin-review-excerpt" key={String(row.id)}><strong>{show(row.moderation_status)} · {show(row.rating)} ★</strong><span>{serviceFor(row)} · {show(row.created_at)}</span><p>{String(reviewText(row) ?? "").slice(0,180)}</p></article>)}{!reviews.some((row)=>["pending","flagged"].includes(String(row.moderation_status))) && <div className="admin-chart-empty">No reviews are waiting for moderation.</div>}</section></div>
-    <section className="admin-card admin-table-card" style={{ marginTop:14 }}><div className="admin-card-heading"><div><h2>Review moderation</h2><p>Sentiment describes text and does not determine publication eligibility.</p></div><div className="admin-inline-filters"><label>Sentiment<select value={filter} onChange={(event)=>setFilter(event.target.value)}><option>All</option><option>Positive</option><option>Neutral</option><option>Negative</option><option>Pending</option></select></label><label>Moderation<select value={moderation} onChange={(event)=>setModeration(event.target.value)}><option>All</option><option>Pending</option><option>Flagged</option><option>Approved</option><option>Rejected</option></select></label></div></div>{message && <p className="admin-action-message">{message}</p>}<div className="admin-table-scroll"><table><thead><tr><th>Customer</th><th>Service</th><th>Rating</th><th>Review</th><th>Sentiment</th><th>Moderation</th><th>Submitted</th><th>Actions</th></tr></thead><tbody>{visible.map((row)=><tr key={String(row.id)}><td>{show(row.customer_name ?? row.customer_id ?? row.user_id)}</td><td>{serviceFor(row)}</td><td>{show(row.rating)} ★</td><td className="admin-review-text">{String(reviewText(row) ?? "—")}</td><td>{show(row.sentiment_label)}{row.sentiment_confidence != null && <small>{Math.round(Number(row.sentiment_confidence)*100)}% confidence</small>}</td><td>{show(row.moderation_status)}</td><td>{show(row.created_at)}</td><td><div className="admin-inline-actions">{!row.sentiment_label && <button onClick={()=>void analyze(row)} type="button">Analyze</button>}<button onClick={()=>void moderate(row,"approved")} type="button">Publish</button><button onClick={()=>void moderate(row,"flagged")} type="button">Flag</button><button onClick={()=>void moderate(row,"rejected")} type="button">Reject</button></div></td></tr>)}</tbody></table>{!visible.length && <div className="admin-empty"><strong>No reviews match these filters</strong><p>Customer submissions will appear after the review migration is applied.</p></div>}</div></section>
-  </>;
+    const reload = () => { void load(true); };
+    const interval = window.setInterval(reload,30000);
+    window.addEventListener("evently-admin-data-changed",reload);
+    const channel = supabase.channel("evently-admin-reviews")
+      .on("postgres_changes",{event:"*",schema:"public",table:"reviews"},reload).subscribe();
+    return () => {window.clearInterval(interval);window.removeEventListener("evently-admin-data-changed",reload);void supabase.removeChannel(channel);};
+  },[load]);
+
+  const reviewText = (row:Row) => String(first(row,["review_text","comment","content"]) ?? "");
+  const service = (row:Row) => String(row.service_category ?? "Uncategorized");
+  const customer = (row:Row) => customers[String(row.customer_id ?? "")] ?? "Customer";
+  const published = reviews.filter(row=>row.is_published === true && row.moderation_status === "approved");
+  const awaiting = reviews.filter(row=>["pending","flagged"].includes(String(row.moderation_status ?? "pending")));
+  const average = reviews.length ? reviews.reduce((sum,row)=>sum+Number(row.rating ?? 0),0)/reviews.length : 0;
+  const services = [...new Set(reviews.map(service))].sort();
+  const visible = reviews.filter(row=>{
+    const term = search.trim().toLowerCase();
+    const matches = !term || [customer(row),service(row),reviewText(row),String(row.id),String(row.reservation_id ?? "")].some(value=>value.toLowerCase().includes(term));
+    const status = String(row.moderation_status ?? "pending");
+    return matches && (statusFilter === "All" || status === statusFilter)
+      && (serviceFilter === "All" || service(row) === serviceFilter)
+      && (ratingFilter === "All" || Number(row.rating) === Number(ratingFilter))
+      && (!dateFrom || String(row.created_at ?? "").slice(0,10)>=dateFrom)
+      && (!dateTo || String(row.created_at ?? "").slice(0,10)<=dateTo);
+  });
+  const pages = Math.max(1,Math.ceil(visible.length/pageSize));
+  const currentPage = Math.min(page,pages);
+  const paginated = visible.slice((currentPage-1)*pageSize,currentPage*pageSize);
+  const selected = reviews.find(row=>String(row.id)===selectedId) ?? null;
+  const resetFilters=()=>{setSearch("");setStatusFilter("All");setServiceFilter("All");setRatingFilter("All");setDateFrom("");setDateTo("");setPage(1);};
+  const startDecision = (row:Row,next:"approved"|"flagged"|"rejected")=>{
+    setSelectedId(String(row.id));setDecision(next);setReason("");setMessage("");
+  };
+  const saveDecision = async () => {
+    if (!selected || !decision || saving) return;
+    if (decision !== "approved" && !reason.trim()) {setMessage("Please provide a reason for flagging or rejecting the review.");return;}
+    setSaving(true);setMessage("");
+    try {
+      const {error} = await supabase.rpc("evently_admin_moderate_review",{
+        p_review_id:String(selected.id),p_decision:decision,p_reason:decision==="approved"?null:reason.trim()
+      });
+      if (error) {setMessage(error.message);return;}
+      setMessage(decision==="approved"?"Review published successfully.":decision==="rejected"?"Review rejected.":"Review flagged for further review.");
+      setDecision(null);setReason("");
+      await load(true);
+      window.dispatchEvent(new Event("evently-admin-data-changed"));
+    } catch (error) {setMessage(error instanceof Error?error.message:"Moderation failed.");}
+    finally {setSaving(false);}
+  };
+  if (loading && schemaReady === null) return <LoadingState />;
+  if (schemaReady === false) return <section className="admin-card admin-schema-note"><h2>Review management is unavailable</h2><p>{loadError}</p><button className="admin-secondary-button" onClick={()=>void load()} type="button">Retry connection</button></section>;
+  return <div className="review-workspace">
+    <div className="review-topline"><div><span className="review-eyebrow">CUSTOMER EXPERIENCE</span><h2>Review Management</h2><p>Read customer feedback, publish eligible reviews, and handle flagged submissions.</p></div><button className="admin-secondary-button" type="button" onClick={()=>void load()} disabled={loading}>{loading?"Refreshing…":"Refresh reviews"}</button></div>
+    <div className="review-summary" aria-label="Review statistics">
+      <article><span>Total reviews</span><strong>{reviews.length}</strong><small>Customer submissions</small></article>
+      <article><span>Average rating</span><strong>{reviews.length?average.toFixed(1):"—"} <span aria-hidden="true">★</span></strong><small>Across all reviews</small></article>
+      <article><span>Needs attention</span><strong>{awaiting.length}</strong><small>Pending or flagged</small></article>
+      <article><span>Published</span><strong>{published.length}</strong><small>Visible customer feedback</small></article>
+    </div>
+    {loadError && <div className="review-notice" role="alert">{loadError}<button className="admin-secondary-button" type="button" onClick={()=>void load()}>Retry</button></div>}
+    {message && <div className="review-notice" role="status">{message}<button type="button" aria-label="Dismiss message" onClick={()=>setMessage("")}>×</button></div>}
+    <section className="admin-card review-records">
+      <div className="review-records-head"><div><h3>Customer reviews</h3><p>{visible.length} matching {visible.length===1?"review":"reviews"}</p></div><button type="button" className="admin-quiet-button" onClick={resetFilters}>Clear filters</button></div>
+      <div className="review-filters">
+        <label className="review-search">Search reviews<input value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}} type="search" placeholder="Customer, feedback or service" /></label>
+        <label>Moderation<select value={statusFilter} onChange={e=>{setStatusFilter(e.target.value);setPage(1);}}><option value="All">All statuses</option><option value="pending">Pending</option><option value="flagged">Flagged</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label>
+        <label>Service<select value={serviceFilter} onChange={e=>{setServiceFilter(e.target.value);setPage(1);}}><option value="All">All services</option>{services.map(item=><option key={item} value={item}>{item}</option>)}</select></label>
+        <label>Rating<select value={ratingFilter} onChange={e=>{setRatingFilter(e.target.value);setPage(1);}}><option value="All">All ratings</option>{[5,4,3,2,1].map(n=><option key={n} value={n}>{n} stars</option>)}</select></label>
+        <label>From<input type="date" value={dateFrom} onChange={e=>{setDateFrom(e.target.value);setPage(1);}} /></label>
+        <label>To<input type="date" min={dateFrom||undefined} value={dateTo} onChange={e=>{setDateTo(e.target.value);setPage(1);}} /></label>
+      </div>
+      <div className="review-table-scroll">
+        <table><thead><tr><th>Customer / service</th><th>Rating</th><th>Customer feedback</th><th>Moderation</th><th>Submitted</th><th>Action</th></tr></thead><tbody>
+          {paginated.map(row=><tr key={String(row.id)}>
+            <td><strong>{customer(row)}</strong><small>{service(row)}</small></td>
+            <td><span className="review-stars" aria-label={String(row.rating)+" out of 5 stars"}>{"★".repeat(Math.max(0,Math.min(5,Number(row.rating)||0)))}</span><small>{row.rating}/5</small></td>
+            <td><p className="review-excerpt">{reviewText(row)||"Star rating only — no written feedback"}</p>{row.sentiment_label && <small>Sentiment: {String(row.sentiment_label)}</small>}</td>
+            <td><span className={"review-status review-status--"+String(row.moderation_status??"pending")}>{String(row.moderation_status??"pending")}</span></td>
+            <td>{show(row.created_at)}</td>
+            <td><button type="button" className="admin-secondary-button" onClick={()=>{setSelectedId(String(row.id));setDecision(null);setMessage("");}}>View details</button></td>
+          </tr>)}
+        </tbody></table>
+      </div>
+      {!visible.length && <div className="admin-empty"><strong>No reviews found</strong><p>{reviews.length?"Try adjusting the search or filters.":"No customer reviews have been submitted yet."}</p></div>}
+      {visible.length>pageSize && <div className="admin-pagination"><span>Showing {(currentPage-1)*pageSize+1}–{Math.min(currentPage*pageSize,visible.length)} of {visible.length}</span><div><button type="button" disabled={currentPage===1} onClick={()=>setPage(v=>Math.max(1,v-1))}>Previous</button><b>{currentPage} / {pages}</b><button type="button" disabled={currentPage===pages} onClick={()=>setPage(v=>Math.min(pages,v+1))}>Next</button></div></div>}
+    </section>
+    {selected && <div className="review-modal-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget&&!saving){setSelectedId(null);setDecision(null);}}}>
+      <section className="review-modal" role="dialog" aria-modal="true" aria-labelledby="review-modal-title">
+        <div className="review-modal-header"><div><span className="review-eyebrow">REVIEW DETAILS</span><h3 id="review-modal-title">{customer(selected)}</h3><p>{service(selected)} · {show(selected.created_at)}</p></div><button type="button" aria-label="Close review details" disabled={saving} onClick={()=>{setSelectedId(null);setDecision(null);}}>×</button></div>
+        <div className="review-modal-body"><div className="review-modal-badges"><span className="review-stars">{"★".repeat(Math.max(0,Math.min(5,Number(selected.rating)||0)))}</span><span className={"review-status review-status--"+String(selected.moderation_status??"pending")}>{String(selected.moderation_status??"pending")}</span></div>
+          <h4>Customer feedback</h4><p className="review-fulltext">{reviewText(selected)||"This customer submitted a star rating without written feedback."}</p>
+          {selected.sentiment_label && <p className="review-meta">Sentiment: {String(selected.sentiment_label)}{selected.sentiment_confidence!=null?" · "+Math.round(Number(selected.sentiment_confidence)*100)+"% confidence":""}</p>}
+          {selected.moderation_reason && <p className="review-meta"><strong>Previous moderation note:</strong> {String(selected.moderation_reason)}</p>}
+          <p className="review-meta">Publication: {selected.is_published===true?"Published":"Not published"}</p>
+          <div className="review-moderation"><h4>Moderation actions</h4><p>Publishing uses the existing server-side safety checks. Flagging and rejection require a reason.</p>
+            <div className="review-action-row">
+              <button type="button" disabled={saving||String(selected.moderation_status)==="approved"} onClick={()=>startDecision(selected,"approved")}>Approve & publish</button>
+              <button type="button" disabled={saving} onClick={()=>startDecision(selected,"flagged")}>Flag for review</button>
+              <button type="button" disabled={saving} onClick={()=>startDecision(selected,"rejected")}>Reject</button>
+            </div>
+            {decision && <div className="review-confirm"><strong>{decision==="approved"?"Publish this review?":decision==="flagged"?"Flag this review?":"Reject this review?"}</strong>
+              {decision!=="approved" && <label>Moderation reason<textarea rows={3} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Explain the decision for the audit record" /></label>}
+              <div><button type="button" className="admin-secondary-button" disabled={saving} onClick={()=>{setDecision(null);setReason("");}}>Cancel</button><button type="button" disabled={saving||(decision!=="approved"&&!reason.trim())} onClick={()=>void saveDecision()}>{saving?"Saving…":"Confirm decision"}</button></div>
+            </div>}
+            {message && <p className="review-notice" role="status">{message}</p>}
+          </div>
+        </div>
+      </section>
+    </div>}
+  </div>;
 }
 
 export default function AdminDashboard({ profile, path, navigate }: { profile: EventlyProfile; path: string; navigate: (to: string) => void }) {
