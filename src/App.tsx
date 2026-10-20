@@ -2030,6 +2030,14 @@ function ReservationFlow({
       ? (packageChoice?.min_guest_count ?? 4) * rooms
       : packageChoice?.min_guest_count
         ?? (service === "Room Accommodation" && /4\s*to\s*5\s*guests/i.test(packageChoice?.description ?? "") ? 4 : 1);
+  // Events Place defaults to 50 guests in the shared wizard, which can exceed
+  // a venue's configured maximum and falsely look like a date-availability failure.
+  useEffect(() => {
+    if (service !== "Event" || !packageChoice) return;
+    const minimum = Math.max(1, Number(packageChoice.min_guest_count ?? 1));
+    const maximum = packageChoice.max_guest_count == null ? Infinity : Number(packageChoice.max_guest_count);
+    setGuests((current) => current < minimum || current > maximum ? Math.min(minimum, maximum) : current);
+  }, [service, packageChoice?.id, packageChoice?.min_guest_count, packageChoice?.max_guest_count]);
   const verifiedPoolMax = packageChoice?.max_guest_count == null
     ? null
     : Number(packageChoice.max_guest_count);
@@ -2367,7 +2375,7 @@ function ReservationFlow({
       }
       if (!available) {
         setBookingError("");
-        setConflictReason("This package is currently not eligible for booking. Check that the package is active and that your guest count meets its minimum and maximum limits. The selected date is not necessarily fully booked.");
+        setConflictReason(`This venue could not pass the booking eligibility check. Please confirm that it is active and that the guest count is within ${packageChoice.min_guest_count ?? 1}–${packageChoice.max_guest_count ?? "the venue limit"}. This does not mean the date is fully booked.`);
         setStep(2);
         return;
       }
