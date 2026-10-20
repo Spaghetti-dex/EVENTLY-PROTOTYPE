@@ -2803,8 +2803,8 @@ function ReviewsWorkspace() {
         <table><thead><tr><th>Customer / service</th><th>Rating</th><th>Customer feedback</th><th>Moderation</th><th>Submitted</th><th>Action</th></tr></thead><tbody>
           {paginated.map(row=><tr key={String(row.id)}>
             <td><strong>{customer(row)}</strong><small>{service(row)}</small></td>
-            <td><span className="review-stars" aria-label={String(row.rating)+" out of 5 stars"}>{"★".repeat(Math.max(0,Math.min(5,Number(row.rating)||0)))}</span><small>{row.rating}/5</small></td>
-            <td><p className="review-excerpt">{reviewText(row)||"Star rating only — no written feedback"}</p>{row.sentiment_label && <small>Sentiment: {String(row.sentiment_label)}</small>}</td>
+            <td><span className="review-stars" aria-label={String(row.rating)+" out of 5 stars"}>{"★".repeat(Math.max(0,Math.min(5,Number(row.rating)||0)))}</span><small>{String(row.rating ?? "—")}/5</small></td>
+            <td><p className="review-excerpt">{reviewText(row)||"Star rating only — no written feedback"}</p>{Boolean(row.sentiment_label) && <small>Sentiment: {String(row.sentiment_label)}</small>}</td>
             <td><span className={"review-status review-status--"+String(row.moderation_status??"pending")}>{String(row.moderation_status??"pending")}</span></td>
             <td>{show(row.created_at)}</td>
             <td><button type="button" className="admin-secondary-button" onClick={()=>{setSelectedId(String(row.id));setDecision(null);setMessage("");}}>View details</button></td>
@@ -2819,8 +2819,8 @@ function ReviewsWorkspace() {
         <div className="review-modal-header"><div><span className="review-eyebrow">REVIEW DETAILS</span><h3 id="review-modal-title">{customer(selected)}</h3><p>{service(selected)} · {show(selected.created_at)}</p></div><button type="button" aria-label="Close review details" disabled={saving} onClick={()=>{setSelectedId(null);setDecision(null);}}>×</button></div>
         <div className="review-modal-body"><div className="review-modal-badges"><span className="review-stars">{"★".repeat(Math.max(0,Math.min(5,Number(selected.rating)||0)))}</span><span className={"review-status review-status--"+String(selected.moderation_status??"pending")}>{String(selected.moderation_status??"pending")}</span></div>
           <h4>Customer feedback</h4><p className="review-fulltext">{reviewText(selected)||"This customer submitted a star rating without written feedback."}</p>
-          {selected.sentiment_label && <p className="review-meta">Sentiment: {String(selected.sentiment_label)}{selected.sentiment_confidence!=null?" · "+Math.round(Number(selected.sentiment_confidence)*100)+"% confidence":""}</p>}
-          {selected.moderation_reason && <p className="review-meta"><strong>Previous moderation note:</strong> {String(selected.moderation_reason)}</p>}
+          {Boolean(selected.sentiment_label) && <p className="review-meta">Sentiment: {String(selected.sentiment_label)}{selected.sentiment_confidence!=null?" · "+Math.round(Number(selected.sentiment_confidence)*100)+"% confidence":""}</p>}
+          {Boolean(selected.moderation_reason) && <p className="review-meta"><strong>Previous moderation note:</strong> {String(selected.moderation_reason)}</p>}
           <p className="review-meta">Publication: {selected.is_published===true?"Published":"Not published"}</p>
           <div className="review-moderation"><h4>Moderation actions</h4><p>Publishing uses the existing server-side safety checks. Flagging and rejection require a reason.</p>
             <div className="review-action-row">
