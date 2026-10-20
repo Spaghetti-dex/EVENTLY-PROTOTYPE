@@ -5028,7 +5028,7 @@ function Homepage() {
   const headerActiveSection = pathname === "/" && hash === "#booking" ? "booking" : activeSection;
 
   // Opening the site root should always begin at the hero. Preserve explicit
-  // #booking / #locations deep links when a visitor deliberately uses them.
+  // #booking deep links when a visitor deliberately uses them.
   useEffect(() => {
     if (window.location.pathname !== "/" || window.location.hash) return;
     const previousRestoration = window.history.scrollRestoration;
