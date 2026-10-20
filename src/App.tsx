@@ -1032,8 +1032,8 @@ const bookingCategoryLabel = (serviceId: string) => {
 };
 type BookingMainCategory = "Catering" | "Staycation" | "Events Place";
 type CateringChoice = "with-venue" | "without-venue" | "party-trays" | null;
-type StaycationChoice = "day" | "night" | "overnight" | "rooms" | "venue" | null;
-const staycationTourKey = (name: string): Exclude<StaycationChoice, "rooms" | "venue" | null> | null => {
+type StaycationChoice = "day" | "night" | "overnight" | "venue" | null;
+const staycationTourKey = (name: string): Exclude<StaycationChoice, "venue" | null> | null => {
   const normalized = name.trim().toLowerCase();
   if (normalized.includes("overnight")) return "overnight";
   if (normalized.includes("night")) return "night";
@@ -1681,7 +1681,7 @@ function ReservationFlow({
     setPrivacyAcknowledged(false);
     setSelectedMainCategory(mainCategoryForService(requestedService));
     setCateringChoice(requestedService === "Food Orders & Party Trays" ? "party-trays" : null);
-    setStaycationChoice(requestedService === "Room Accommodation" ? "rooms" : requestedService === "Resort Venue Only" ? "venue" : null);
+    setStaycationChoice(requestedService === "Resort Venue Only" ? "venue" : null);
     setGuests(requestedService === "Swimming Pool" ? 20 : requestedService === "Resort Venue Only" ? 1 : requestedService === "Room Accommodation" ? 4 : 50);
     setSelectedPackageId("");
     setSelectedVariantId("");
@@ -1787,7 +1787,7 @@ function ReservationFlow({
     .filter((item) => {
       if (service === "Swimming Pool") return normalizedService(item.service_type) === "resort"
         && (item.package_category?.trim().toLowerCase() === "pool_tour" || swimmingPackageNames.has(item.name.trim().toLowerCase()))
-        && (!staycationChoice || staycationChoice === "rooms" || staycationTourKey(item.name) === staycationChoice);
+        && (!staycationChoice || staycationTourKey(item.name) === staycationChoice);
       if (service === "Event") {
         return item.package_category?.trim().toLowerCase() === "venue_only"
           && normalizedService(item.service_type) === "event";
@@ -2337,8 +2337,8 @@ function ReservationFlow({
         if (guests < minimumGuests || (effectiveGuestCapacity !== null && guests > effectiveGuestCapacity)) {
           throw new Error(`Guest count must be ${minimumGuests}${effectiveGuestCapacity !== null ? `–${effectiveGuestCapacity}` : " or more"} for this booking.`);
         }
-        if (service === "Room Accommodation" && (rooms < 1 || rooms > 100 || nights < 1 || nights > 365)) {
-          throw new Error("Room count must be 1–100 and nights must be 1–365.");
+        if (service === "Room Accommodation" && (rooms < 1 || rooms > 6 || nights < 1 || nights > 365)) {
+          throw new Error("Room count must be 1–6 and nights must be 1–365.");
         }
         if (!privacyAcknowledged) throw new Error("Review and acknowledge the Privacy Notice before submitting.");
         if (cateringWithoutVenue && !deliveryAddressReady) throw new Error("A complete Metro Manila delivery address is required (street, barangay, and eligible city).");
@@ -2625,15 +2625,6 @@ function ReservationFlow({
                             <span className="booking-staycation-choice__copy"><strong>{option.label}</strong><small>{option.schedule} · Minimum 20 guests · {option.price > 0 ? `${currency(option.price)} per guest` : "Rate unavailable"}{option.packageRow?.cottage_addon_id && Number(option.packageRow.cottage_fee) > 0 ? ` · Cottage ${currency(Number(option.packageRow.cottage_fee))}` : " · Cottage selection not configured"}</small></span>
                             <span className="booking-catering-choice__check">✓</span>
                           </button>)}
-                          <button aria-pressed={staycationChoice === "rooms"} className={`booking-staycation-choice ${staycationChoice === "rooms" ? "is-selected" : ""}`} onClick={() => {
-                            setSelectedMainCategory("Staycation");
-                            setCateringChoice(null);
-                            setStaycationChoice("rooms");
-                            chooseBookingService("Room Accommodation");
-                          }} type="button">
-                            <span className="booking-staycation-choice__copy"><strong>Room Accommodation</strong><small>{staycationRoomRates || "Choose an active room package in the next step."}</small></span>
-                            <span className="booking-catering-choice__check">✓</span>
-                          </button>
                           <button aria-pressed={staycationChoice === "venue"} className={`booking-staycation-choice ${staycationChoice === "venue" ? "is-selected" : ""}`} onClick={() => {
                             setSelectedMainCategory("Staycation");
                             setCateringChoice(null);
@@ -2883,7 +2874,7 @@ function ReservationFlow({
                 {packageChoice && activeService?.quantityMode === "rooms" && (
                   <div className="booking-quantity-panel">
                     <div><strong>Accommodation details</strong><span>Enter the rooms and nights required.</span></div>
-                    <label><span>Rooms</span><input aria-label="Number of rooms" max="100" min="1" onChange={(event) => setRooms(Math.min(100, Math.max(1, Number(event.target.value))))} type="number" value={rooms} /></label>
+                    <label><span>Rooms</span><input aria-label="Number of rooms" max="6" min="1" onChange={(event) => setRooms(Math.min(6, Math.max(1, Number(event.target.value))))} type="number" value={rooms} /></label>
                     <label><span>Nights</span><input aria-label="Number of nights" max="365" min="1" onChange={(event) => setNights(Math.min(365, Math.max(1, Number(event.target.value))))} type="number" value={nights} /></label>
                   </div>
                 )}
@@ -5404,7 +5395,6 @@ function Homepage() {
               {experience.serviceId === "staycation" && staycationOptionsOpen && (
                 <div className="staycation-options">
                   <button data-booking-cta="true" onClick={() => chooseService("Swimming Pool")} type="button"><strong>Swimming Pool Tours</strong><small>Day, night, and overnight schedules</small></button>
-                  <button data-booking-cta="true" onClick={() => chooseService("Room Accommodation")} type="button"><strong>Room Accommodation</strong><small>Standard and Kubo room options</small></button>
                   <button data-booking-cta="true" onClick={() => chooseService("Resort Venue Only")} type="button"><strong>Venue Only</strong><small>Non-Aircon ₱10,000/5 hours · Aircon ₱15,000/4 hours</small></button>
                 </div>
               )}
