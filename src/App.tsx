@@ -1161,6 +1161,8 @@ const normalizeMenuCategory = (value: unknown) => {
 };
 
 const requiredMenuCategories = cateringMenu.map(({ key }) => key);
+const hasCustomMenuSelection = (value: string | undefined) => Boolean(value?.startsWith("Others: "));
+const completedMenuSelection = (value: string | undefined) => Boolean(value?.trim() && (!hasCustomMenuSelection(value) || value.slice(8).trim().length >= 2));
 
 // Keep derived legacy bindings during Fast Refresh so a component retained from
 // an earlier module version cannot crash while Vite swaps in the new catalog.
@@ -1578,7 +1580,7 @@ function ReservationFlow({
       ? new Set(cateringMenu.flatMap(({ key, items }) => items.map((name) => `${normalizeMenuCategory(key)}::${name.trim().toLowerCase()}`)))
       : new Set(databaseMenuItems.map((item) => `${normalizeMenuCategory(item.category)}::${item.name.trim().toLowerCase()}`));
     setMenuSelections((current) => Object.fromEntries(
-      Object.entries(current).filter(([category, name]) => availableItems.has(`${normalizeMenuCategory(category)}::${name.trim().toLowerCase()}`)),
+      Object.entries(current).filter(([category, name]) => (hasCustomMenuSelection(name) || availableItems.has(`${normalizeMenuCategory(category)}::${name.trim().toLowerCase()}`))),
     ));
   }, [databaseMenuItems, menuCatalogState]);
 
@@ -1622,7 +1624,8 @@ function ReservationFlow({
     sessionStorage.setItem(bookingDraftKey, JSON.stringify(draft));
   }, [addOns, adults, cateringChoice, children, clientRequestId, cottageSelected, email, endTime, guestName, guests, itemQuantity, menuSelections, month, nights, paymentAmount, paymentMethod, paymentReference, phone, poolAccessSelected, privacyAcknowledged, rooms, selectedDate, selectedMainCategory, selectedPackageId, selectedVariantId, service, specialRequests, startTime, staycationChoice, step]);
 
-  const steps = service === "Catering"
+  const hasIncludedMenu = service === "Catering" || service === "Event";
+  const steps = hasIncludedMenu
     ? [
       { id: 1, label: "Choose Service" },
       { id: 2, label: "Choose Date" },
@@ -2002,7 +2005,7 @@ function ReservationFlow({
   const requiredPaymentAmount = deposit > 0 ? deposit : subtotal;
   const remaining = Math.max(0, subtotal - deposit);
   const currency = formatPhp;
-  const menuComplete = requiredMenuCategories.every((category) => Boolean(menuSelections[category]));
+  const menuComplete = requiredMenuCategories.every((category) => completedMenuSelection(menuSelections[category]));
   const supportedPaymentMethods: CustomerPaymentMethod[] = ["gcash", "maya", "bank_transfer"];
   const activePaymentAccounts = paymentAccounts.filter((account) => account.is_active
     && supportedPaymentMethods.includes(account.method)
@@ -2069,7 +2072,7 @@ function ReservationFlow({
     ) && (
       activeService?.quantityMode !== "tour" || guests >= minimumGuests
     )) ||
-    (step === 4 && service === "Catering" && menuComplete) ||
+    (step === 4 && hasIncludedMenu && menuComplete) ||
     (step === 5 && Boolean(guestName && email && normalizePhilippineMobile(phone)) && (!cateringWithoutVenue || Boolean(specialRequests.trim())) && guests >= minimumGuests && poolCapacityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && (
       effectiveGuestCapacity == null || guests <= effectiveGuestCapacity
     )) ||
@@ -2217,7 +2220,7 @@ function ReservationFlow({
               guest_count: guests,
               booking_service: service,
               idempotency_key: clientRequestId,
-              menu: service === "Catering" ? menuSelections : {},
+              menu: hasIncludedMenu ? menuSelections : {},
               package_id: packageChoice.id,
               package_variant_id: selectedVariant?.id ?? null,
               reservation_date: dateKey(selectedDate),
@@ -2303,7 +2306,7 @@ function ReservationFlow({
       }
       return;
     }
-    setStep((current) => current === 3 && service !== "Catering" ? 5 : Math.min(8, current + 1));
+    setStep((current) => current === 3 && !hasIncludedMenu ? 5 : Math.min(8, current + 1));
   };
 
   const resetBooking = () => {
@@ -2770,7 +2773,7 @@ function ReservationFlow({
                 {packageChoice && poolAccessEligibleService && packageChoice.pool_access_fee === 5000 && (
                   <label className="booking-pool-access"><input checked={poolAccessSelected} onChange={(event) => setPoolAccessSelected(event.target.checked)} type="checkbox" /><span>Add optional pool access</span><strong>{currency(packageChoice.pool_access_fee ?? 0)}</strong></label>
                 )}
-                {packageChoice && service === "Catering" && (
+                {packageChoice && hasIncludedMenu && (
                   <button className="menu-preview-button" onClick={() => setStep(4)} type="button">
                     Select the six included dishes, dessert, and drink <Icon name="arrow" size={17} />
                   </button>
@@ -2778,10 +2781,10 @@ function ReservationFlow({
               </div>
             )}
 
-            {step === 4 && service === "Catering" && (
+            {step === 4 && hasIncludedMenu && (
               <div className="booking-step booking-step--enter">
                 <div className="booking-step__heading">
-                  <span>Step 4 of {steps.length}</span>
+                  <span>Step {progressIndex + 1} of {steps.length}</span>
                   <h3>Select your ulam and menu</h3>
                   <p>Choose one currently available item from each category. Rice is already included.</p>
                 </div>
@@ -2797,7 +2800,7 @@ function ReservationFlow({
                       role="tab"
                       type="button"
                     >
-                      <span>{menuSelections[key] ? "✓" : requiredMenuCategories.indexOf(key) + 1}</span>{key}
+                      <span>{completedMenuSelection(menuSelections[key]) ? "✓" : requiredMenuCategories.indexOf(key) + 1}</span>{key}
                     </button>
                   ))}
                 </div>
@@ -2805,7 +2808,7 @@ function ReservationFlow({
                   <div className="ulam-category-panel" key={key} role="tabpanel">
                     <div className="ulam-category-panel__heading">
                       <div><span>{key}</span><h4>Choose one {key.toLowerCase()} selection</h4></div>
-                      <small>{menuSelections[key] ? "Selection complete" : "Required"}</small>
+                      <small>{completedMenuSelection(menuSelections[key]) ? "Selection complete" : "Required"}</small>
                     </div>
                     {items.length ? <div className="ulam-choice-grid">
                       {items.map((item) => (
@@ -2822,17 +2825,28 @@ function ReservationFlow({
                           <span className="ulam-choice-card__check">✓</span>
                         </label>
                       ))}
-                    </div> : menuCatalogState === "ready" ? <p className="menu-catalog-empty"><strong>No available items in this category</strong><span>Contact EVENTLY to choose another menu category.</span></p> : null}
+                    </div> : menuCatalogState === "ready" ? <p className="menu-catalog-empty"><strong>No available items in this category</strong><span>You can request a custom dish using Others below.</span></p> : null}
+                    <div className="ulam-custom-request" style={{ marginTop: 16, padding: 18, background: "#f4f8f6", border: "1px solid #cbded8", borderRadius: 12 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 700, fontSize: 15 }}>
+                        <input type="radio" name={`menu-${key}`} checked={hasCustomMenuSelection(menuSelections[key])} onChange={() => setMenuSelections((current) => ({ ...current, [key]: "Others: " }))} />
+                        Others — request a custom {key.toLowerCase()} option
+                      </label>
+                      {hasCustomMenuSelection(menuSelections[key]) && <label style={{ display: "grid", gap: 7, marginTop: 12, fontSize: 14 }}>
+                        <span>Specify your preferred dish or drink (subject to availability and confirmation)</span>
+                        <input type="text" maxLength={120} required value={menuSelections[key].slice(8)} onChange={(event) => setMenuSelections((current) => ({ ...current, [key]: `Others: ${event.target.value}` }))} placeholder={`Enter a custom ${key.toLowerCase()} request`} style={{ width: "100%", minHeight: 44, padding: "10px 12px", border: "1px solid #b9d0c9", borderRadius: 8, fontSize: 15 }} />
+                        <small>Requests outside the listed menu are reviewed by EVENTLY; any price change must be confirmed before approval.</small>
+                      </label>}
+                    </div>
                   </div>
                 ))}
                 <aside className="menu-selection-summary">
-                  <div><span>Live menu summary</span><strong>{Object.keys(menuSelections).length} of 8 selected</strong></div>
+                  <div><span>Live menu summary</span><strong>{requiredMenuCategories.filter((category) => completedMenuSelection(menuSelections[category])).length} of 8 selected</strong></div>
                   <ul>
-                    {requiredMenuCategories.map((category) => <li className={menuSelections[category] ? "menu-selection-complete" : ""} key={category}><span>{category}</span><strong>{menuSelections[category] ? cateringMenuDisplayName(menuSelections[category]) : "Select an option"}</strong></li>)}
+                    {requiredMenuCategories.map((category) => <li className={completedMenuSelection(menuSelections[category]) ? "menu-selection-complete" : ""} key={category}><span>{category}</span><strong>{menuSelections[category] ? cateringMenuDisplayName(menuSelections[category]) : "Select an option"}</strong></li>)}
                     <li className="menu-selection-complete"><span>Rice</span><strong>Included</strong></li>
                   </ul>
                   {selectedMenuTotal > 0 && <p>Menu price: {currency(selectedMenuTotal)} for {guests} guests.</p>}
-                  {!menuComplete && <p>Complete all eight menu categories to continue.</p>}
+                  {!menuComplete && <p>Select all eight menu categories. For Others, enter a specific dish or drink to continue.</p>}
                 </aside>
               </div>
             )}
@@ -2942,7 +2956,7 @@ function ReservationFlow({
                           : `${guests} guests`}
                   </strong></div>
                 </div>
-                {service === "Catering" && (
+                {hasIncludedMenu && (
                   <div className="review-menu">
                     <h4>Selected menu</h4>
                     <div>{requiredMenuCategories.map((category) => <span key={category}><small>{category}</small><strong>{cateringMenuDisplayName(menuSelections[category])}</strong></span>)}</div>
@@ -3047,7 +3061,7 @@ function ReservationFlow({
               <>
               {bookingError && <div className="booking-inline-error" role="alert">{bookingError}</div>}
               <div className="booking-controls">
-                <button className="booking-back" disabled={step === 1 || (step === 8 && Boolean(createdReservation))} type="button" onClick={() => setStep((current) => current === 5 && service !== "Catering" ? 3 : Math.max(1, current - 1))}>
+                <button className="booking-back" disabled={step === 1 || (step === 8 && Boolean(createdReservation))} type="button" onClick={() => setStep((current) => current === 5 && !hasIncludedMenu ? 3 : Math.max(1, current - 1))}>
                   Back
                 </button>
                 {step === 6 && <button className="skip-offer-button" onClick={() => setStep(7)} type="button">Skip This Offer</button>}
