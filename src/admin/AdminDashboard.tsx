@@ -2466,6 +2466,28 @@ function PaymentAccountSettings() {
   </>;
 }
 
+function FeaturedPhotosSettings() {
+  const [selected, setSelected] = useState<Record<string, number>>({ catering: 3, events: 4, resort: 3 });
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState("");
+  const categories = [{ id: "catering", label: "Catering", folder: "CATERING", prefix: "catering_sample", count: 10 }, { id: "events", label: "Events", folder: "EVENTS PLACE", prefix: "eventsplace_sample", count: 15 }, { id: "resort", label: "Resort / Staycation", folder: "STAYCATION-RESORT", prefix: "resort_sample", count: 9 }];
+  useEffect(() => {
+    supabase.from("evently_featured_photos").select("category,photo_index").then(({ data, error }) => {
+      if (error) setMessage(error.message);
+      else if (data) setSelected((previous) => ({ ...previous, ...Object.fromEntries(data.map((item) => [item.category, Number(item.photo_index)])) }));
+    });
+  }, []);
+  const save = async (category: string) => {
+    setSaving(category);
+    setMessage("");
+    const { data: user } = await supabase.auth.getUser();
+    const { error } = await supabase.from("evently_featured_photos").upsert({ category, photo_index: selected[category], updated_by: user.user?.id ?? null, updated_at: new Date().toISOString() }, { onConflict: "category" });
+    setMessage(error ? error.message : "Featured " + category + " photo saved. Refresh the customer gallery to see the change.");
+    setSaving("");
+  };
+  return <section className="admin-card"><span>Homepage gallery</span><h2>Featured story photos</h2><p>Choose the starting photo for each gallery story. Visitors can browse the other photos with the arrows. Images are selected from the existing Venice photo collection.</p><div className="featured-admin-grid">{categories.map((category) => <div key={category.id}><h3>{category.label}</h3><img alt={category.label + " preview"} style={{ width: "100%", aspectRatio: "4 / 3", objectFit: "cover", borderRadius: 12 }} src={"/venice-photos/" + encodeURIComponent(category.folder) + "/" + category.prefix + (selected[category.id] + 1) + ".jpg"} /><label>Featured photo<select value={selected[category.id]} onChange={(event) => setSelected((previous) => ({ ...previous, [category.id]: Number(event.target.value) }))}>{Array.from({ length: category.count }, (_, index) => <option key={index} value={index}>Photo {index + 1}</option>)}</select></label><button type="button" disabled={saving === category.id} onClick={() => save(category.id)}>{saving === category.id ? "Saving…" : "Save featured photo"}</button></div>)}</div>{message && <p role="status">{message}</p>}</section>;
+}
+
 function Settings() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -2475,7 +2497,7 @@ function Settings() {
     setMessage(error ? error.message : "Password updated successfully.");
     if (!error) setPassword("");
   };
-  return <div className="admin-settings-grid"><section className="admin-card admin-password-card"><span>Account security</span><h2>Change password</h2><p>Update the password for the currently authenticated Supabase account.</p><label>New password<input minLength={8} onChange={(event) => setPassword(event.target.value)} type="password" value={password} /></label><button disabled={password.length < 8} onClick={update} type="button">Update password</button>{message && <p role="status">{message}</p>}</section></div>;
+  return <div className="admin-settings-grid"><FeaturedPhotosSettings /><section className="admin-card admin-password-card"><span>Account security</span><h2>Change password</h2><p>Update the password for the currently authenticated Supabase account.</p><label>New password<input minLength={8} onChange={(event) => setPassword(event.target.value)} type="password" value={password} /></label><button disabled={password.length < 8} onClick={update} type="button">Update password</button>{message && <p role="status">{message}</p>}</section></div>;
 }
 
 const staffPermissions = [
