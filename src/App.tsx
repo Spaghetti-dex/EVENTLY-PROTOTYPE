@@ -3175,7 +3175,7 @@ function ReservationFlow({
                 <p className="evently-privacy-link"><a href="#evently-privacy-notice">Read the EVENTLY Privacy Notice</a></p>
                 <PrivacyNoticeDisclosure id="evently-privacy-notice" />
                 <div className="booking-payment-form">
-                  <label><span>Payment method</span><select disabled={!availablePaymentMethods.length} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)} required value={paymentMethod}>{availablePaymentMethods.map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
+                  <label><span>Payment method</span><select disabled={!availablePaymentMethods.length} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)} required value={paymentMethod}>{(demoPaymentMode ? ["gcash", "bank_transfer", "cash"] as CustomerPaymentMethod[] : availablePaymentMethods).map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
                   {selectedPaymentAccount && <div className="booking-payment-destination"><strong>{selectedPaymentAccount.display_name}</strong>{selectedPaymentAccount.account_holder && <span>Account holder: {selectedPaymentAccount.account_holder}</span>}{selectedPaymentAccount.bank_name && <span>Bank: {selectedPaymentAccount.bank_name}</span>}{(selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number) && <span>Send to: {selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number}</span>}{selectedPaymentAccount.qr_code_url && <img alt={`${selectedPaymentAccount.display_name} payment QR code`} src={selectedPaymentAccount.qr_code_url} />}<p>{selectedPaymentInstructions}</p></div>}
                   <label><span>Actual amount paid (PHP) · optional</span><input autoComplete="off" max={subtotal} min="0.01" onChange={(event) => setPaymentAmount(event.target.value)} step="0.01" type="number" value={paymentAmount} /><small>Required deposit: {currency(requiredPaymentAmount)}. Timely payment proof is held for Administrator review.</small></label>
                   <label><span>Payment reference / transaction number · optional</span><input autoComplete="off" maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} placeholder={demoPaymentMode ? "Example: DEMO-GCASH-2026-001" : "Enter your transaction reference"} value={paymentReference} /></label>
@@ -4440,7 +4440,7 @@ function OrderPage() {
     event.preventDefault();
     if (!session || !order || paymentSubmitting) return;
     setPaymentMessage("");
-    const amount = Number(paymentAmount);
+    const amount = demoPaymentMode ? amountDueNow : Number(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0 || amount > outstandingBalance) {
       setPaymentMessage("Enter the amount you actually paid. It must be greater than zero and no more than the saved booking balance.");
       return;
@@ -4453,15 +4453,15 @@ function OrderPage() {
       setPaymentMessage("A payment submission is already awaiting administrator review. Please wait for its decision.");
       return;
     }
-    if (!paymentReference.trim() || !paymentProof) {
+    if (!demoPaymentMode && (!paymentReference.trim() || !paymentProof)) {
       setPaymentMessage("A transaction reference and proof of payment are required.");
       return;
     }
-    if (!availablePaymentMethods.includes(paymentMethod) || !selectedPaymentAccount || !selectedPaymentInstructions.trim()) {
+    if (!demoPaymentMode && (!availablePaymentMethods.includes(paymentMethod) || !selectedPaymentAccount || !selectedPaymentInstructions.trim())) {
       setPaymentMessage("This payment method is not configured. Contact Venice before submitting payment.");
       return;
     }
-    if (!["image/jpeg", "image/png", "image/webp"].includes(paymentProof.type) || paymentProof.size > 5 * 1024 * 1024) {
+    if (paymentProof && (!["image/jpeg", "image/png", "image/webp"].includes(paymentProof.type) || paymentProof.size > 5 * 1024 * 1024)) {
       setPaymentMessage("Proof must be a JPG, PNG, or WebP image no larger than 5 MB.");
       return;
     }
@@ -4480,7 +4480,7 @@ function OrderPage() {
       }
       const reservationId = String(rowValue(order, ["reservation_id"]) ?? "");
       if (!reservationId) throw new Error("This order is not linked to a reservation.");
-      const { error: submitError } = await supabase.rpc("evently_submit_payment_proof", {
+      const { error: submitError } = demoPaymentMode ? await supabase.rpc("evently_submit_demo_payment", { p_reservation_id: reservationId, p_method: paymentMethod, p_reference_number: paymentMethod === "cash" ? null : (paymentReference.trim() || `DEMO-${crypto.randomUUID().slice(0,8)}`), p_proof_path: proofPath || null }) : await supabase.rpc("evently_submit_payment_proof", {
         p_reservation_id: reservationId,
         p_amount: amount,
         p_method: paymentMethod,
@@ -4524,19 +4524,19 @@ function OrderPage() {
            {latestPayment?.demo_mode === true && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>This sample proof does not represent real funds.</span></div>}
            {paymentAwaitingReview && <p className="booking-payment-message">A payment proof is awaiting administrator review. Please wait for the decision before submitting another proof.</p>}
            {demoProofAccepted && <p className="booking-payment-message">Your demo proof was accepted for booking review. No funds were recorded, and no additional demo proof is needed for this booking review.</p>}
-           {outstandingBalance > 0 && !paymentAwaitingReview && !demoProofAccepted && <form className="payment-submission-form" onSubmit={submitPayment}>
+           {outstandingBalance > 0 && !paymentAwaitingReview && <form className="payment-submission-form" onSubmit={submitPayment}>
              <h2>{latestPaymentStatus === "rejected" ? "Resubmit Payment Proof" : "Submit a Payment"}</h2>
              {demoPaymentMode && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>Use sample transaction data only. No processor is connected.</span></div>}
-              <label><span>Payment method</span><select disabled={!availablePaymentMethods.length} value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)}>{availablePaymentMethods.map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
+              <label><span>Payment method</span><select disabled={!demoPaymentMode && !availablePaymentMethods.length} value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)}>{availablePaymentMethods.map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
               {paymentOptionsError && <p className="booking-payment-message is-error" role="alert">Payment destinations could not be loaded: {paymentOptionsError}</p>}
               {!availablePaymentMethods.length && <p role="status">No active, correctly configured payment destinations are currently available. Contact Venice before sending funds.</p>}
-             {selectedPaymentAccount && <div className="customer-payment-destination"><strong>{selectedPaymentAccount.display_name}</strong>{selectedPaymentAccount.account_holder && <span>Account holder: {selectedPaymentAccount.account_holder}</span>}{selectedPaymentAccount.bank_name && <span>Bank: {selectedPaymentAccount.bank_name}</span>}{(selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number) && <span>Send to: {selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number}</span>}{selectedPaymentAccount.qr_code_url && <img alt={`${selectedPaymentAccount.display_name} payment QR code`} src={selectedPaymentAccount.qr_code_url} />}<p>{selectedPaymentInstructions}</p></div>}
+             {!demoPaymentMode && selectedPaymentAccount && <div className="customer-payment-destination"><strong>{selectedPaymentAccount.display_name}</strong>{selectedPaymentAccount.account_holder && <span>Account holder: {selectedPaymentAccount.account_holder}</span>}{selectedPaymentAccount.bank_name && <span>Bank: {selectedPaymentAccount.bank_name}</span>}{(selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number) && <span>Send to: {selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number}</span>}{selectedPaymentAccount.qr_code_url && <img alt={`${selectedPaymentAccount.display_name} payment QR code`} src={selectedPaymentAccount.qr_code_url} />}<p>{selectedPaymentInstructions}</p></div>}
              {!selectedPaymentAccount && selectedPaymentInstructions && <p>{selectedPaymentInstructions}</p>}
                <div className="payment-card__balance"><span>Total booking price</span><strong>{formatPhp(total)}</strong></div>
                <div className="payment-card__balance"><span>Suggested amount due</span><strong>{formatPhp(amountDueNow)}</strong></div>
-                <label><span>Actual amount paid (PHP)</span><input max={outstandingBalance} min={Math.max(0.01, remainingDeposit)} onChange={(event) => setPaymentAmount(event.target.value)} required step="0.01" type="number" value={paymentAmount} /><small>Enter the amount you actually transferred. It must cover any remaining required deposit and may differ from the suggested amount.</small></label>
-             <label><span>Transaction reference</span><input maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} required value={paymentReference} /></label>
-              <label><span>Proof of payment (JPG, PNG, or WebP · max 5 MB)</span><input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" ref={paymentProofInput} onChange={(event) => {
+                <label><span>{demoPaymentMode ? "Simulated payment amount (PHP)" : "Actual amount paid (PHP)"}</span><input max={outstandingBalance} min={Math.max(0.01, remainingDeposit)} onChange={(event) => setPaymentAmount(event.target.value)} readOnly={demoPaymentMode} required step="0.01" type="number" value={demoPaymentMode ? String(amountDueNow) : paymentAmount} /><small>Enter the amount you actually transferred. It must cover any remaining required deposit and may differ from the suggested amount.</small></label>
+             {(!demoPaymentMode || paymentMethod !== "cash") && <label><span>{demoPaymentMode ? "Sample transaction reference (optional)" : "Transaction reference"}</span><input maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} required={!demoPaymentMode} value={paymentReference} /></label>}
+              {(!demoPaymentMode || paymentMethod !== "cash") && <label><span>{demoPaymentMode ? "Optional sample proof (JPG, PNG, WebP)" : "Proof of payment (JPG, PNG, or WebP · max 5 MB)"}</span><input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" ref={paymentProofInput} onChange={(event) => {
                const file = event.target.files?.[0] ?? null;
                 if (file && (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024)) {
                   setPaymentMessage("Proof must be a JPG, PNG, or WebP image no larger than 5 MB.");
@@ -4547,9 +4547,9 @@ function OrderPage() {
                 setPaymentMessage("");
                 setPendingPaymentProofPath("");
                 setPaymentProof(file);
-             }} required={!paymentProof} type="file" /></label>
+             }} required={!demoPaymentMode && !paymentProof} type="file" /></label>}
               {paymentProof && <div className="booking-receipt-preview"><img alt="Receipt screenshot preview" src={paymentProofPreview} /><div><strong>{paymentProof.name}</strong><span>{(paymentProof.size / (1024 * 1024)).toFixed(2)} MB</span><div><button onClick={() => paymentProofInput.current?.click()} type="button">Replace image</button><button onClick={() => { setPaymentProof(null); setPendingPaymentProofPath(""); if (paymentProofInput.current) paymentProofInput.current.value = ""; }} type="button">Remove image</button></div></div></div>}
-              <button disabled={paymentSubmitting || !availablePaymentMethods.length || Boolean(paymentOptionsError)} type="submit">{paymentSubmitting ? "Submitting…" : "Submit for Verification"}</button>
+              <button disabled={paymentSubmitting || (!demoPaymentMode && (!availablePaymentMethods.length || Boolean(paymentOptionsError)))} type="submit">{paymentSubmitting ? "Submitting…" : "Submit for Verification"}</button>
             {paymentMessage && <span role="status">{paymentMessage}</span>}
            </form>}
         </aside>
