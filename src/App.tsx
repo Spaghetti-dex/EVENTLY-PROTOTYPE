@@ -1307,6 +1307,137 @@ function BookingTimePicker({ value, onChange, disabled = false, label }: { value
   </div>;
 }
 
+
+type IndividualFoodItem = {id:string; name:string; category:string; tray_price:number; is_active:boolean; is_available:boolean};
+function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
+  onBack:()=>void; onRequireLogin?:()=>void; customerProfile?:CustomerAccountProfile|null
+}) {
+  const {session}=useAuth();
+  const [items,setItems]=useState<IndividualFoodItem[]>([]);
+  const [quantities,setQuantities]=useState<Record<string,number>>({});
+  const [activeCategory,setActiveCategory]=useState("Beef");
+  const [loading,setLoading]=useState(true);
+  const [loadError,setLoadError]=useState("");
+  const [mode,setMode]=useState<"pickup"|"delivery">("pickup");
+  const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
+  const [date,setDate]=useState(today);
+  const [time,setTime]=useState("12:00");
+  const [fullName,setFullName]=useState(customerProfile?.fullName??"");
+  const [phone,setPhone]=useState(customerProfile?.mobile??"");
+  const [street,setStreet]=useState("");
+  const [barangay,setBarangay]=useState("");
+  const [city,setCity]=useState("");
+  const [notes,setNotes]=useState("");
+  const [requestId]=useState(()=>crypto.randomUUID());
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  const [receipt,setReceipt]=useState<{code:string;total:number}|null>(null);
+  useEffect(()=>{
+    let live=true;
+    const load=async()=>{
+      setLoading(true);
+      const result=await supabase.from("catering_menu_items").select("id,name,category,tray_price,is_active,is_available")
+        .eq("is_active",true).eq("is_available",true).order("category").order("name");
+      if(!live)return;
+      setLoading(false);
+      if(result.error){setLoadError(result.error.message);return;}
+      const rows=((result.data??[]) as IndividualFoodItem[]).filter(item=>Number(item.tray_price)>0);
+      setItems(rows);
+      setLoadError("");
+    };
+    void load();
+    return()=>{live=false;};
+  },[]);
+  const categories=[...new Set(items.map(item=>item.category))];
+  const ordered=items.filter(item=>(quantities[item.id]??0)>0).map(item=>({...item,quantity:quantities[item.id]}));
+  const total=ordered.reduce((sum,item)=>sum+Number(item.tray_price)*item.quantity,0);
+  const itemCount=ordered.reduce((sum,item)=>sum+item.quantity,0);
+  const setQty=(id:string,next:number)=>setQuantities(current=>({...current,[id]:Math.min(50,Math.max(0,next))}));
+  const addressReady=mode==="pickup" || validMetroManilaDelivery(street,barangay,city);
+  const formReady=ordered.length>0 && Boolean(date && time && fullName.trim().length>=2 && normalizePhilippineMobile(phone) && addressReady);
+  const submit=async(e:React.FormEvent<HTMLFormElement>)=>{
+    e.preventDefault();
+    if(!session){onRequireLogin?.();return;}
+    if(!formReady||busy)return;
+    setBusy(true);setError("");
+    try{
+      const {data,error:rpcError}=await supabase.rpc("evently_customer_create_food_order",{p_payload:{
+        request_id:requestId,date,time,fulfillment:mode,customer_name:fullName.trim(),
+        customer_phone:normalizePhilippineMobile(phone),notes:notes.trim(),
+        address:mode==="delivery"?{street:street.trim(),barangay:barangay.trim(),city}:null,
+        items:ordered.map(item=>({id:item.id,quantity:item.quantity}))
+      }});
+      if(rpcError)throw rpcError;
+      const result=data as {order_code:string;total:number};
+      if(!result?.order_code)throw new Error("The system did not return an order confirmation.");
+      setReceipt({code:result.order_code,total:Number(result.total)});
+      sessionStorage.removeItem("evently-booking-draft");
+    }catch(err){setError(err instanceof Error?err.message:"Could not place food order. Please try again.");}
+    finally{setBusy(false);}
+  };
+  if(receipt)return <div className="food-success" role="status">
+    <span>ORDER RECEIVED</span><h3>Thanks! Your food order is pending confirmation.</h3>
+    <p>Order number: <strong>{receipt.code}</strong></p>
+    <p>Total item price: <strong>{formatPhp(receipt.total)}</strong></p>
+    <p>Your order appears in Admin → Orders for confirmation and preparation. Payment and any delivery charges, if applicable, are confirmed by Venice before collection.</p>
+    <button type="button" onClick={()=>{window.location.href="/account/history";}}>View My Orders</button>
+  </div>;
+  return <form onSubmit={e=>void submit(e)} className="food-composer">
+    <div className="food-composer__heading">
+      <button type="button" className="booking-back" onClick={onBack}>← Change catering type</button>
+      <span>FOOD ORDERS &amp; PARTY TRAYS</span>
+      <h3>Pick your favorites. Build your own order.</h3>
+      <p>Order any combination of Venice's listed ulam, noodles, desserts and drinks. Each selection has its own per-tray or per-container price; you pay for only what you choose.</p>
+    </div>
+    {loadError && <div role="alert" className="booking-inline-error">Menu unavailable: {loadError}</div>}
+    {loading ? <p>Loading Venice's available food menu…</p> : !items.length ? <p>No individually priced menu items are available. Please contact Venice.</p> : <>
+      <div className="food-category-tabs" role="tablist" aria-label="Food categories">
+        {categories.map(category=><button type="button" role="tab" aria-selected={activeCategory===category} className={activeCategory===category?"is-active":""} key={category} onClick={()=>setActiveCategory(category)}>{category}</button>)}
+      </div>
+      <div className="food-order-layout">
+        <div className="food-order-items">
+          <h4>{activeCategory}</h4><p>Use + and − to choose how many trays or containers to order.</p>
+          <div className="food-items-grid">{items.filter(item=>item.category===activeCategory).map(item=><article key={item.id} className="food-item-card">
+            <strong>{item.name}</strong><span>{formatPhp(Number(item.tray_price))} <small>/ {item.category==="Drinks"?"container":"tray"}</small></span>
+            <div className="food-item-qty"><button type="button" aria-label={"Remove one "+item.name} disabled={(quantities[item.id]??0)===0} onClick={()=>setQty(item.id,(quantities[item.id]??0)-1)}>−</button>
+              <output aria-label={"Quantity of "+item.name}>{quantities[item.id]??0}</output>
+              <button type="button" aria-label={"Add one "+item.name} disabled={(quantities[item.id]??0)>=50} onClick={()=>setQty(item.id,(quantities[item.id]??0)+1)}>+</button></div>
+          </article>)}</div>
+        </div>
+        <aside className="food-order-cart" aria-label="Your food order">
+          <span>YOUR SELECTIONS</span><h4>{itemCount} items</h4>
+          {ordered.length===0?<p>No items selected yet.</p>:<div className="food-cart-lines">{ordered.map(item=><div key={item.id}><span><strong>{item.name}</strong><small>{item.quantity} × {formatPhp(Number(item.tray_price))}</small></span><b>{formatPhp(item.quantity*Number(item.tray_price))}</b></div>)}</div>}
+          <div className="food-cart-total"><span>Items subtotal</span><strong>{formatPhp(total)}</strong></div>
+          <small>All menu prices are per tray/container, not per catering guest. Delivery charges, if any, are confirmed separately.</small>
+        </aside>
+      </div>
+    </>}
+    <section className="food-order-details">
+      <h4>Pickup or Metro Manila delivery</h4>
+      <div className="food-fulfillment-options">
+        <button type="button" aria-pressed={mode==="pickup"} className={mode==="pickup"?"is-active":""} onClick={()=>setMode("pickup")}>Pickup <small>Venice pickup location confirmed by staff</small></button>
+        <button type="button" aria-pressed={mode==="delivery"} className={mode==="delivery"?"is-active":""} onClick={()=>setMode("delivery")}>Delivery <small>Metro Manila addresses only</small></button>
+      </div>
+      <div className="food-checkout-fields">
+        <label>Full name<input required minLength={2} value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Your name"/></label>
+        <label>Mobile number<input required inputMode="numeric" maxLength={11} value={phone} onChange={e=>setPhone(e.target.value)} placeholder="09XXXXXXXXX"/></label>
+        <label>Requested date<input required type="date" min={today()} value={date} onChange={e=>setDate(e.target.value)}/></label>
+        <label>Requested time (7 AM–8 PM)<BookingTimePicker label="Food pickup or delivery time" value={time} onChange={setTime}/></label>
+        {mode==="delivery" && <>
+          <label className="food-wide">Street / building / house number<input required minLength={5} value={street} onChange={e=>setStreet(e.target.value)} placeholder="Full street and house / building number"/></label>
+          <label>Barangay<input required minLength={2} value={barangay} onChange={e=>setBarangay(e.target.value)} placeholder="Barangay"/></label>
+          <label>City / municipality<select required value={city} onChange={e=>setCity(e.target.value)}><option value="">Select Metro Manila city</option>{metroManilaCities.map(m=><option key={m} value={m}>{m}</option>)}</select></label>
+        </>}
+        <label className="food-wide">Special instructions (optional)<textarea rows={3} maxLength={500} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Food preferences or pickup instructions"/></label>
+      </div>
+      <p className="food-order-disclaimer">Orders are requests until Venice confirms availability and the preparation schedule. Pickup location, payment instructions, and any delivery fee will be confirmed by staff.</p>
+      {error && <p className="booking-inline-error" role="alert">{error}</p>}
+      {!session && <p className="food-login-note">You'll be asked to sign in before placing your order.</p>}
+      <button className="booking-primary" type="submit" disabled={loading||!formReady||busy}>{busy?"Placing order…": "Place food order · "+formatPhp(total)}</button>
+    </section>
+  </form>;
+}
+
 function ReservationFlow({
   onRequireLogin,
   customerProfile,
@@ -1622,7 +1753,8 @@ function ReservationFlow({
   }, [addOns, adults, cateringChoice, children, clientRequestId, cottageSelected, email, endTime, guestName, guests, itemQuantity, menuSelections, month, nights, paymentAmount, paymentMethod, paymentReference, phone, poolAccessSelected, privacyAcknowledged, rooms, selectedDate, selectedMainCategory, selectedPackageId, selectedVariantId, service, specialRequests, deliveryStreet, deliveryBarangay, deliveryCity, startTime, staycationChoice, step]);
 
   const hasIncludedMenu = service === "Catering";
-  const steps = hasIncludedMenu
+  const steps = service === "Food Orders & Party Trays" ? [{ id: 1, label: "Choose Service" }, { id: 2, label: "Build Your Food Order" }]
+    : hasIncludedMenu
     ? [
       { id: 1, label: "Choose Service" },
       { id: 2, label: "Choose Date" },
@@ -2531,7 +2663,7 @@ function ReservationFlow({
               </div>
             )}
 
-            {step === 2 && (
+            {step === 2 && service !== "Food Orders & Party Trays" && (
               <div className="booking-step booking-step--enter">
                 <div className="booking-step__heading">
                   <span>Step 2 of {steps.length}</span>
@@ -2617,6 +2749,8 @@ function ReservationFlow({
                 </div>
               </div>
             )}
+
+            {step === 2 && service === "Food Orders & Party Trays" && <FoodOrderComposer onBack={()=>setStep(1)} onRequireLogin={onRequireLogin} customerProfile={customerProfile}/>}
 
             {step === 3 && (
               <div className="booking-step booking-step--enter">
@@ -3047,7 +3181,7 @@ function ReservationFlow({
               </div>
             )}
 
-            {step < 9 && (
+            {step < 9 && !(service === "Food Orders & Party Trays" && step === 2) && (
               <>
               {bookingError && <div className="booking-inline-error" role="alert">{bookingError}</div>}
               <div className="booking-controls">
@@ -3063,7 +3197,7 @@ function ReservationFlow({
             )}
           </div>
 
-          {step < 9 && (
+          {step < 9 && !(service === "Food Orders & Party Trays" && step === 2) && (
             <aside className="reservation-summary">
               <div className="reservation-summary__top">
                 <span>Your reservation</span>
