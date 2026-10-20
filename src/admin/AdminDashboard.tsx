@@ -62,8 +62,9 @@ const columnsBySection: Record<string, { label: string; keys: string[] }[]> = {
     { label: "Order Code", keys: ["order_code", "code", "id"] },
     { label: "Customer", keys: ["_customer_name", "customer_name", "customer_id", "user_id"] },
     { label: "Reservation", keys: ["_reservation_code", "reservation_code", "reservation_id"] },
-    { label: "Package", keys: ["package_name", "package_id"] },
-    { label: "Variant", keys: ["_package_variant", "package_variant"] },
+    { label: "Order Type / Items", keys: ["_food_summary", "package_name", "package_id"] },
+    { label: "Fulfillment", keys: ["fulfillment_method"] },
+    { label: "Time", keys: ["requested_time"] },
     { label: "Event Date", keys: ["event_date", "reservation_date", "created_at"] },
     { label: "Guests", keys: ["guest_count", "guests"] },
     { label: "Total", keys: ["total_amount", "total", "amount"] },
@@ -124,6 +125,7 @@ const columnsBySection: Record<string, { label: string; keys: string[] }[]> = {
   "catering-menu": [
     { label: "Menu Item", keys: ["name"] },
     { label: "Category", keys: ["category"] },
+    { label: "Price / Tray", keys: ["tray_price"] },
     { label: "Available", keys: ["is_available", "available"] },
     { label: "Active", keys: ["is_active", "active"] },
     { label: "Updated", keys: ["updated_at", "created_at"] },
@@ -196,7 +198,7 @@ async function loadAdminRows(section: string, table: string) {
   const tableNames = section === "payments"
     ? ["payments", "reservations", "profiles"] as const
     : section === "orders"
-      ? ["orders", "reservations", "profiles"] as const
+      ? ["orders", "reservations", "profiles", "evently_food_order_items"] as const
       : ["reservations", "profiles", "evently_booking_recommendations", "evently_catering_change_requests", "packages", "package_variants"] as const;
   const results = await Promise.all(tableNames.map((name) => supabase.from(name).select("*").limit(500)));
   const optionalCateringRequestIndex = section === "reservations"
@@ -262,11 +264,15 @@ async function loadAdminRows(section: string, table: string) {
   }
   return (byTable.orders ?? []).map((order) => {
     const reservation = reservations.find((item) => String(item.id) === String(order.reservation_id));
+    const foodItems = (byTable.evently_food_order_items ?? []).filter(item => String(item.order_id) === String(order.id));
+    const custom = String(order.order_kind ?? "") === "custom_food";
     return {
       ...order,
-      _customer_name: first(reservation ?? {}, ["customer_name"]) ?? profileName(order.customer_id),
-      _reservation_code: first(reservation ?? {}, ["reservation_code", "id"]),
+      _customer_name: first(order, ["customer_name"]) ?? first(reservation ?? {}, ["customer_name"]) ?? profileName(order.customer_id),
+      _reservation_code: custom ? "Standalone food order" : first(reservation ?? {}, ["reservation_code", "id"]),
       _package_variant: first(reservation ?? {}, ["package_variant"]),
+      _food_items: foodItems,
+      _food_summary: custom ? foodItems.map(item => String(item.quantity) + "× " + String(item.item_name)).join(", ") || "Custom food order" : null,
     };
   });
 }
@@ -837,6 +843,7 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
   const [description, setDescription] = useState(String(first(row, ["description"]) ?? ""));
   const [category, setCategory] = useState(String(first(row, ["category"]) ?? ""));
   const [price, setPrice] = useState(String(first(row, ["price"]) ?? "0"));
+  const [trayPrice, setTrayPrice] = useState(String(first(row, ["tray_price"]) ?? "0"));
   const [adjustment, setAdjustment] = useState("");
   const [guestCapacity, setGuestCapacity] = useState(String(first(row, ["guest_capacity"]) ?? ""));
   const isPoolTour = entity === "package" && (String(row.package_category ?? "").toLowerCase() === "pool_tour"
@@ -899,6 +906,7 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
     if (busy) return;
     if (!name.trim()) { setMessage("Enter a name."); return; }
     if (!Number.isFinite(numericPrice) || numericPrice < 0) { setMessage("Enter a valid non-negative price."); return; }
+    if (entity === "menu_item" && (!Number.isFinite(Number(trayPrice)) || Number(trayPrice)<100 || Number(trayPrice)>100000)) { setMessage("Individual tray price must be between ₱100 and ₱100,000."); return; }
     if (isPoolTour && expectedPoolUnitRate !== undefined && numericPrice !== expectedPoolUnitRate) {
       setMessage(`This verified per-person tour rate is ${money.format(expectedPoolUnitRate)}. Change rates only through the reviewed pool pricing migration.`);
       return;
@@ -962,6 +970,7 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
       });
     } else {
       Object.assign(patch, { category: category.trim(), is_active: active, is_available: active });
+      if (Number(trayPrice) !== Number(first(row,["tray_price"]))) patch.tray_price=Number(trayPrice);
       if (!category.trim()) { setMessage("Enter a menu category."); return; }
     }
 
@@ -1018,7 +1027,8 @@ function CatalogEditorDialog({ editor, onClose, onSaved }: { editor: CatalogEdit
           {entity === "menu_item" && <label>Category<select onChange={(event) => setCategory(event.target.value)} required value={category}>{cateringMenuCategories.map((item) => <option key={item}>{item}</option>)}</select></label>}
           <label>Name<input onChange={(event) => setName(event.target.value)} readOnly={lockedResortRate !== undefined} required value={name} /></label>
           {(entity === "package" || entity === "addon") && <label>Description<textarea onChange={(event) => setDescription(event.target.value)} rows={3} value={description} /></label>}
-          <label>{entity === "menu_item" ? "Price per guest (PHP)" : "Current price (PHP)"}<input min="0" onChange={(event) => setPrice(event.target.value)} readOnly={lockedResortRate !== undefined} required step="0.01" type="number" value={price} /></label>
+          <label>{entity === "menu_item" ? "Package menu price per guest (PHP)" : "Current price (PHP)"}<input min="0" onChange={(event) => setPrice(event.target.value)} readOnly={lockedResortRate !== undefined} required step="0.01" type="number" value={price} /></label>
+          {entity === "menu_item" && <label>Individual food order price (PHP per tray/container) · Owner only<input min="100" max="100000" step="0.01" type="number" required value={trayPrice} onChange={event=>setTrayPrice(event.target.value)}/><small>Used for customizable Food Orders &amp; Party Trays. Existing catering package pricing stays separate. Only Owner may change individual prices.</small></label>}
           <div className="admin-price-helper"><label>Optional adjustment (%)<input min="0" onChange={(event) => setAdjustment(event.target.value)} placeholder="For example, 5" step="0.01" type="number" value={adjustment} /></label><p>Suggested price: <strong>{money.format(suggestedPrice)}</strong></p><button onClick={() => setPrice(suggestedPrice.toFixed(2))} type="button">Use suggestion</button></div>
           {(entity === "package_variant" || (entity === "package" && !isPoolTour)) && <label>Guest capacity<input min="1" onChange={(event) => setGuestCapacity(event.target.value)} placeholder="Not configured" readOnly={isStandardRoom} step="1" type="number" value={guestCapacity} /></label>}
           {isPoolTour && <section className="admin-pool-capacity-editor"><h3>Pool physical capacity</h3><p>Enter the maximum number of guests confirmed by an on-site physical capacity check. The legacy guest_capacity value is not evidence. The verified value is recorded on the shared pool resource; every verified tour using it must use the same maximum.</p><label className="admin-editor-checkbox"><input checked={poolCapacityVerified} onChange={(event) => setPoolCapacityVerified(event.target.checked)} type="checkbox" /> I have physically verified this pool tour’s maximum capacity</label><label>Verified maximum guests<input disabled={!poolCapacityVerified} max={50} min={poolMinimumGuestCount} onChange={(event) => setPoolMaxGuestCount(event.target.value)} placeholder="Enter the on-site verified maximum" step="1" type="number" value={poolMaxGuestCount} /></label><label>Capacity verification note<textarea maxLength={2000} onChange={(event) => setPoolCapacityReason(event.target.value)} required={poolCapacityChanged} rows={2} value={poolCapacityReason} /></label></section>}
@@ -1745,6 +1755,24 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
            </div>,
            document.body
          )}
+        {section === "orders" && String(row.order_kind ?? "") === "custom_food" && <section className="admin-detail-section admin-food-order-detail">
+          <h3>Customized Food Order</h3>
+          <dl>
+            <div><dt>Fulfillment</dt><dd>{show(row.fulfillment_method)}</dd></div>
+            <div><dt>Requested date</dt><dd>{show(row.event_date,"event_date")}</dd></div>
+            <div><dt>Requested time</dt><dd>{String(row.requested_time ?? "To be confirmed").slice(0,5)}</dd></div>
+            <div><dt>Customer</dt><dd>{show(first(row,["customer_name","_customer_name"]))}</dd></div>
+            <div><dt>Contact</dt><dd>{show(row.customer_phone)}</dd></div>
+            {row.delivery_address && typeof row.delivery_address === "object" && (()=>{const address=row.delivery_address as Row;return <div><dt>Delivery address</dt><dd>{[address.street,"Brgy. "+String(address.barangay??""),address.city,"Metro Manila"].filter(Boolean).join(", ")}</dd></div>})()}
+            <div><dt>Payment</dt><dd>{show(row.payment_status)} · {money.format(Number(row.remaining_balance??0))} balance</dd></div>
+          </dl>
+          <h3>Selected dishes, desserts and drinks</h3>
+          <div className="admin-food-line-items">{(Array.isArray(row._food_items)?row._food_items as Row[]:[]).map(item=><div key={String(item.id)}>
+            <span><strong>{show(item.item_name)}</strong><small>{show(item.category)} · {show(item.quantity)} × {money.format(Number(item.unit_price??0))}</small></span>
+            <b>{money.format(Number(item.line_total??0))}</b>
+          </div>)}</div>
+          <p>Food order payments and any delivery charges are subject to Venice confirmation. Prices per tray were fixed when the order was created.</p>
+        </section>}
         {section === "orders" && <section className="admin-workflow-actions"><h3>Order actions</h3><div>{currentStatus === "pending" && <button disabled={actionState === "loading"} onClick={() => void mutate("confirmed")} type="button">Confirm Order</button>}{currentStatus === "confirmed" && <button disabled={actionState === "loading"} onClick={() => void mutate("preparing")} type="button">Start Preparing</button>}{currentStatus === "preparing" && <button disabled={actionState === "loading"} onClick={() => void mutate("ready")} type="button">Mark Ready</button>}{currentStatus === "ready" && <button disabled={actionState === "loading"} onClick={() => void mutate("completed")} type="button">Mark Completed</button>}{!["cancelled", "completed"].includes(currentStatus) && <button className="is-danger" disabled={actionState === "loading"} onClick={() => void mutate("cancelled")} type="button">Cancel Order</button>}</div></section>}
         {section === "payments" && <section className="admin-detail-section"><h3>Payment review</h3><PaymentReviewCard onReviewed={(updated) => { setCurrentStatus(String(first(updated, statusKeys) ?? "").toLowerCase()); void onChanged?.(); }} payment={row} /></section>}
         {section === "packages" && <section className="admin-detail-section"><h3>Package variants</h3>{relatedVariants.length ? <dl>{relatedVariants.map((variant) => <div key={String(variant.id)}><dt>{show(first(variant, ["name"]))}</dt><dd>{show(first(variant, ["price"]), "price")} · {show(first(variant, ["guest_capacity"]))} guests · {first(variant, ["has_aircon"]) ? "Air-conditioned" : "Non-aircon"} <MoreActionsMenu label={String(first(variant, ["name"]) ?? "variant")} items={[{ label: "Edit Variant", disabled: !onEditCatalog, onSelect: () => onEditCatalog?.("package_variant", variant) }]} /></dd></div>)}</dl> : <p>No variants are linked to this package.</p>}</section>}
