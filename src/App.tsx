@@ -2868,11 +2868,23 @@ function ReservationFlow({
                     <label><span>Quantity</span><input aria-label="Tray quantity" min="1" onChange={(event) => setItemQuantity(Math.max(1, Number(event.target.value)))} type="number" value={itemQuantity} /></label>
                   </div>
                 )}
-                {service === "Swimming Pool" && packageChoice && <div className="booking-quantity-panel" aria-label="Optional room accommodation">
-                  <div><strong>Optional Room Accommodation</strong><span>Rooms are separate from tour admission. Subject to availability and administrator confirmation.</span></div>
-                  <label><span>Room type</span><select value={selectedRoomPackageId} onChange={(event) => { setSelectedRoomPackageId(event.target.value); setRooms(1); }}><option value="">No room accommodation</option>{staycationRoomPackages.map((room) => <option key={room.id} value={room.id}>{room.name} — {currency(Number(room.price) || 0)} / room / night</option>)}</select></label>
-                  {selectedRoomPackageId && <><label><span>Rooms (maximum 6)</span><input type="number" min="1" max="6" value={rooms} onChange={(event) => setRooms(Math.min(6, Math.max(1, Number(event.target.value) || 1)))} /></label><label><span>Nights</span><input type="number" min="1" max="365" value={nights} onChange={(event) => setNights(Math.min(365, Math.max(1, Number(event.target.value) || 1)))} /></label><small>Room requests require a separate inventory check before confirmation.</small></>}
-                </div>}
+                {service === "Swimming Pool" && packageChoice && <section className="staycation-room-card" aria-label="Optional room accommodation">
+                  <div className="staycation-room-card__header">
+                    <div><span className="staycation-room-card__eyebrow">MAKE YOUR VISIT MORE COMFORTABLE</span><h4>Room Accommodation <span>Optional</span></h4><p>Add a room to your selected tour, or continue with tour admission only.</p></div>
+                    <div className="staycation-room-card__symbol"><Icon name="building" size={24} /></div>
+                  </div>
+                  <div className="staycation-room-card__options" role="group" aria-label="Choose room accommodation">
+                    <button type="button" className={`staycation-room-card__option ${!selectedRoomPackageId ? "is-active" : ""}`} aria-pressed={!selectedRoomPackageId} onClick={() => setSelectedRoomPackageId("")}><strong>No room needed</strong><small>Continue with your tour</small></button>
+                    {staycationRoomPackages.map((room) => <button type="button" key={room.id} className={`staycation-room-card__option ${selectedRoomPackageId === room.id ? "is-active" : ""}`} aria-pressed={selectedRoomPackageId === room.id} onClick={() => { setSelectedRoomPackageId(room.id); setRooms(1); }}><strong>{room.name}</strong><small>{currency(Number(room.price) || 0)} / room / night</small></button>)}
+                  </div>
+                  {selectedRoomPackageId && <div className="staycation-room-card__details">
+                    <div className="staycation-room-card__fields">
+                      <label><span>Number of rooms</span><div className="staycation-room-card__counter"><button type="button" aria-label="Remove one room" disabled={rooms <= 1} onClick={() => setRooms(Math.max(1, rooms - 1))}>−</button><strong>{rooms}</strong><button type="button" aria-label="Add one room" disabled={rooms >= 6} onClick={() => setRooms(Math.min(6, rooms + 1))}>+</button></div><small>Maximum 6 rooms</small></label>
+                      <label><span>Number of nights</span><input aria-label="Number of nights" type="number" min="1" max="365" value={nights} onChange={(event) => setNights(Math.min(365, Math.max(1, Number(event.target.value) || 1)))} /></label>
+                    </div>
+                    <div className="staycation-room-card__total"><span>Estimated room subtotal</span><strong>{currency(optionalRoomTotal)}</strong><small>Subject to room availability and confirmation</small></div>
+                  </div>}
+                </section>}
                 {packageChoice && activeService?.quantityMode === "tour" && (
                   <div className="booking-quantity-panel">
                     {service === "Swimming Pool" && !poolCapacityRecordReady && <div className="booking-inline-error" role="status">Pool bookings are paused until the Administrator verifies and audits the physical maximum capacity. The legacy guest_capacity value is not treated as a confirmed pool maximum.</div>}
