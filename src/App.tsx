@@ -5115,7 +5115,7 @@ function Homepage() {
     );
     revealItems.forEach((item) => observer.observe(item));
 
-    const sectionIds = ["home", "services", "catering", "events", "resort", "about", "packages", "gallery", "reviews", "booking", "locations", "contact"];
+    const sectionIds = ["home", "services", "catering", "events", "resort", "about", "packages", "gallery", "reviews", "booking", "contact"];
     const observedSections = sectionIds.map((id) => document.getElementById(id)).filter((section): section is HTMLElement => Boolean(section));
     const normalizeSection = (id: string) => ["services", "catering", "events", "resort"].includes(id) ? "services" : id;
     const initialTarget = observedSections.find((section) => `#${section.id}` === window.location.hash);
@@ -5248,7 +5248,6 @@ function Homepage() {
     ["Gallery", "#gallery"],
     ["Reviews", "#reviews"],
     ["Booking", "#booking"],
-    ["Locations", "#locations"],
     ["Contact", "#contact"],
   ];
   const serviceLinks = [
@@ -5582,47 +5581,6 @@ function Homepage() {
 
       <ReservationFlow customerProfile={customerProfile} onRequireLogin={() => { setLoginPurpose("booking"); setBookingLoginOpen(true); }} requestedService={requestedService} />
 
-      <section className="venice-locations" id="locations" aria-labelledby="venice-locations-title">
-        <div className="venice-locations__inner">
-          <div className="venice-locations__intro" data-reveal>
-            <span className="section-kicker">Find your Venice</span>
-            <h2 id="venice-locations-title">Four destinations.<br /><em>Beautiful moments.</em></h2>
-            <p>From celebrations in Brgy. Rizal to relaxing getaways in Sariaya, discover where your next experience begins.</p>
-          </div>
-          <div className="venice-locations__groups" data-reveal>
-            <div className="venice-locations__group">
-              <div className="venice-locations__group-heading">
-                <span className="venice-locations__group-icon" aria-hidden="true"><Icon name="building" size={21} /></span>
-                <div><span className="venice-locations__eyebrow">01 — 03 · EVENTS PLACE</span><h3>Celebration venues</h3><p>Daffodil and Amarillo · Brgy. Rizal</p></div>
-              </div>
-              <div className="venice-locations__venues">
-                {[
-                  { number: "01", name: "Daffodil Events Place", address: "2nd Floor, Alfamart, Daffodil St., Brgy. Rizal" },
-                  { number: "02", name: "Amarillo Events Place", detail: "4th Floor", address: "4th Floor, Alfamart, Amarillo St., Brgy. Rizal" },
-                  { number: "03", name: "Amarillo Events Place", detail: "3rd Floor", address: "3rd Floor, Alfamart, Amarillo St., Brgy. Rizal" },
-                ].map((venue) => <div className="venice-locations__venue" key={venue.number}>
-                  <span className="venice-locations__number">{venue.number}</span>
-                  <div><h4>{venue.name}{venue.detail && <span> — {venue.detail}</span>}</h4><p><Icon name="pin" size={14} /> {venue.address}</p></div>
-                </div>)}
-              </div>
-            </div>
-            <div className="venice-locations__group venice-locations__group--resort">
-              <div className="venice-locations__group-heading">
-                <span className="venice-locations__group-icon" aria-hidden="true"><Icon name="sun" size={21} /></span>
-                <div><span className="venice-locations__eyebrow">04 · STAYCATION &amp; RESORT VENUE</span><h3>Venice Resort</h3><p>Your countryside escape</p></div>
-              </div>
-              <div className="venice-locations__resort-address">
-                <Icon name="pin" size={20} />
-                <div><strong>Sitio Pontor, Bignay II</strong><p>Sariaya, Quezon Province</p></div>
-              </div>
-              <p className="venice-locations__resort-note">For room accommodation, swimming, and resort venue-only reservations.</p>
-              <a className="venice-locations__explore" href="#booking">Plan your stay <Icon name="arrow" size={16} /></a>
-            </div>
-          </div>
-          <p className="venice-locations__footnote">Please confirm your selected venue and directions with the Venice team before traveling.</p>
-        </div>
-      </section>
-
       <section className="booking-cta" id="contact">
         <div className="booking-cta__media" data-parallax>
           <PhotoPlaceholder context="Final Booking & Food Photo" />
@@ -5663,7 +5621,6 @@ function Homepage() {
             <a href="#services">Services</a>
             <a href="#packages">Packages</a>
             <a href="#gallery">Gallery</a>
-            <a href="#locations">Locations</a>
             <a href="#contact">Contact</a>
             <a href="#evently-privacy-notice-footer">Privacy Notice</a>
           </nav>
