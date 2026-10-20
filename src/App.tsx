@@ -5169,7 +5169,7 @@ function Homepage() {
     );
     revealItems.forEach((item) => observer.observe(item));
 
-    const sectionIds = ["home", "services", "catering", "events", "resort", "about", "packages", "gallery", "reviews", "booking", "contact"];
+    const sectionIds = ["home", "services", "catering", "events", "resort", "about", "gallery", "reviews", "booking", "contact"];
     const observedSections = sectionIds.map((id) => document.getElementById(id)).filter((section): section is HTMLElement => Boolean(section));
     const normalizeSection = (id: string) => ["services", "catering", "events", "resort"].includes(id) ? "services" : id;
     const initialTarget = observedSections.find((section) => `#${section.id}` === window.location.hash);
@@ -5298,7 +5298,6 @@ function Homepage() {
   };
   const navItems = [
     ["Home", "#home"],
-    ["Packages", "#packages"],
     ["Gallery", "#gallery"],
     ["Reviews", "#reviews"],
     ["Booking", "#booking"],
