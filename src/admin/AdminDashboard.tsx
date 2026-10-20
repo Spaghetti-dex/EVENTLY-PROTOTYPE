@@ -2461,61 +2461,150 @@ const staffPermissions = [
 function StaffManagement({ isOwner }: { isOwner: boolean }) {
   const [staff, setStaff] = useState<Row[]>([]);
   const [grants, setGrants] = useState<Row[]>([]);
-  const [staffActivity, setStaffActivity] = useState<Row[]>([]);
-  const [permissionPolicy, setPermissionPolicy] = useState<Row[]>([]);
+  const [activity, setActivity] = useState<Row[]>([]);
+  const [policies, setPolicies] = useState<Row[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [search, setSearch] = useState("");
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
-    const [profiles, permissions, recommendations, policy] = await Promise.all([
-      supabase.from("profiles").select("id,email,full_name,created_at,role,staff_active").eq("role", "staff").order("created_at", { ascending: false }),
+    const [people, permissions, recommendations, policy] = await Promise.all([
+      supabase.from("profiles").select("id,email,full_name,created_at,role,staff_active").eq("role","staff").order("created_at",{ascending:false}),
       supabase.from("evently_staff_permissions").select("staff_id,permission,granted,updated_at"),
       supabase.from("evently_booking_recommendations").select("staff_id,recommendation,review_state,created_at"),
       supabase.from("evently_staff_permission_policy").select("permission,allowed_for_admins,updated_at"),
     ]);
-    if (profiles.error || permissions.error || recommendations.error || policy.error) { setMessage((profiles.error ?? permissions.error ?? recommendations.error ?? policy.error)?.message ?? "Could not load staff."); return; }
-    setStaff((profiles.data ?? []) as Row[]); setGrants((permissions.data ?? []) as Row[]); setStaffActivity((recommendations.data ?? []) as Row[]); setPermissionPolicy((policy.data ?? []) as Row[]);
+    const error = people.error ?? permissions.error ?? recommendations.error ?? policy.error;
+    if (error) setMessage("Staff records could not be loaded: " + error.message);
+    else {
+      setStaff((people.data ?? []) as Row[]);
+      setGrants((permissions.data ?? []) as Row[]);
+      setActivity((recommendations.data ?? []) as Row[]);
+      setPolicies((policy.data ?? []) as Row[]);
+    }
+    setLoading(false);
   }, []);
   useEffect(() => { void load(); }, [load]);
-  const invite = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault(); setBusy(true); setMessage("");
-    const { data } = await supabase.auth.getSession();
-    const response = await fetch(`${eventlyFunctionBaseUrl}/staff/provision`, {
-      method: "POST", headers: { Authorization: `Bearer ${data.session?.access_token ?? ""}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ email, full_name: fullName }),
-    });
-    const result = await response.json().catch(() => ({}));
-    setBusy(false); setMessage(response.ok ? `Invitation sent to ${email}.` : String(result.error ?? "Staff invitation failed."));
-    if (response.ok) { setEmail(""); setFullName(""); void load(); }
+  const allowed = (key: string) => policies.some(p => p.permission === key && p.allowed_for_admins === true);
+  const assigned = (id: unknown, key: string) => grants.some(g => g.staff_id === id && g.permission === key && g.granted === true);
+  const effectiveCount = (person: Row) => staffPermissions.filter(([key]) => allowed(key) && assigned(person.id,key)).length;
+  const visible = staff.filter(person => (String(person.full_name ?? "") + " " + String(person.email ?? "")).toLowerCase().includes(search.toLowerCase()));
+  const chosen = visible.find(person => String(person.id) === selectedId) ?? visible[0] ?? null;
+  const allowedCount = staffPermissions.filter(([key]) => allowed(key)).length;
+  const groups = [
+    { title:"Booking operations", description:"Bookings, schedules, and operational orders", keys:["view_reservations","view_calendar","view_orders","edit_reservation_details","propose_schedule_changes"] },
+    { title:"Customer & reviews", description:"Sensitive customer records and feedback", keys:["view_customer_details","moderate_reviews"] },
+    { title:"Recommendations", description:"Submit recommendations for Admin final review", keys:["recommend_approval","recommend_rejection"] }
+  ];
+  const setGrant = async (id:string,key:string,granted:boolean) => {
+    setBusy("grant:"+key); setMessage("");
+    try {
+      const {error} = await supabase.rpc("evently_manage_staff_permission",{p_staff_id:id,p_permission:key,p_granted:granted});
+      setMessage(error ? error.message : "Staff permission saved.");
+      if (!error) await load();
+    } finally { setBusy(""); }
   };
-  const setGrant = async (staffId: string, permission: string, granted: boolean) => {
-    const { error } = await supabase.rpc("evently_manage_staff_permission", { p_staff_id: staffId, p_permission: permission, p_granted: granted });
-    setMessage(error ? error.message : "Staff permission updated.");
-    if (!error) void load();
+  const setPolicy = async (key:string,enabled:boolean) => {
+    setBusy("policy:"+key); setMessage("");
+    try {
+      const {error} = await supabase.rpc("evently_owner_set_staff_permission_policy",{p_permission:key,p_allowed:enabled});
+      setMessage(error ? error.message : "Owner permission policy saved.");
+      if (!error) await load();
+    } finally { setBusy(""); }
   };
-  const setActive = async (staffId: string, active: boolean) => {
-    const { error } = await supabase.rpc("evently_admin_set_staff_active", { p_staff_id: staffId, p_active: active });
-    setMessage(error ? error.message : `Staff access ${active ? "activated" : "deactivated"}.`);
-    if (!error) void load();
+  const setActive = async (id:string,active:boolean) => {
+    setBusy("status"); setMessage("");
+    try {
+      const {error} = await supabase.rpc("evently_admin_set_staff_active",{p_staff_id:id,p_active:active});
+      setMessage(error ? error.message : active ? "Staff account activated." : "Staff account deactivated.");
+      if (!error) await load();
+    } finally { setBusy(""); }
   };
-  const editStaff = async (member: Row) => {
-    const full_name = window.prompt("Staff member name", String(member.full_name ?? ""))?.trim();
-    if (!full_name) return;
-    const { error } = await supabase.from("profiles").update({ full_name }).eq("id", member.id);
-    setMessage(error ? error.message : "Staff profile updated.");
-    if (!error) void load();
+  const editStaff = async (person:Row) => {
+    const name = window.prompt("Staff member name",String(person.full_name ?? ""))?.trim();
+    if (!name) return;
+    setBusy("profile"); setMessage("");
+    try {
+      const {error} = await supabase.from("profiles").update({full_name:name}).eq("id",person.id);
+      setMessage(error ? error.message : "Staff profile updated.");
+      if (!error) await load();
+    } finally { setBusy(""); }
   };
-  const setPolicy = async (permission: string, allowed: boolean) => {
-    const { error } = await supabase.rpc("evently_owner_set_staff_permission_policy", { p_permission: permission, p_allowed: allowed });
-    setMessage(error ? error.message : "Owner permission policy updated.");
-    if (!error) void load();
+  const invite = async (event:React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); setBusy("invite"); setMessage("");
+    try {
+      const {error} = await supabase.functions.invoke("evently-staff-invite",{body:{email:email.trim(),full_name:fullName.trim()}});
+      if (error) {
+        let detail = error.message;
+        if ("context" in error && error.context instanceof Response) {
+          const data = await error.context.json().catch(() => null);
+          detail = data?.error ?? detail;
+        }
+        setMessage("Invitation failed: " + detail);
+      } else {
+        setMessage("Invitation sent to " + email.trim() + ".");
+        setEmail(""); setFullName(""); await load();
+      }
+    } catch (err) { setMessage(err instanceof Error ? err.message : "Could not invite staff."); }
+    finally { setBusy(""); }
   };
-  return <>
-    <section className="admin-card admin-table-card"><div className="admin-card-heading"><div><h2>Owner-defined staff permission policy</h2><p>Administrators can grant only capabilities the Owner enables here. Permissions default to disabled.</p></div></div><div className="admin-permission-policy">{staffPermissions.map(([permission,title])=>{const allowed=permissionPolicy.some((item)=>item.permission===permission&&item.allowed_for_admins===true);return <label key={permission}><span>{title}</span><input aria-label={`${title} allowed for administrators`} checked={allowed} disabled={!isOwner} onChange={(event)=>void setPolicy(permission,event.target.checked)} type="checkbox"/><small>{allowed?"Administrators may grant":"Disabled by Owner"}</small></label>;})}</div>{!isOwner&&<p className="admin-action-message">Only the Owner can change this policy.</p>}</section>
-    <section className="admin-card admin-password-card"><span>Secure invitation</span><h2>Invite a staff member</h2><p>The Edge Function sends an Auth invitation and assigns the staff role server-side. No service credentials are sent to the browser.</p><form onSubmit={(event) => void invite(event)}><label>Full name<input required value={fullName} onChange={(event) => setFullName(event.target.value)}/></label><label>Email<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)}/></label><button disabled={busy} type="submit">{busy ? "Sending invitation…" : "Send invitation"}</button></form>{message && <p role="status">{message}</p>}</section>
-    <section className="admin-card admin-table-card" style={{ marginTop: 16 }}><div className="admin-card-heading"><div><h2>Staff accounts and permissions</h2><p>{staff.length} current staff profiles</p></div><button className="admin-secondary-button" onClick={() => void load()} type="button">Refresh</button></div><div className="admin-table-scroll"><table><thead><tr><th>Staff member</th><th>Access</th><th>Recommendations / Recent activity</th>{staffPermissions.map(([, title]) => <th key={title}>{title}</th>)}</tr></thead><tbody>{staff.map((member) => { const actions = staffActivity.filter((item) => item.staff_id === member.id); return <tr key={String(member.id)}><td><strong>{show(member.full_name)}</strong><small>{show(member.email)}</small></td><td><button className="admin-row-action" onClick={() => void editStaff(member)} type="button">Edit profile</button><button className="admin-row-action" onClick={() => void setActive(String(member.id), member.staff_active === false)} type="button">{member.staff_active === false ? "Activate" : "Deactivate"}</button><small>{member.staff_active === false ? "Inactive" : "Active"}</small></td><td>{actions.length} recommendation{actions.length === 1 ? "" : "s"}<small>{actions[0] ? `${show(actions[0].recommendation)} · ${show(actions[0].created_at)}` : "No recommendations"}</small></td>{staffPermissions.map(([permission, title]) => { const granted = grants.some((grant) => grant.staff_id === member.id && grant.permission === permission && grant.granted === true); const allowed = permissionPolicy.some((item) => item.permission === permission && item.allowed_for_admins === true); return <td key={permission}><label className="admin-permission-toggle"><input aria-label={`${title} for ${show(member.full_name)}`} checked={granted} disabled={!allowed} onChange={(event) => void setGrant(String(member.id), permission, event.target.checked)} type="checkbox"/><span>{granted ? "Granted" : allowed ? "Off" : "Owner disabled"}</span></label></td>; })}</tr>; })}</tbody></table>{!staff.length && <div className="admin-empty"><strong>No staff accounts yet</strong><p>Send a secure invitation to add your first staff member.</p></div>}</div></section>
-  </>;
+  return <main className="team-page">
+    <header className="team-header">
+      <div><span className="team-kicker">TEAM ADMINISTRATION</span><h2>Staff Management</h2><p>Manage staff accounts and access without leaving the dashboard.</p></div>
+      <div className="team-header-actions">
+        <button className="admin-secondary-button" type="button" onClick={() => void load()}>Refresh</button>
+        <button className="team-primary" type="button" onClick={() => { const panel=document.getElementById("team-invite") as HTMLDetailsElement | null; if (panel) {panel.open=true;panel.scrollIntoView({behavior:"smooth",block:"center"});} }}>Invite staff</button>
+      </div>
+    </header>
+    <div className="team-stats" aria-label="Staff overview">
+      <div><span>Team members</span><strong>{staff.length}</strong><small>Registered staff</small></div>
+      <div><span>Active accounts</span><strong>{staff.filter(p=>p.staff_active !== false).length}</strong><small>Enabled staff</small></div>
+      <div><span>Available permissions</span><strong>{allowedCount} / {staffPermissions.length}</strong><small>Enabled by Owner</small></div>
+    </div>
+    {message && <div className="team-message" role="status"><span>{message}</span><button type="button" aria-label="Dismiss message" onClick={()=>setMessage("")}>×</button></div>}
+    <section className="team-workspace admin-card" aria-label="Staff accounts and permissions">
+      <div className="team-workspace-title"><div><span className="team-kicker">PEOPLE & ACCESS</span><h3>Team permissions</h3><p>Select someone to view or adjust their permissions.</p></div><span className="team-count">{staff.length} members</span></div>
+      <div className="team-columns">
+        <aside className="team-list" aria-label="Team members">
+          <label>Search team members<input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Name or email" /></label>
+          <div className="team-list-items">{visible.map(person=><button className={"team-person"+(chosen?.id===person.id?" selected":"")} key={String(person.id)} type="button" aria-pressed={chosen?.id===person.id} onClick={()=>setSelectedId(String(person.id))}>
+            <span className="team-avatar">{String(person.full_name || person.email || "S").charAt(0).toUpperCase()}</span>
+            <span><strong>{show(person.full_name)}</strong><small>{show(person.email)}</small><small>{effectiveCount(person)} permissions · {person.staff_active === false ? "Inactive" : "Active"}</small></span>
+          </button>)}{!visible.length && <p>No matching staff found.</p>}</div>
+        </aside>
+        <div className="team-details">
+          {loading ? <p>Loading staff accounts…</p> : chosen ? <>
+            <div className="team-person-heading"><div><span className="team-kicker">STAFF PROFILE</span><h3>{show(chosen.full_name)}</h3><p>{show(chosen.email)}</p></div><span className={"team-state"+(chosen.staff_active===false?" inactive":"")}>{chosen.staff_active===false?"Inactive":"Active"}</span></div>
+            <div className="team-person-actions"><span>{effectiveCount(chosen)} of {allowedCount} available permissions assigned</span><button className="admin-secondary-button" disabled={Boolean(busy)} type="button" onClick={()=>void editStaff(chosen)}>Edit profile</button><button className="admin-secondary-button" disabled={Boolean(busy)} type="button" onClick={()=>void setActive(String(chosen.id),chosen.staff_active===false)}>{chosen.staff_active===false?"Activate":"Deactivate"}</button></div>
+            <h4>Staff access</h4><p className="team-help">Only permissions enabled in Owner policy can be assigned. Changes save automatically.</p>
+            {groups.map(group=><section className="team-permission-group" key={group.title}><h5>{group.title}</h5><p>{group.description}</p><div className="team-permissions">{staffPermissions.filter(([key])=>group.keys.includes(key)).map(([key,title])=>{
+              const enabled=allowed(key),granted=assigned(chosen.id,key);
+              return <label className={"team-permission"+(!enabled?" locked":"")} key={key}><span><strong>{title}</strong><small>{!enabled?"Disabled by Owner":granted?"Access granted":"Not assigned"}</small></span><input type="checkbox" checked={enabled&&granted} disabled={!enabled||Boolean(busy)} onChange={e=>void setGrant(String(chosen.id),key,e.target.checked)} aria-label={title+" for "+String(chosen.full_name??"staff")} /></label>;
+            })}</div></section>)}
+            <div className="team-activity"><strong>Recent activity</strong><p>{activity.filter(x=>x.staff_id===chosen.id).length} booking recommendations submitted</p></div>
+          </> : <p className="team-help">Choose a staff member, or invite someone to get started.</p>}
+        </div>
+      </div>
+    </section>
+    <div className="team-extras">
+      <details className="team-disclosure admin-card"><summary><span className="team-square">⚙</span><span><strong>Owner permission policy</strong><small>{allowedCount} of {staffPermissions.length} capabilities available · Owner only</small></span><span aria-hidden="true">⌄</span></summary>
+        <div className="team-disclosure-body"><p>Set which capabilities can be granted to staff. Disabling one removes its effective access even if it was previously assigned.</p>
+          {groups.map(group=><section className="team-policy-group" key={group.title}><h4>{group.title}</h4>{staffPermissions.filter(([key])=>group.keys.includes(key)).map(([key,title])=><label key={key} className="team-policy"><span>{title}</span><span>{allowed(key)?"Allowed":"Disabled"} <input type="checkbox" checked={allowed(key)} disabled={!isOwner||Boolean(busy)} aria-label={"Allow "+title} onChange={e=>void setPolicy(key,e.target.checked)} /></span></label>)}</section>)}
+          {!isOwner && <p>Only the Owner can change permission policies.</p>}
+        </div>
+      </details>
+      <details className="team-disclosure admin-card" id="team-invite"><summary><span className="team-square">+</span><span><strong>Invite a team member</strong><small>Send a secure invitation to a new staff account</small></span><span aria-hidden="true">⌄</span></summary>
+        <div className="team-disclosure-body"><p>Staff members activate their account through an invitation email before receiving access.</p><form onSubmit={e=>void invite(e)} className="team-invite-form">
+          <label>Full name<input required value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Full name" /></label>
+          <label>Email address<input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="name@example.com" /></label>
+          <button className="team-primary" disabled={Boolean(busy)} type="submit">{busy==="invite"?"Sending invitation…":"Send invitation"}</button>
+        </form></div>
+      </details>
+    </div>
+  </main>;
 }
 
 function RecommendationsView() {
