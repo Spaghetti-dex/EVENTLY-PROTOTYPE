@@ -1054,6 +1054,9 @@ const bookingSummaryCategory = (serviceId: string, cateringChoice: CateringChoic
   if (serviceId === "Resort Venue Only") return "Staycation · Venue Only";
   return bookingCategoryLabel(serviceId);
 };
+const metroManilaCities = ["Caloocan","Las Piñas","Makati","Malabon","Mandaluyong","Manila","Marikina","Muntinlupa","Navotas","Parañaque","Pasay","Pasig","Pateros","Quezon City","San Juan","Taguig","Valenzuela"] as const;
+const validMetroManilaDelivery = (street: string, barangay: string, city: string) =>
+  street.trim().length >= 5 && barangay.trim().length >= 2 && metroManilaCities.some((item) => item.toLowerCase() === city.trim().toLowerCase());
 const roomPackageNames = new Set(["standard room", "kubo room"]);
 const resortVenueTier = (name: string) => {
   const normalized = name.trim().toLowerCase();
@@ -1190,6 +1193,9 @@ type BookingDraft = {
   cottageSelected: boolean;
   poolAccessSelected: boolean;
   specialRequests: string;
+  deliveryStreet?: string;
+  deliveryBarangay?: string;
+  deliveryCity?: string;
   startTime: string;
   endTime: string;
   menuSelections: Record<string, string>;
@@ -1336,6 +1342,12 @@ function ReservationFlow({
   const [cottageSelected, setCottageSelected] = useState(initialDraft.cottageSelected ?? false);
   const [poolAccessSelected, setPoolAccessSelected] = useState(initialDraft.poolAccessSelected ?? false);
   const [specialRequests, setSpecialRequests] = useState(initialDraft.specialRequests ?? "");
+  const [deliveryStreet, setDeliveryStreet] = useState(initialDraft.deliveryStreet ?? "");
+  const [deliveryBarangay, setDeliveryBarangay] = useState(initialDraft.deliveryBarangay ?? "");
+  const [deliveryCity, setDeliveryCity] = useState(initialDraft.deliveryCity ?? "");
+  const [calendarAvailability, setCalendarAvailability] = useState<Record<string, "reserved" | "unavailable">>({});
+  const [calendarAvailabilityLoading, setCalendarAvailabilityLoading] = useState(false);
+  const [calendarAvailabilityError, setCalendarAvailabilityError] = useState("");
   const [startTime, setStartTime] = useState(initialDraft.startTime ?? "");
   const [endTime, setEndTime] = useState(initialDraft.endTime ?? "");
   const [menuSelections, setMenuSelections] = useState<Record<string, string>>(initialDraft.menuSelections ?? {});
@@ -1578,6 +1590,9 @@ function ReservationFlow({
       cottageSelected,
       poolAccessSelected,
       specialRequests,
+      deliveryStreet,
+      deliveryBarangay,
+      deliveryCity,
       startTime,
       endTime,
       menuSelections,
@@ -1586,7 +1601,7 @@ function ReservationFlow({
       paymentReference,
     };
     sessionStorage.setItem(bookingDraftKey, JSON.stringify(draft));
-  }, [addOns, adults, cateringChoice, children, clientRequestId, cottageSelected, email, endTime, guestName, guests, itemQuantity, menuSelections, month, nights, paymentAmount, paymentMethod, paymentReference, phone, poolAccessSelected, privacyAcknowledged, rooms, selectedDate, selectedMainCategory, selectedPackageId, selectedVariantId, service, specialRequests, startTime, staycationChoice, step]);
+  }, [addOns, adults, cateringChoice, children, clientRequestId, cottageSelected, email, endTime, guestName, guests, itemQuantity, menuSelections, month, nights, paymentAmount, paymentMethod, paymentReference, phone, poolAccessSelected, privacyAcknowledged, rooms, selectedDate, selectedMainCategory, selectedPackageId, selectedVariantId, service, specialRequests, deliveryStreet, deliveryBarangay, deliveryCity, startTime, staycationChoice, step]);
 
   const hasIncludedMenu = service === "Catering";
   const steps = hasIncludedMenu
@@ -1986,10 +2001,39 @@ function ReservationFlow({
   const dateKey = (date: Date) =>
     `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
+  useEffect(() => {
+    let cancelled = false;
+    const packageId = packageChoice?.id;
+    setCalendarAvailability({});
+    setCalendarAvailabilityError("");
+    if (!packageId) { setCalendarAvailabilityLoading(false); return; }
+    const refresh = async () => {
+      setCalendarAvailabilityLoading(true);
+      const { data, error } = await supabase.rpc("evently_customer_calendar_availability", {
+        p_package_id: packageId,
+        p_month: dateKey(new Date(month.getFullYear(),month.getMonth(),1)),
+        p_start_time: reservationStartTime || null,
+        p_end_time: reservationEndTime || null,
+      });
+      if (cancelled) return;
+      setCalendarAvailabilityLoading(false);
+      if (error) {
+        setCalendarAvailabilityError("Booking availability could not be checked. Please refresh before continuing.");
+        return;
+      }
+      setCalendarAvailability(Object.fromEntries(((data ?? []) as { day:string; status:"reserved"|"unavailable" }[])
+        .filter(item => item.status === "reserved" || item.status === "unavailable")
+        .map(item => [item.day,item.status])));
+    };
+    void refresh();
+    const interval = window.setInterval(()=>{void refresh();},30000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [packageChoice?.id,month.getFullYear(),month.getMonth(),reservationStartTime,reservationEndTime]);
+
   const getStatus = (day: number): AvailabilityStatus => {
     const date = new Date(month.getFullYear(), month.getMonth(), day);
     if (date < today || date.getDay() === 0) return "unavailable";
-    return "available";
+    return calendarAvailability[dateKey(date)] ?? "available";
   };
 
   const selectDate = (day: number) => {
@@ -2005,6 +2049,8 @@ function ReservationFlow({
     setConflictReason("");
   };
 
+  const selectedDateOverlaps = Boolean(selectedDate && calendarAvailability[dateKey(selectedDate)] === "unavailable");
+  const deliveryAddressReady = !cateringWithoutVenue || validMetroManilaDelivery(deliveryStreet,deliveryBarangay,deliveryCity);
   const toggleAddOn = (name: string) => {
     if (!addOnOptions.some((item) => item.name === name)) return;
     if (name.trim().toLowerCase() === "sound system with lights") return;
@@ -2015,16 +2061,16 @@ function ReservationFlow({
 
   const canContinue =
     (step === 1 && Boolean(service) && (selectedMainCategory === "Catering" ? cateringChoice !== null : selectedMainCategory === "Staycation" ? staycationChoice !== null : true)) ||
-    (step === 2 && Boolean(selectedDate) && !conflictReason && (
+    (step === 2 && Boolean(selectedDate) && !conflictReason && !selectedDateOverlaps && !calendarAvailabilityLoading && !calendarAvailabilityError && (
       scheduleMode !== "customer_select" || Boolean(startTime && reservationEndTime)
     )) ||
-    (step === 3 && Boolean(packageChoice) && (service !== "Catering" || packagePriceConfigured) && poolPricingReady && poolCapacityReady && poolAvailabilityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && cottageSelectionReady && (isPoolPackage || (!variantLoading && !variantError)) && scheduleReady && (
+    (step === 3 && Boolean(packageChoice) && !selectedDateOverlaps && !calendarAvailabilityLoading && !calendarAvailabilityError && (service !== "Catering" || packagePriceConfigured) && poolPricingReady && poolCapacityReady && poolAvailabilityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && cottageSelectionReady && (isPoolPackage || (!variantLoading && !variantError)) && scheduleReady && (
       !variantRequired || Boolean(selectedVariant)
     ) && (
       activeService?.quantityMode !== "tour" || guests >= minimumGuests
     )) ||
     (step === 4 && hasIncludedMenu && menuComplete) ||
-    (step === 5 && Boolean(guestName && email && normalizePhilippineMobile(phone)) && (!cateringWithoutVenue || Boolean(specialRequests.trim())) && guests >= minimumGuests && poolCapacityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && (
+    (step === 5 && Boolean(guestName && email && normalizePhilippineMobile(phone)) && deliveryAddressReady && guests >= minimumGuests && poolCapacityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && (
       effectiveGuestCapacity == null || guests <= effectiveGuestCapacity
     )) ||
     step === 6 ||
@@ -2054,7 +2100,7 @@ function ReservationFlow({
     ));
 
   const nextStep = async () => {
-    if (!canContinue || conflictReason) return;
+    if (!canContinue || conflictReason || selectedDateOverlaps || calendarAvailabilityLoading || calendarAvailabilityError) return;
     if (step === 3 && service === "Catering" && !packagePriceConfigured) {
       setBookingError("Catering-only pricing is not configured yet. Contact us for pricing before continuing.");
       return;
@@ -2099,6 +2145,16 @@ function ReservationFlow({
         setConflictReason("");
         return;
       }
+      const { data: bookedDays, error: bookingOverlapError } = await supabase.rpc("evently_customer_calendar_availability", {
+        p_package_id: packageId, p_month: reservationDate,
+        p_start_time: reservationStartTime || null, p_end_time: reservationEndTime || null
+      });
+      if (bookingOverlapError) { setBookingError("Could not verify availability: " + bookingOverlapError.message); return; }
+      if (((bookedDays ?? []) as {day:string;status:string}[]).some(item => item.day === reservationDate && item.status === "unavailable")) {
+        setConflictReason("This venue or resource is already booked during your selected time. Choose another date or time.");
+        setStep(2);
+        return;
+      }
       if (!available) {
         setBookingError("");
         setConflictReason("This package is not eligible for the selected date. This does not represent a confirmed venue or time-slot overlap.");
@@ -2129,7 +2185,7 @@ function ReservationFlow({
           throw new Error("Room count must be 1–100 and nights must be 1–365.");
         }
         if (!privacyAcknowledged) throw new Error("Review and acknowledge the Privacy Notice before submitting.");
-        if (cateringWithoutVenue && !specialRequests.trim()) throw new Error("Enter the customer-provided event location before submitting catering without an EVENTLY venue.");
+        if (cateringWithoutVenue && !deliveryAddressReady) throw new Error("A complete Metro Manila delivery address is required (street, barangay, and eligible city).");
         if (service === "Catering" && !packagePriceConfigured) throw new Error("Catering-only pricing is not configured yet. Contact us for pricing before continuing.");
         if (service === "Swimming Pool" && !poolPricingReady) throw new Error("This tour’s active database record is missing per-person pricing configuration.");
         if (service === "Swimming Pool" && !poolCapacityReady) throw new Error("Pool booking is paused until its physical capacity is verified and the selected guest count is within that limit.");
@@ -2184,6 +2240,7 @@ function ReservationFlow({
               rooms,
               nights,
               special_requests: specialRequests.trim() || null,
+              delivery_address: cateringWithoutVenue ? { street: deliveryStreet.trim(), barangay: deliveryBarangay.trim(), city: deliveryCity } : null,
             },
           });
           if (error) throw error;
@@ -2289,6 +2346,9 @@ function ReservationFlow({
     setStartTime("");
     setEndTime("");
     setSpecialRequests("");
+    setDeliveryStreet("");
+    setDeliveryBarangay("");
+    setDeliveryCity("");
     setMenuSelections({});
     setPaymentMethod("gcash");
     setPaymentAmount("");
@@ -2459,8 +2519,13 @@ function ReservationFlow({
                 <div className="availability-legend">
                   <span><i className="status-dot status-dot--available" />Available</span>
                   <span><i className="status-dot status-dot--reserved" />Reserved</span>
-                  <span><i className="status-dot status-dot--unavailable" />Unavailable</span>
+                  <span><i className="status-dot status-dot--unavailable" />Unavailable (gray)</span>
                 </div>
+                {!packageChoice && <p className="calendar-context-note">Choose a package or venue in the next step to see its specific booked dates and time overlaps. Return to this calendar after selecting it.</p>}
+                {packageChoice && <p className="calendar-context-note">Availability for <strong>{selectedPackageLabel}</strong>. Gray means your requested time overlaps an existing booking; blue means a reservation exists but no confirmed overlap was found.</p>}
+                {calendarAvailabilityLoading && <p className="calendar-context-note" role="status">Checking reservation conflicts…</p>}
+                {calendarAvailabilityError && <p className="booking-inline-error" role="alert">{calendarAvailabilityError}</p>}
+                {selectedDateOverlaps && <div className="conflict-warning" role="alert"><strong>Time overlap</strong><span>This venue is unavailable for your requested time. Change your time or date.</span></div>}
                 {conflictReason && (
                   <div className="conflict-warning" role="alert">
                     <strong>Date Unavailable</strong>
@@ -2511,7 +2576,7 @@ function ReservationFlow({
                 <div className="booking-date-time-panel">
                   <label><span>Reservation date</span><input min={dateKey(today)} onChange={(event) => {
                     const nextDate = new Date(`${event.target.value}T00:00:00`);
-                    if (!Number.isNaN(nextDate.getTime()) && nextDate >= today && nextDate.getDay() !== 0) {
+                    if (!Number.isNaN(nextDate.getTime()) && nextDate >= today && nextDate.getDay() !== 0 && calendarAvailability[dateKey(nextDate)] !== "unavailable") {
                       setSelectedDate(nextDate);
                       setMonth(new Date(nextDate.getFullYear(), nextDate.getMonth(), 1));
                       setConflictReason("");
@@ -2751,9 +2816,20 @@ function ReservationFlow({
                     <span>Full name</span>
                     <input value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="Your full name" />
                   </label>
+                  {cateringWithoutVenue && <div className="guest-form__wide catering-delivery-panel">
+                    <strong>Event delivery address · Metro Manila only</strong>
+                    <p>Outside-venue catering is available only within the 16 cities and Pateros of Metro Manila. Enter your complete venue address.</p>
+                    <label><span>Street, building, and house / lot number (required)</span><input required minLength={5} value={deliveryStreet} onChange={e=>setDeliveryStreet(e.target.value)} placeholder="House/Lot number, street, building" /></label>
+                    <label><span>Barangay (required)</span><input required minLength={2} value={deliveryBarangay} onChange={e=>setDeliveryBarangay(e.target.value)} placeholder="Barangay name" /></label>
+                    <label><span>City / municipality (required)</span><select required value={deliveryCity} onChange={e=>setDeliveryCity(e.target.value)}>
+                      <option value="">Select a Metro Manila city</option>
+                      {metroManilaCities.map(city=><option key={city} value={city}>{city}</option>)}
+                    </select></label>
+                    {!deliveryAddressReady && <small role="status">Complete the street, barangay, and Metro Manila city to continue. Addresses outside Metro Manila are not accepted.</small>}
+                  </div>}
                   <label className="guest-form__wide">
-                    <span>{cateringWithoutVenue ? "Customer venue location (required)" : "Special requests"}</span>
-                    <textarea onChange={(event) => setSpecialRequests(event.target.value)} placeholder={cateringWithoutVenue ? "Enter the event venue address and any access or setup details" : "Accessibility needs, setup notes, or other requests"} required={cateringWithoutVenue} rows={4} value={specialRequests} />
+                    <span>Special requests (optional)</span>
+                    <textarea onChange={(event) => setSpecialRequests(event.target.value)} placeholder="Accessibility needs, setup notes, or other requests" rows={3} value={specialRequests} />
                   </label>
                   <label>
                     <span>Email address</span>
@@ -2832,7 +2908,7 @@ function ReservationFlow({
                   <div><span>Contact</span><strong>{email}</strong><small>{phone}</small></div>
                   <div><span>Experience</span><strong>{bookingSummaryCategory(service, cateringChoice, staycationChoice)} · {selectedPackageLabel}</strong></div>
                     <div><span>Schedule</span><strong>{reservationStartTime && reservationEndTime ? `${reservationStartTime}–${reservationEndTime}${service === "Swimming Pool" && reservationEndTime <= reservationStartTime ? " · following day" : ""}` : "Pending administrator assignment"}</strong></div>
-                    {cateringWithoutVenue && <div><span>Customer venue location</span><strong>{specialRequests}</strong></div>}
+                    {cateringWithoutVenue && <div><span>Customer venue location (Metro Manila)</span><strong>{deliveryStreet}, Brgy. {deliveryBarangay}, {deliveryCity}, Metro Manila</strong></div>}
                   {selectedVariant && <div><span>Variant details</span><strong>{selectedVariant.guest_capacity == null ? "Capacity not specified" : `${selectedVariant.guest_capacity} guests`} · {selectedVariant.has_aircon == null ? "Aircon not specified" : selectedVariant.has_aircon ? "Air-conditioned" : "Non-aircon"}</strong></div>}
                   <div><span>Booking details</span><strong>
                     {activeService?.quantityMode === "items"
@@ -2956,7 +3032,7 @@ function ReservationFlow({
                   Back
                 </button>
                 {step === 6 && <button className="skip-offer-button" onClick={() => setStep(7)} type="button">Skip This Offer</button>}
-                <button className="booking-primary" data-booking-cta="true" disabled={!canContinue || Boolean(conflictReason) || bookingSubmitting} type="button" onClick={nextStep}>
+                <button className="booking-primary" data-booking-cta="true" disabled={!canContinue || Boolean(conflictReason) || selectedDateOverlaps || calendarAvailabilityLoading || Boolean(calendarAvailabilityError) || bookingSubmitting} type="button" onClick={nextStep}>
                   {step === 8 ? bookingSubmitting ? "Reserving Schedule…" : createdReservation ? "Retry Booking" : "Reserve Schedule" : step === 7 ? "Continue to Payment" : step === 6 ? "Continue to Review" : "Continue"} <Icon name="arrow" size={18} />
                 </button>
               </div>
