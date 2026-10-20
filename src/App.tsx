@@ -1613,6 +1613,7 @@ function ReservationFlow({
     ];
   const progressIndex = Math.max(0, steps.findIndex(({ id }) => id === step));
   const activeService = serviceById(service);
+  const sariayaLocation = "Sitio Pontor, Bignay II, Sariaya, Quezon Province";
   const packageOptions = databasePackages
     .filter((item) => {
       if (service === "Swimming Pool") return normalizedService(item.service_type) === "resort"
@@ -1860,28 +1861,29 @@ function ReservationFlow({
     && normalizedService(packageChoice.service_type) === "resort"
     && packageChoice.package_category?.trim().toLowerCase() === "room"
     && packageChoice.pricing_mode === "per_night"
-    && packageChoice.deposit_percentage === 30
-    && packageChoice.pool_access_fee === 5000
+    && Number(packageChoice.deposit_percentage) === 30
+    && Number(packageChoice.pool_access_fee) === 5000
     && ((/standard room/i.test(packageChoice.name)
       && Number(packageChoice.price) === 3000
-      && packageChoice.min_guest_count === 4
-      && packageChoice.guest_capacity === 5)
+      && Number(packageChoice.min_guest_count) === 4
+      && Number(packageChoice.guest_capacity) === 5)
       || (/kubo room/i.test(packageChoice.name)
-        && Number(packageChoice.price) === 1500))
+        && Number(packageChoice.price) === 1500
+        && Number(packageChoice.guest_capacity) === 1))
   );
   const venueOnlyPricingReady = service !== "Resort Venue Only" || Boolean(
     packageChoice
     && normalizedService(packageChoice.service_type) === "resort"
     && packageChoice.package_category?.trim().toLowerCase() === "event_venue"
-    && packageChoice.pricing_mode === "fixed"
-    && packageChoice.pool_access_fee === 5000
-    && packageChoice.deposit_percentage === 30
+    && packageChoice.pricing_mode === "per_booking"
+    && Number(packageChoice.pool_access_fee) === 5000
+    && Number(packageChoice.deposit_percentage) === 30
     && ((resortVenueTier(packageChoice.name) === "non_aircon"
       && Number(packageChoice.price) === 10000
-      && packageChoice.duration_minutes === 300)
+      && Number(packageChoice.duration_minutes) === 300)
       || (resortVenueTier(packageChoice.name) === "aircon"
         && Number(packageChoice.price) === 15000
-        && packageChoice.duration_minutes === 240))
+        && Number(packageChoice.duration_minutes) === 240))
   );
   const poolScheduleStart = selectedVariant?.fixed_start_time ?? packageChoice?.fixed_start_time ?? packageChoice?.operating_start_time;
   const poolScheduleEnd = selectedVariant?.fixed_end_time ?? packageChoice?.fixed_end_time ?? packageChoice?.operating_end_time;
@@ -1897,9 +1899,9 @@ function ReservationFlow({
   const cottageAddonConfigured = Boolean(service === "Swimming Pool" && packageChoice?.cottage_addon_id && Number(packageChoice.cottage_fee) > 0);
   const cottageSelectionReady = !cottageSelected || cottageAddonConfigured;
   const poolAccessEligibleService = service === "Room Accommodation" || service === "Resort Venue Only";
-  const poolAccessPricingReady = !poolAccessEligibleService || packageChoice?.pool_access_fee === 5000;
+  const poolAccessPricingReady = !poolAccessEligibleService || Number(packageChoice?.pool_access_fee) === 5000;
   const paymentSubmissionStarted = Boolean(paymentProof);
-  const poolAccessFee = poolAccessSelected && poolAccessEligibleService ? packageChoice?.pool_access_fee ?? 0 : 0;
+  const poolAccessFee = poolAccessSelected && poolAccessEligibleService ? Number(packageChoice?.pool_access_fee ?? 0) : 0;
   const packagePrice = !packageChoice
     ? 0
     : activeService?.quantityMode === "items"
@@ -2451,7 +2453,8 @@ function ReservationFlow({
                 <div className="booking-step__heading">
                   <span>Step 2 of {steps.length}</span>
                   <h3>Choose your preferred date and time</h3>
-                  <p>Select the requested schedule. Fixed resort schedules are applied automatically, while unconfigured room schedules remain subject to admin assignment.</p>
+                  <p>Select the requested schedule. Fixed resort schedules are applied automatically, while room and venue-only schedules are confirmed by the administrator.</p>
+                  {["Room Accommodation", "Resort Venue Only", "Swimming Pool"].includes(service) && <p className="booking-location-note"><strong>Resort location:</strong> {sariayaLocation}</p>}
                 </div>
                 <div className="availability-legend">
                   <span><i className="status-dot status-dot--available" />Available</span>
@@ -2534,6 +2537,7 @@ function ReservationFlow({
                   <h3>{service === "Event" ? "Choose your events place" : service === "Swimming Pool" ? "Choose your tour time slot" : service === "Catering" ? "Choose your catering package" : "Pick your package"}</h3>
                   <p>{service === "Event" ? "Choose one of three venue-only locations. Catering, meals, decorations and waiters are not included. Prices below are demonstration estimates." : service === "Swimming Pool" ? "Tour hours are fixed and cannot be changed." : "Each package can be refined with our team after your reservation."}</p>
                 </div>
+                {["Room Accommodation", "Resort Venue Only"].includes(service) && <div className="booking-policy-notice"><strong>VENICE Resort · Sariaya, Quezon</strong><p>{sariayaLocation}. This is separate from the three Events Place locations on Daffodil and Amarillo Streets.</p>{service === "Resort Venue Only" && <p>Choose Aircon or Non-Aircon venue rental. Catering is not included; Pool Access is optional for ₱5,000. Venue capacity requires Owner confirmation.</p>}</div>}
                 {service === "Catering" && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Customers must request any cancellation or rescheduling at least 3 days (72 hours) before their scheduled catering event. Rescheduling requests are subject to Administrator approval.</p></div>}
                 {selectedMainCategory === "Staycation" && <div className="booking-policy-notice"><strong>Payment Policy</strong><p>Customers must submit the required 30% down payment within 24 hours after creating their reservation. Payment is subject to Administrator verification. Reservations without timely payment submission may be automatically cancelled.</p></div>}
                 {service === "Event" ? <div className="event-venue-package-grid" aria-label="Three venue-only events places">
@@ -2560,6 +2564,7 @@ function ReservationFlow({
                         key={tier.id}
                         onClick={() => {
                           setSelectedPackageId(tier.id);
+                          if (service === "Room Accommodation") { setRooms(1); setGuests(/standard room/i.test(tier.name) ? 4 : 1); }
                           setSelectedVariantId("");
                           setDatabaseVariants([]);
                           setVariantLoading(true);
@@ -2573,6 +2578,8 @@ function ReservationFlow({
                         <span className="tier-card__number">0{index + 1}</span>
                         <strong>{tier.name}</strong>
                         <small>{tier.detail}</small>
+                        {service === "Resort Venue Only" && <small>VENICE Resort · {sariayaLocation}</small>}
+                        {service === "Room Accommodation" && /kubo room/i.test(tier.name) && <small>Currently configured for 1 guest; Owner confirmation required for higher occupancy.</small>}
                         {tier.guest_capacity != null && service !== "Swimming Pool" && <small>Up to {tier.guest_capacity} guests</small>}
                         <ul className="tier-card__inclusions">
                           {tier.inclusions.map((inclusion) => <li key={inclusion}>✓ {inclusion}</li>)}
@@ -2598,8 +2605,8 @@ function ReservationFlow({
                 {packageChoice && variantError && <div className="booking-inline-error" role="alert">{variantError}</div>}
                 {packageChoice && service === "Catering" && !packagePriceConfigured && !variantLoading && !variantError && <div className="catering-price-notice" role="status"><strong>Price to be announced</strong><span>Contact us for current catering-only pricing. Booking cannot continue until a valid price is configured.</span></div>}
                 {packageChoice && service === "Swimming Pool" && !poolPricingReady && <div className="catering-price-notice" role="status"><strong>Tour rate setup needs attention</strong><span>The active package row does not contain per-person pricing settings for the booking RPC. Booking is paused rather than submitting a mismatched total. Cottage charges are not added unless configured for the selected package.</span></div>}
-                {packageChoice && service === "Room Accommodation" && !roomPricingReady && <div className="catering-price-notice" role="status"><strong>Room rate setup needs attention</strong><span>New room bookings require the confirmed per-room, per-night price, Standard Room occupancy of 4–5, and separately selectable ₱5,000 Pool Access. Kubo capacity remains unspecified.</span></div>}
-                {packageChoice && service === "Resort Venue Only" && !venueOnlyPricingReady && <div className="catering-price-notice" role="status"><strong>Venue Only setup needs attention</strong><span>New bookings require Non-Aircon ₱10,000 / 5 hours or Aircon ₱15,000 / 4 hours, with ₱5,000 Pool Access kept optional.</span></div>}
+                {packageChoice && service === "Room Accommodation" && !roomPricingReady && <div className="catering-price-notice" role="status"><strong>Room setup needs attention</strong><span>The selected room is not configured for its nightly rate or optional pool access. Please contact the administrator.</span></div>}
+                {packageChoice && service === "Resort Venue Only" && !venueOnlyPricingReady && <div className="catering-price-notice" role="status"><strong>Venue Only setup needs attention</strong><span>The resort venue-only record must use the configured Non-Aircon ₱10,000 / 5 hours or Aircon ₱15,000 / 4 hours rate. ₱5,000 Pool Access remains optional.</span></div>}
                 {packageChoice && poolAccessEligibleService && !poolAccessPricingReady && <div className="booking-inline-error" role="alert">Optional Pool Access is unavailable until the package has the configured ₱5,000 fee.</div>}
                 {packageChoice && service === "Swimming Pool" && !poolAvailabilityReady && <div className="catering-price-notice" role="status"><strong>Pool availability is not configured</strong><span>The selected tour must resolve to the verified venice-main-pool resource, exclusive mode, and an existing timed schedule before EVENTLY can confirm availability.</span></div>}
                 {packageChoice && scheduleMode === "customer_select" && !operatingHoursConfigured && <div className="booking-inline-error" role="alert">This package has no configured operating hours. An administrator must configure them before timed bookings can be submitted.</div>}
@@ -2849,6 +2856,7 @@ function ReservationFlow({
                   {validatedAddOns.length || (cottageSelected && cottageFee > 0) ? <div>{cottageSelected && cottageFee > 0 && <span><strong>Cottage</strong><small>{currency(cottageFee)}</small></span>}{validatedAddOns.map((item) => <span key={item.id}><strong>{item.displayName}</strong><small>{currency(item.price)}</small></span>)}</div> : <p>No additional services selected</p>}
                 </div>
                 {service === "Event" && <div className="booking-policy-notice"><strong>Demo venue-only estimate</strong><p>Includes only venue rental. Catering, food, drinks, waiters and decorations are excluded. Venice must confirm the final rental rate and terms before any actual payment. Do not transfer funds based on this estimate.</p></div>}
+                {["Room Accommodation", "Resort Venue Only"].includes(service) && <div className="booking-policy-notice"><strong>Venue location</strong><p>{sariayaLocation}</p></div>}
                 <div className="review-price-summary">
                   <div><span>{service === "Swimming Pool" ? "Entrance charge" : "Base package price"}</span><strong>{currency(packagePrice)}</strong></div>
                   {cottageFee > 0 && <div><span>Cottage</span><strong>{currency(cottageFee)}</strong></div>}
