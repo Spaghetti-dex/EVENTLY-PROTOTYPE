@@ -1047,7 +1047,7 @@ const mainCategoryForService = (serviceId: string): BookingMainCategory | null =
   return null;
 };
 const bookingSummaryCategory = (serviceId: string, cateringChoice: CateringChoice, staycationChoice: StaycationChoice = null) => {
-  if (cateringChoice === "with-venue" && serviceId === "Event") return "Events Place · Venue Only";
+  if (cateringChoice === "with-venue" && serviceId === "Catering") return "Catering With Venue";
   if (cateringChoice === "without-venue" && serviceId === "Catering") return "Catering Only";
   if (serviceId === "Swimming Pool" && staycationChoice) return `Staycation · ${staycationChoice === "day" ? "Day Tour" : staycationChoice === "night" ? "Night Tour" : "Overnight Tour"}`;
   if (serviceId === "Room Accommodation") return "Staycation · Room Accommodation";
@@ -1644,7 +1644,9 @@ function ReservationFlow({
           && resortVenueTier(item.name) !== null;
       }
       if (service === "Catering") {
-        return normalizedService(item.service_type) === "catering";
+        return cateringChoice === "with-venue"
+          ? normalizedService(item.service_type) === "event" && item.package_category?.trim().toLowerCase() === "event_venue"
+          : normalizedService(item.service_type) === "catering";
       }
       if (service !== "Room Accommodation") {
         return normalizedService(item.service_type) === normalizedService(service)
@@ -2430,20 +2432,23 @@ function ReservationFlow({
                           <small>{serviceOption.description}</small>
                           <span className="choice-card__check">✓</span>
                         </button>
-                        {selected && cateringChoice !== "party-trays" && <div aria-label="Choose catering type" className="booking-catering-choices" role="group">
-                          <button aria-pressed={cateringChoice === "with-venue"} className={`booking-catering-choice ${cateringChoice === "with-venue" ? "is-selected" : ""}`} onClick={() => { setCateringChoice("with-venue"); chooseBookingService("Event"); }} type="button">
+                        {selected && <div aria-label="Choose catering type" className="booking-catering-choices" role="group">
+                          <button aria-pressed={cateringChoice === "with-venue"} className={`booking-catering-choice ${cateringChoice === "with-venue" ? "is-selected" : ""}`} onClick={() => { chooseBookingService("Catering"); setCateringChoice("with-venue"); }} type="button">
                             <span className="booking-catering-choice__icon"><Icon name="building" size={19} /></span>
-                            <span className="booking-catering-choice__copy"><strong>Events Place (Venue Only)</strong><small>Explore three Daffodil and Amarillo event venues. Catering is not included.</small></span>
+                            <span className="booking-catering-choice__copy"><strong>Catering With Venue</strong><small>Choose a catering-with-venue package, including the six dishes, dessert and drinks.</small></span>
                             <span className="booking-catering-choice__check">✓</span>
                           </button>
-                          <button aria-pressed={cateringChoice === "without-venue"} className={`booking-catering-choice ${cateringChoice === "without-venue" ? "is-selected" : ""}`} onClick={() => { setCateringChoice("without-venue"); chooseBookingService("Catering"); }} type="button">
+                          <button aria-pressed={cateringChoice === "without-venue"} className={`booking-catering-choice ${cateringChoice === "without-venue" ? "is-selected" : ""}`} onClick={() => { chooseBookingService("Catering"); setCateringChoice("without-venue"); }} type="button">
                             <span className="booking-catering-choice__icon"><Icon name="food" size={19} /></span>
                             <span className="booking-catering-choice__copy"><strong>Catering Without Venue</strong><small>Enjoy catering services at your own event location.</small></span>
                             <span className="booking-catering-choice__check">✓</span>
                           </button>
-                        </div>}
-                        {selected && cateringChoice !== "party-trays" && <button className="booking-party-trays-link" onClick={() => { setCateringChoice("party-trays"); chooseBookingService("Food Orders & Party Trays"); }} type="button">Looking for ready-made food? Browse Food Orders &amp; Party Trays <Icon name="arrow" size={15} /></button>}
-                        {selected && cateringChoice === "party-trays" && <p className="booking-party-trays-selected">Food Orders &amp; Party Trays selected. <button onClick={() => { setCateringChoice(null); chooseBookingService("Catering"); }} type="button">Return to catering choices</button></p>}
+                          <button aria-pressed={cateringChoice === "party-trays"} className={`booking-catering-choice ${cateringChoice === "party-trays" ? "is-selected" : ""}`} onClick={() => { chooseBookingService("Food Orders & Party Trays"); setCateringChoice("party-trays"); }} type="button">
+                            <span className="booking-catering-choice__icon"><Icon name="food" size={19} /></span>
+                            <span className="booking-catering-choice__copy"><strong>Food Orders &amp; Party Trays</strong><small>Create a custom tray order from Venice's preset dishes, desserts and drinks. Pickup or Metro Manila delivery.</small></span>
+                            <span className="booking-catering-choice__check">✓</span>
+                          </button>
+                        </div>
                       </article>
                     );
                     if (category === "Staycation") return (
@@ -5318,8 +5323,9 @@ function Homepage() {
             <h3>Celebrate Your Way</h3>
             <p>Book one of our existing venue packages with catering, or order catering for your own venue.</p>
             <div className="catering-events-package-card__choices">
-              <button data-booking-cta="true" onClick={() => chooseService("Event")} type="button"><strong>Catering with Venue</strong><small>View Daffodil and Amarillo venue packages</small><span>Explore packages <Icon name="arrow" size={15} /></span></button>
+              <button data-booking-cta="true" onClick={() => chooseService("Catering")} type="button"><strong>Catering with Venue</strong><small>Packages include venue, catering and ulam selection</small><span>Explore packages <Icon name="arrow" size={15} /></span></button>
               <button data-booking-cta="true" onClick={() => chooseService("Catering")} type="button"><strong>Catering Only (Without Venue)</strong><small>For a customer-provided venue</small><span>Order Catering Without Venue <Icon name="arrow" size={15} /></span><b>Price to be announced</b></button>
+              <button data-booking-cta="true" onClick={() => chooseService("Food Orders & Party Trays")} type="button"><strong>Food Orders &amp; Party Trays</strong><small>Choose individual ulam trays, desserts and drinks for pickup or Metro Manila delivery.</small><span>Create my order <Icon name="arrow" size={15} /></span></button>
             </div>
           </article>
           {serviceCatalog.filter((serviceOption) => !["Catering", "Event"].includes(serviceOption.id)).map((serviceOption, index) => {
