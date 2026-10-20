@@ -3900,3 +3900,8 @@ section[id] { scroll-margin-top: 88px; }
 .evently-admin .admin-search, .evently-admin .admin-filter-tabs, .evently-admin .admin-toolbar { border-color:#d8e6dd; }
 .evently-admin .admin-card:hover { box-shadow:0 10px 28px rgba(26,75,57,.085); }
 @media (prefers-reduced-motion:reduce) { .evently-admin .admin-card { transition:none; } }
+
+/* Distinct fully-booked calendar state; no lock icons. */
+.calendar-day { position:relative; }
+.calendar-day__booked-label { position:absolute; bottom:2px; left:50%; transform:translateX(-50%); font-size:9px; font-weight:800; letter-spacing:.02em; line-height:1; white-space:nowrap; pointer-events:none; }
+.calendar-day--unavailable .calendar-day__booked-label { color:#9c3e35; }
