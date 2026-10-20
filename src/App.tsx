@@ -2598,7 +2598,7 @@ function ReservationFlow({
                             <span className="booking-catering-choice__copy"><strong>Food Orders &amp; Party Trays</strong><small>Create a custom tray order from Venice's preset dishes, desserts and drinks. Pickup or Metro Manila delivery.</small></span>
                             <span className="booking-catering-choice__check">✓</span>
                           </button>
-                        </div>
+                        </div>}
                       </article>
                     );
                     if (category === "Staycation") return (
