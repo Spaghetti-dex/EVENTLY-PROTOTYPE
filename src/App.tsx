@@ -1548,6 +1548,7 @@ function ReservationFlow({
   };
   const finishGuestCountEdit = () => {
     if (guestInput === "" || guests < minimumGuests) setGuests(minimumGuests);
+    else if (effectiveGuestCapacity !== null && guests > effectiveGuestCapacity) setGuests(effectiveGuestCapacity);
     setGuestInput(null);
   };
   const [guestName, setGuestName] = useState(initialDraft.guestName ?? "");
@@ -2062,14 +2063,8 @@ function ReservationFlow({
       ? (packageChoice?.min_guest_count ?? 4) * rooms
       : packageChoice?.min_guest_count
         ?? (service === "Room Accommodation" && /4\s*to\s*5\s*guests/i.test(packageChoice?.description ?? "") ? 4 : 1);
-  // Events Place defaults to 50 guests in the shared wizard, which can exceed
-  // a venue's configured maximum and falsely look like a date-availability failure.
-  useEffect(() => {
-    if (service !== "Event" || !packageChoice) return;
-    const minimum = Math.max(1, Number(packageChoice.min_guest_count ?? 1));
-    const maximum = packageChoice.max_guest_count == null ? Infinity : Number(packageChoice.max_guest_count);
-    setGuests((current) => current < minimum || current > maximum ? Math.min(minimum, maximum) : current);
-  }, [service, packageChoice?.id, packageChoice?.min_guest_count, packageChoice?.max_guest_count]);
+  // Use the selected package's configured guest limits, not the generic 50-guest
+  // wizard default. This also covers variants, accommodation and resort bookings.
   const verifiedPoolMax = packageChoice?.max_guest_count == null
     ? null
     : Number(packageChoice.max_guest_count);
@@ -2083,11 +2078,38 @@ function ReservationFlow({
     && verifiedPoolMax >= minimumGuests
     && verifiedPoolMax <= 50
   );
+  const configuredMaxGuests = Number(packageChoice?.max_guest_count);
+  const hasConfiguredMax = packageChoice?.max_guest_count != null && Number.isInteger(configuredMaxGuests) && configuredMaxGuests > 0;
+  const capacityFromPackage = packageGuestCapacity != null && Number.isInteger(Number(packageGuestCapacity)) && Number(packageGuestCapacity) > 0
+    ? Number(packageGuestCapacity) * (service === "Room Accommodation" ? rooms : 1)
+    : null;
   const effectiveGuestCapacity = service === "Swimming Pool"
     ? poolCapacityRecordReady ? Math.min(verifiedPoolMax ?? 0, 50) : null
-    : service === "Room Accommodation" && packageGuestCapacity !== null
-      ? packageGuestCapacity * rooms
-      : packageGuestCapacity;
+    : capacityFromPackage != null && hasConfiguredMax
+      ? Math.min(capacityFromPackage, configuredMaxGuests * (service === "Room Accommodation" ? rooms : 1))
+      : capacityFromPackage ?? (hasConfiguredMax ? configuredMaxGuests : null);
+  // Reset the default when a different package/variant is selected. Do not
+  // override a valid customer-entered count during ordinary re-renders.
+  const guestCapacitySelectionKey = packageChoice
+    ? [service, packageChoice.id, selectedVariant?.id ?? "", service === "Room Accommodation" ? rooms : 0].join("|")
+    : "";
+  const lastGuestCapacitySelection = useRef("");
+  useEffect(() => {
+    if (!guestCapacitySelectionKey) {
+      lastGuestCapacitySelection.current = "";
+      return;
+    }
+    const selectionChanged = lastGuestCapacitySelection.current !== guestCapacitySelectionKey;
+    lastGuestCapacitySelection.current = guestCapacitySelectionKey;
+    const validMax = effectiveGuestCapacity != null && Number.isFinite(effectiveGuestCapacity)
+      && effectiveGuestCapacity >= minimumGuests;
+    setGuests((current) => {
+      if (selectionChanged) return validMax ? effectiveGuestCapacity : Math.max(minimumGuests, 1);
+      if (validMax && current > effectiveGuestCapacity) return effectiveGuestCapacity;
+      return current < minimumGuests ? minimumGuests : current;
+    });
+    if (selectionChanged) setGuestInput(null);
+  }, [guestCapacitySelectionKey, effectiveGuestCapacity, minimumGuests]);
   useEffect(() => {
     if ((service === "Swimming Pool" || isStandardRoom) && packageChoice && guests < minimumGuests) setGuests(minimumGuests);
   }, [service, packageChoice?.id, guests, isStandardRoom, minimumGuests]);
