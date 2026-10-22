@@ -3917,3 +3917,205 @@ section[id] { scroll-margin-top: 88px; }
 .evently-terms__agreement input {flex:none;width:19px;height:19px;margin-top:2px;accent-color:#216b54;}
 .evently-terms small {color:#65776f;}
 @media(max-width:600px){.evently-terms{padding:18px;gap:12px}.evently-terms__agreement{padding:12px;}}
+
+
+/* Booking History — compact, touch-friendly phone layout.
+   Overrides older responsive declarations without changing the desktop grid. */
+@media (max-width: 767px) {
+  .customer-account-page { min-width: 0; overflow-x: clip; }
+  .customer-account-page .customer-account-heading {
+    padding: 27px 20px 25px;
+  }
+  .customer-account-page .customer-account-heading h1 {
+    font-size: clamp(30px, 8vw, 39px);
+    line-height: 1.12;
+    letter-spacing: -.035em;
+  }
+  .customer-account-page .customer-account-heading p {
+    font-size: 13px;
+    line-height: 1.55;
+    max-width: 34ch;
+  }
+  .customer-account-page .customer-account-shell {
+    width: 100%;
+    max-width: 100%;
+    padding: 18px 14px 100px;
+  }
+  .customer-account-page .customer-account-main,
+  .customer-account-page .customer-history-content {
+    min-width: 0;
+    width: 100%;
+  }
+  .customer-account-page .history-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 13px;
+    width: 100%;
+  }
+  .customer-account-page .history-toolbar > label {
+    grid-row: 1;
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+    gap: 7px;
+  }
+  .customer-account-page .history-toolbar > label > span {
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+  .customer-account-page .history-toolbar input {
+    background: #fffefa;
+    border-radius: 12px;
+    box-sizing: border-box;
+    font-size: 14px;
+    min-height: 48px;
+    padding-inline: 14px;
+    width: 100%;
+  }
+  .customer-account-page .history-toolbar > div {
+    grid-row: 2;
+    display: flex;
+    gap: 7px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding: 2px 1px 8px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .customer-account-page .history-toolbar button {
+    flex: 0 0 auto;
+    min-height: 42px;
+    padding: 10px 15px;
+    border: 1px solid #dbe7df;
+    border-radius: 999px;
+    background: #fffefa;
+    color: #426057;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+  .customer-account-page .history-toolbar button.history-filter-active {
+    background: var(--teal-dark);
+    border-color: var(--teal-dark);
+    box-shadow: 0 3px 9px rgba(18,70,63,.13);
+    color: white;
+  }
+  .customer-account-page .history-card-grid {
+    display: grid;
+    grid-template-columns: minmax(0,1fr);
+    gap: 15px;
+  }
+  .customer-account-page .customer-history-card {
+    min-width: 0;
+    padding: 18px 16px 16px;
+    background: #fffefa;
+    border-radius: 18px;
+    box-shadow: 0 6px 22px rgba(18,70,63,.055);
+  }
+  .customer-account-page .customer-history-card:hover {
+    transform: none;
+  }
+  .customer-account-page .customer-history-card__top {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    align-items: start;
+    column-gap: 10px;
+    row-gap: 5px;
+  }
+  .customer-account-page .customer-history-card__top > span {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    font-size: 10px;
+    padding: 6px 9px;
+  }
+  .customer-account-page .customer-history-card__top > strong {
+    grid-column: 1;
+    grid-row: 2;
+    min-width: 0;
+    font-size: 11px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  .customer-account-page .customer-history-card__top > i {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
+    max-width: 128px;
+    font-size: 10px;
+    line-height: 1.3;
+    text-align: center;
+    white-space: normal;
+  }
+  .customer-account-page .customer-history-card h2 {
+    margin-top: 18px;
+    font-size: 21px;
+    line-height: 1.25;
+  }
+  .customer-account-page .customer-history-card > p {
+    margin-top: 5px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .customer-account-page .customer-history-card dl {
+    display: grid;
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: 12px 14px;
+    margin: 18px 0;
+  }
+  .customer-account-page .customer-history-card dl > div {
+    min-width: 0;
+    padding-top: 10px;
+  }
+  .customer-account-page .customer-history-card dt {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    line-height: 1.4;
+  }
+  .customer-account-page .customer-history-card dd {
+    margin-top: 2px;
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  .customer-account-page .history-card-actions {
+    display: grid;
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    align-items: stretch;
+    gap: 9px;
+    margin-top: auto;
+    padding-top: 15px;
+  }
+  .customer-account-page .history-card-actions button {
+    width: 100%;
+    min-width: 0;
+    min-height: 45px;
+    padding: 11px 9px;
+    border-radius: 11px;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+  .customer-account-page .history-card-actions button.history-card-actions__primary {
+    grid-column: 1 / -1;
+  }
+  .customer-account-page .customer-history-detail {
+    width: min(100%, 480px);
+    max-width: 100%;
+  }
+  .customer-account-page .customer-empty-state {
+    min-width: 0;
+    padding: 36px 20px;
+  }
+}
+@media (max-width: 360px) {
+  .customer-account-page .customer-account-shell { padding-inline: 11px; }
+  .customer-account-page .customer-history-card { padding-inline: 13px; }
+  .customer-account-page .customer-history-card dl { gap: 10px; }
+  .customer-account-page .customer-history-card dd { font-size: 12px; }
+  .customer-account-page .history-card-actions { grid-template-columns: minmax(0,1fr); }
+  .customer-account-page .history-card-actions button.history-card-actions__primary { grid-column: 1; }
+}
