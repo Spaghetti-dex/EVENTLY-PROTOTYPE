@@ -236,6 +236,7 @@ begin
       'Customer requested cancellation: ' || v_request.reason);
     -- Deposits remain non-refundable; no payment refund or damage charges are created.
   elsif v_request.request_action='reschedule' then
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('evently-resource-schedule-global',0));
     if v_request.proposed_reservation_date < (now() at time zone 'Asia/Manila')::date then
       raise exception 'Requested replacement date is in the past';
     end if;
