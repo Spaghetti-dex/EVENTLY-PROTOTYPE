@@ -145,6 +145,42 @@ $$;
 revoke all on function public.evently_customer_request_catering_change(uuid,text,text,date,time,time) from public,anon;
 grant execute on function public.evently_customer_request_catering_change(uuid,text,text,date,time,time) to authenticated;
 
+-- The existing booking RPC is retained as a private implementation to preserve
+-- package/menu/add-on/availability rules. This public wrapper enforces consent
+-- and saves the acceptance within the same transaction as reservation creation.
+do $migration$
+begin
+ if to_regprocedure('public.evently_create_reservation_internal(jsonb)') is null then
+  execute 'alter function public.create_evently_reservation(jsonb) rename to evently_create_reservation_internal';
+ end if;
+end
+$migration$;
+revoke all on function public.evently_create_reservation_internal(jsonb) from public,anon,authenticated;
+
+create or replace function public.create_evently_reservation(p_booking jsonb)
+returns jsonb language plpgsql security definer set search_path=''
+as $$
+declare
+ v_result jsonb;
+ v_reservation uuid;
+begin
+ if auth.uid() is null then raise exception 'Authentication required'; end if;
+ if jsonb_typeof(p_booking) is distinct from 'object'
+   or p_booking->>'terms_accepted' is distinct from 'true'
+   or p_booking->>'terms_version' is distinct from '2026-10-22-v1'
+ then
+  raise exception 'Accept the current Terms and Conditions before checkout';
+ end if;
+ v_result := public.evently_create_reservation_internal(p_booking);
+ v_reservation := nullif(v_result->>'reservation_id','')::uuid;
+ if v_reservation is null then raise exception 'Reservation confirmation missing'; end if;
+ perform public.evently_accept_terms(v_reservation,null,'2026-10-22-v1');
+ return v_result;
+end
+$$;
+revoke all on function public.create_evently_reservation(jsonb) from public,anon;
+grant execute on function public.create_evently_reservation(jsonb) to authenticated;
+
 -- Payment rows must always be backed by affirmative, current-version acceptance.
 create or replace function public.evently_require_terms_for_payment()
 returns trigger language plpgsql security definer set search_path=''
@@ -163,7 +199,7 @@ begin
 end
 $$;
 drop trigger if exists evently_payment_requires_terms on public.payments;
-create trigger evently_payment_requires_terms before insert on public.payments
+create trigger evently_payment_requires_terms before insert or update of customer_id,reservation_id,order_id on public.payments
 for each row execute function public.evently_require_terms_for_payment();
 
 -- Only Admin/Owner may decide on a submitted request. Rescheduling is
