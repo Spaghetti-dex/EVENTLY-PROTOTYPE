@@ -104,3 +104,61 @@ $$;
 drop trigger if exists evently_payment_requires_terms on public.payments;
 create trigger evently_payment_requires_terms before insert on public.payments
 for each row execute function public.evently_require_terms_for_payment();
+
+-- Only Admin/Owner may decide on a submitted request. Rescheduling is
+-- checked transactionally against the existing resource/schedule validator.
+create or replace function public.evently_admin_decide_catering_change(
+ p_request_id uuid, p_decision text, p_decision_note text
+) returns void language plpgsql security definer set search_path=''
+as $$
+declare
+ v_request public.evently_catering_change_requests%rowtype;
+ v_booking public.reservations%rowtype;
+ v_check jsonb;
+begin
+ if auth.uid() is null or not public.is_evently_admin() then
+  raise exception 'Owner/Admin access required';
+ end if;
+ if p_decision not in ('approved','rejected') then raise exception 'Invalid decision'; end if;
+ if length(btrim(coalesce(p_decision_note,''))) < 1 then raise exception 'Decision note is required'; end if;
+ select * into v_request from public.evently_catering_change_requests
+ where id=p_request_id for update;
+ if not found or v_request.request_status <> 'pending' then
+  raise exception 'Request not found or already decided';
+ end if;
+ select * into v_booking from public.reservations
+ where id=v_request.reservation_id for update;
+ if not found then raise exception 'Reservation not found'; end if;
+ if p_decision='approved' then
+  if v_booking.status::text in ('cancelled','completed','rejected')
+     or v_booking.expired_at is not null then
+    raise exception 'Booking cannot be modified';
+  end if;
+  if v_request.request_action='cancel' then
+    perform public.admin_set_reservation_status(v_booking.id,'cancelled'::public.booking_status,
+      'Customer requested cancellation: ' || v_request.reason);
+    -- Deposits remain non-refundable; no payment refund or damage charges are created.
+  elsif v_request.request_action='reschedule' then
+    if v_request.proposed_reservation_date < (now() at time zone 'Asia/Manila')::date then
+      raise exception 'Requested replacement date is in the past';
+    end if;
+    update public.reservations
+    set reservation_date=v_request.proposed_reservation_date,
+        start_time=v_request.proposed_start_time,
+        end_time=v_request.proposed_end_time,
+        updated_at=now()
+    where id=v_booking.id;
+    v_check:=public.evently_admin_check_reservation_schedule(v_booking.id);
+    if coalesce((v_check->>'no_conflict')::boolean,false) <> true then
+      raise exception 'Replacement schedule unavailable: %',coalesce(v_check->>'reason','Validation failed');
+    end if;
+  end if;
+ end if;
+ update public.evently_catering_change_requests
+ set request_status=p_decision,decision_note=btrim(p_decision_note),
+     decided_by=auth.uid(),decided_at=now()
+ where id=p_request_id;
+end
+$$;
+revoke all on function public.evently_admin_decide_catering_change(uuid,text,text) from public,anon;
+grant execute on function public.evently_admin_decide_catering_change(uuid,text,text) to authenticated;
