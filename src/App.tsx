@@ -2103,6 +2103,7 @@ function ReservationFlow({
     ? [service, packageChoice.id, selectedVariant?.id ?? "", service === "Room Accommodation" ? rooms : 0].join("|")
     : "";
   const lastGuestCapacitySelection = useRef("");
+  const restoredGuestSelection = useRef(Boolean(initialDraft.service && initialDraft.selectedPackageId));
   useEffect(() => {
     if (!guestCapacitySelectionKey) {
       lastGuestCapacitySelection.current = "";
@@ -2113,6 +2114,11 @@ function ReservationFlow({
     const validMax = effectiveGuestCapacity != null && Number.isFinite(effectiveGuestCapacity)
       && effectiveGuestCapacity >= minimumGuests;
     setGuests((current) => {
+      if (selectionChanged && restoredGuestSelection.current
+          && initialDraft.service === service && initialDraft.selectedPackageId === packageChoice?.id) {
+        restoredGuestSelection.current = false;
+        return validMax ? Math.min(effectiveGuestCapacity, Math.max(minimumGuests, current)) : Math.max(minimumGuests, current);
+      }
       if (selectionChanged) return validMax ? effectiveGuestCapacity : Math.max(minimumGuests, 1);
       if (validMax && current > effectiveGuestCapacity) return effectiveGuestCapacity;
       return current < minimumGuests ? minimumGuests : current;
@@ -5197,10 +5203,16 @@ function Homepage() {
   const authenticated = Boolean(session);
   const headerActiveSection = pathname === "/" && hash === "#booking" ? "booking" : activeSection;
 
-  // Opening the site root should always begin at the hero. Preserve explicit
-  // #booking deep links when a visitor deliberately uses them.
+  // A refresh during checkout must resume the booking rather than force the homepage.
+  // Explicit navigation to another section still takes priority.
   useEffect(() => {
     if (window.location.pathname !== "/" || window.location.hash) return;
+    const saved = readBookingDraft();
+    if (saved.service && (saved.step ?? 1) >= 1 && saved.step !== 9) {
+      window.history.replaceState(window.history.state, "", "/#booking");
+      setActiveSection("booking");
+      return;
+    }
     const previousRestoration = window.history.scrollRestoration;
     window.history.scrollRestoration = "manual";
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
