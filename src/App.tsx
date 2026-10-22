@@ -4048,9 +4048,17 @@ function CustomerHistoryPage() {
   });
   const selectedPayment = selected ? customerPaymentFor(selected) : null;
   const selectedIsCatering = Boolean(selected && String(rowValue(selected, ["service", "service_type", "service_category"]) ?? "").toLowerCase().includes("cater"));
+  const scheduledDay = selected ? rowText(selected, ["reservation_date", "event_date", "date"], "").slice(0, 10) : "";
+  const manilaTodayParts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const manilaToday = ["year", "month", "day"].map((part) => manilaTodayParts.find((entry) => entry.type === part)?.value ?? "").join("-");
+  const daysUntilService = /^\\d{4}-\\d{2}-\\d{2}$/.test(scheduledDay) && /^\\d{4}-\\d{2}-\\d{2}$/.test(manilaToday)
+    ? Math.round((Date.parse(scheduledDay + "T00:00:00Z") - Date.parse(manilaToday + "T00:00:00Z")) / 86400000)
+    : -1;
+  const changeRequestEligible = daysUntilService >= 3;
   const submitCateringChangeRequest = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected || !selectedIsCatering || cateringRequestSubmitting) return;
+    if (!changeRequestEligible) { setCateringRequestFeedback("Requests must be made at least three Manila calendar days before the scheduled date."); return; }
     if (cateringRequestAction === "reschedule" && (!cateringRequestDate || !cateringRequestStart || !cateringRequestEnd)) { setCateringRequestFeedback("Select the event date, start time and end time before submitting."); return; }
     setCateringRequestSubmitting(true);
     setCateringRequestFeedback("");
@@ -4217,11 +4225,11 @@ function CustomerHistoryPage() {
              <h3 id="customer-manage-booking-title">Manage Booking</h3>
               <p>{readOnlyStatus ? `This reservation is ${expiredBooking ? "expired" : statusKey} and can no longer be changed.` : selectedIsCatering ? "Send a cancellation or rescheduling request for Administrator review." : "Schedule changes require Administrator assistance."}</p>
               {paymentCanBeSubmitted && Boolean(rowValue(selected, ["_order_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(selected, ["_order_code"]))}`)} type="button">Submit 30% Deposit</button>}
-              {selectedIsCatering && !readOnlyStatus ? <form className="catering-change-request-form" onSubmit={(event) => void submitCateringChangeRequest(event)}>
+              {selectedIsCatering && !readOnlyStatus && changeRequestEligible ? <form className="catering-change-request-form" onSubmit={(event) => void submitCateringChangeRequest(event)}>
                 <label><span>Request type</span><select value={cateringRequestAction} onChange={(event) => setCateringRequestAction(event.target.value as "cancel" | "reschedule")}><option value="cancel">Cancel this booking</option><option value="reschedule">Request a new schedule</option></select></label>
                 {cateringRequestAction === "reschedule" && <><label><span>Proposed event date</span><input required type="date" value={cateringRequestDate} onChange={(event) => setCateringRequestDate(event.target.value)} /></label><div><label><span>Proposed start time</span><BookingTimePicker label="Proposed start time" value={cateringRequestStart} onChange={setCateringRequestStart} /></label><label><span>Proposed end time</span><BookingTimePicker label="Proposed end time" value={cateringRequestEnd} onChange={setCateringRequestEnd} /></label></div></>}
                 <label><span>Reason for your request</span><textarea required maxLength={2000} value={cateringRequestReason} onChange={(event) => setCateringRequestReason(event.target.value)} /></label>
-                <small>Submit at least 72 hours before the event. Exactly 72 hours is eligible. Rescheduling takes effect only after Administrator approval.</small>
+                <small>Submit at least three (3) Manila calendar days before the scheduled event. Rescheduling requires availability and Administrator approval. Collected deposits are non-refundable.</small>
                 <button disabled={cateringRequestSubmitting} type="submit">{cateringRequestSubmitting ? "Sending request…" : "Send to Administrator"}</button>
                 {cateringRequestFeedback && <p role="status">{cateringRequestFeedback}</p>}
               </form> : !selectedIsCatering && <div><button disabled title={readOnlyStatus ? `Unavailable for ${statusKey} reservations` : "Contact an Administrator to request a schedule change"} type="button"><CalendarClock aria-hidden="true" size={18} /> Reschedule Booking</button><button className="customer-manage-booking__cancel" disabled title={readOnlyStatus ? `Unavailable for ${statusKey} reservations` : "Contact an Administrator to cancel this reservation"} type="button"><CalendarX aria-hidden="true" size={18} /> Cancel Booking</button></div>}
