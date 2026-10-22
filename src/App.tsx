@@ -809,7 +809,9 @@ function BookingLoginModal({
     setGoogleState("loading");
     setRegistrationError("");
     try {
-      const returnTo = `${window.location.pathname}${window.location.search}#booking`;
+      const returnTo = purpose === "booking"
+        ? `${window.location.pathname}${window.location.search}#booking`
+        : "/#home";
       await signInWithGoogle("customer", returnTo);
     } catch (error) {
       setGoogleState("error");
@@ -5433,6 +5435,11 @@ function Homepage() {
     setBookingLoginOpen(false);
     if (loginPurpose === "booking") {
       window.setTimeout(() => document.getElementById("booking")?.scrollIntoView({ behavior: "smooth" }), 80);
+    } else {
+      // Standard sign-in must land at Home, without touching the saved booking draft.
+      window.history.replaceState(window.history.state, "", "/#home");
+      setActiveSection("home");
+      window.requestAnimationFrame(() => document.getElementById("home")?.scrollIntoView({ behavior: "instant" }));
     }
   };
   const logOut = async () => {
