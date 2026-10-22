@@ -4564,7 +4564,8 @@ function OrderPage() {
       ? Boolean(account.bank_name?.trim() && account.account_number?.trim())
       : Boolean(account.mobile_wallet_number?.trim())));
   const availablePaymentMethods: CustomerPaymentMethod[] = Array.from(new Set(activePaymentAccounts.map((account) => account.method)));
-  const availablePaymentMethodKey = availablePaymentMethods.join("|");
+  const selectablePaymentMethods: CustomerPaymentMethod[] = demoPaymentMode ? ["gcash", "bank_transfer", "cash"] : availablePaymentMethods;
+  const availablePaymentMethodKey = selectablePaymentMethods.join("|");
   const selectedPaymentAccount = activePaymentAccounts.find((account) => account.method === paymentMethod) ?? null;
   const selectedPaymentInstructions = selectedPaymentAccount?.instructions ?? "";
   const latestPayment = payments[0] ?? null;
@@ -4572,7 +4573,7 @@ function OrderPage() {
   const paymentAwaitingReview = payments.some((payment) => rowText(payment, ["verification_status", "status"], "").toLowerCase() === "pending");
   const demoProofAccepted = payments.some((payment) => payment.demo_mode === true && rowText(payment, ["verification_status", "status"], "").toLowerCase() === "verified");
   useEffect(() => {
-    if (availablePaymentMethods.length && !availablePaymentMethods.includes(paymentMethod)) setPaymentMethod(availablePaymentMethods[0]);
+    if (selectablePaymentMethods.length && !selectablePaymentMethods.includes(paymentMethod)) setPaymentMethod(selectablePaymentMethods[0]);
   }, [availablePaymentMethodKey, paymentMethod]);
   const submitPayment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -4596,7 +4597,7 @@ function OrderPage() {
       setPaymentMessage("A transaction reference and proof of payment are required.");
       return;
     }
-    if (!demoPaymentMode && (!availablePaymentMethods.includes(paymentMethod) || !selectedPaymentAccount || !selectedPaymentInstructions.trim())) {
+    if (!(demoPaymentMode ? ["gcash", "bank_transfer", "cash"].includes(paymentMethod) : availablePaymentMethods.includes(paymentMethod) && Boolean(selectedPaymentAccount) && Boolean(selectedPaymentInstructions.trim()))) {
       setPaymentMessage("This payment method is not configured. Contact Venice before submitting payment.");
       return;
     }
@@ -4621,7 +4622,7 @@ function OrderPage() {
       if (!reservationId) throw new Error("This order is not linked to a reservation.");
       const {error:acceptanceError}=await supabase.rpc("evently_accept_terms",{p_reservation_id:reservationId,p_version:EVENTLY_TERMS_VERSION});
       if(acceptanceError) throw acceptanceError;
-      const { error: submitError } = demoPaymentMode ? await supabase.rpc("evently_submit_demo_payment", { p_reservation_id: reservationId, p_method: paymentMethod, p_reference_number: paymentReference.trim(), p_proof_path: proofPath || null }) : await supabase.rpc("evently_submit_payment_proof", {
+      const { error: submitError } = demoPaymentMode ? await supabase.rpc("evently_submit_demo_payment", { p_reservation_id: reservationId, p_method: paymentMethod, p_reference_number: paymentReference.trim(), p_proof_path: paymentMethod === "cash" ? null : (proofPath || null) }) : await supabase.rpc("evently_submit_payment_proof", {
         p_reservation_id: reservationId,
         p_amount: amount,
         p_method: paymentMethod,
@@ -4668,11 +4669,11 @@ function OrderPage() {
            {outstandingBalance > 0 && !paymentAwaitingReview && <form className="payment-submission-form" onSubmit={submitPayment}>
              <h2>{latestPaymentStatus === "rejected" ? "Resubmit Payment Proof" : "Submit a Payment"}</h2>
              {demoPaymentMode && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>Use sample transaction data only. No processor is connected.</span></div>}
-              <label><span>Payment method</span><select disabled={!demoPaymentMode && !availablePaymentMethods.length} value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)}>{availablePaymentMethods.map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
-              {paymentOptionsError && <p className="booking-payment-message is-error" role="alert">Payment destinations could not be loaded: {paymentOptionsError}</p>}
-              {!availablePaymentMethods.length && <p role="status">No active, correctly configured payment destinations are currently available. Contact Venice before sending funds.</p>}
+              <label><span>Payment method</span><select disabled={!selectablePaymentMethods.length} value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)}>{selectablePaymentMethods.map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}{demoPaymentMode ? " (Demo)" : ""}</option>)}</select></label>
+              {!demoPaymentMode && paymentOptionsError && <p className="booking-payment-message is-error" role="alert">Payment destinations could not be loaded: {paymentOptionsError}</p>}
+              {!demoPaymentMode && !availablePaymentMethods.length && <p role="status">No active, correctly configured payment destinations are currently available. Contact Venice before sending funds.</p>}
              {!demoPaymentMode && selectedPaymentAccount && <div className="customer-payment-destination"><strong>{selectedPaymentAccount.display_name}</strong>{selectedPaymentAccount.account_holder && <span>Account holder: {selectedPaymentAccount.account_holder}</span>}{selectedPaymentAccount.bank_name && <span>Bank: {selectedPaymentAccount.bank_name}</span>}{(selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number) && <span>Send to: {selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number}</span>}{selectedPaymentAccount.qr_code_url && <img alt={`${selectedPaymentAccount.display_name} payment QR code`} src={selectedPaymentAccount.qr_code_url} />}<p>{selectedPaymentInstructions}</p></div>}
-             {!selectedPaymentAccount && selectedPaymentInstructions && <p>{selectedPaymentInstructions}</p>}
+             {!demoPaymentMode && !selectedPaymentAccount && selectedPaymentInstructions && <p>{selectedPaymentInstructions}</p>}
                <div className="payment-card__balance"><span>Total booking price</span><strong>{formatPhp(total)}</strong></div>
                <div className="payment-card__balance"><span>Suggested amount due</span><strong>{formatPhp(amountDueNow)}</strong></div>
                 <label><span>{demoPaymentMode ? "Simulated payment amount (PHP)" : "Actual amount paid (PHP)"}</span><input max={outstandingBalance} min={Math.max(0.01, remainingDeposit)} onChange={(event) => setPaymentAmount(event.target.value)} readOnly={demoPaymentMode} required step="0.01" type="number" value={demoPaymentMode ? String(amountDueNow) : paymentAmount} /><small>Enter the amount you actually transferred. It must cover any remaining required deposit and may differ from the suggested amount.</small></label>
