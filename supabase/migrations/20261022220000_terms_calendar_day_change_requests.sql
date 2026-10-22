@@ -1,4 +1,65 @@
 -- Apply only after review in the intended Supabase environment.
+-- Shared acceptance ledger (also provisions EVENTLY-STAGING, where absent).
+create table if not exists public.evently_terms_acceptances (
+ id uuid primary key default gen_random_uuid(),
+ customer_id uuid not null references auth.users(id),
+ reservation_id uuid unique references public.reservations(id),
+ order_id uuid unique references public.orders(id),
+ terms_version text not null default '2026-10-22-v1',
+ accepted_at timestamptz not null default now(),
+ accepted boolean not null default true check (accepted),
+ constraint evently_terms_one_subject check ((reservation_id is not null) <> (order_id is not null))
+);
+alter table public.evently_terms_acceptances enable row level security;
+revoke all on public.evently_terms_acceptances from anon,authenticated;
+grant select on public.evently_terms_acceptances to authenticated;
+drop policy if exists evently_terms_admin_read on public.evently_terms_acceptances;
+create policy evently_terms_admin_read on public.evently_terms_acceptances
+ for select to authenticated using (public.is_evently_admin());
+drop policy if exists evently_terms_customer_read on public.evently_terms_acceptances;
+create policy evently_terms_customer_read on public.evently_terms_acceptances
+ for select to authenticated using (customer_id=(select auth.uid()));
+drop policy if exists evently_terms_permitted_staff_read on public.evently_terms_acceptances;
+create policy evently_terms_permitted_staff_read on public.evently_terms_acceptances
+ for select to authenticated using (exists (
+ select 1 from public.evently_staff_permissions p
+ where p.staff_id=(select auth.uid()) and p.permission='view_reservations' and p.granted=true
+));
+
+create or replace function public.evently_accept_terms(
+ p_reservation_id uuid default null,
+ p_order_id uuid default null,
+ p_version text default '2026-10-22-v1'
+) returns jsonb language plpgsql security definer set search_path=''
+as $
+declare v_customer uuid := auth.uid(); v_id uuid;
+begin
+ if v_customer is null then raise exception 'Sign in to accept terms'; end if;
+ if (p_reservation_id is null) = (p_order_id is null) then raise exception 'Choose one reservation or order'; end if;
+ if p_version <> '2026-10-22-v1' then raise exception 'Terms version is outdated'; end if;
+ if p_reservation_id is not null then
+  if not exists(select 1 from public.reservations where id=p_reservation_id and customer_id=v_customer)
+    then raise exception 'Reservation not found or access denied'; end if;
+  insert into public.evently_terms_acceptances(customer_id,reservation_id,terms_version,accepted)
+   values(v_customer,p_reservation_id,p_version,true) on conflict(reservation_id) do nothing;
+  select id into v_id from public.evently_terms_acceptances
+   where reservation_id=p_reservation_id and customer_id=v_customer and terms_version=p_version and accepted=true;
+ else
+  if not exists(select 1 from public.orders where id=p_order_id and customer_id=v_customer)
+    then raise exception 'Order not found or access denied'; end if;
+  insert into public.evently_terms_acceptances(customer_id,order_id,terms_version,accepted)
+   values(v_customer,p_order_id,p_version,true) on conflict(order_id) do nothing;
+  select id into v_id from public.evently_terms_acceptances
+   where order_id=p_order_id and customer_id=v_customer and terms_version=p_version and accepted=true;
+ end if;
+ if v_id is null then raise exception 'Existing acceptance does not match the current version'; end if;
+ return jsonb_build_object('id',v_id,'version',p_version,'accepted',true);
+end
+$;
+revoke all on function public.evently_accept_terms(uuid,uuid,text) from public,anon;
+grant execute on function public.evently_accept_terms(uuid,uuid,text) to authenticated;
+
+
 -- Does not approve cancellations, rescheduling, refunds, or damage charges.
 create table if not exists public.evently_catering_change_requests (
   id uuid primary key default gen_random_uuid(),
