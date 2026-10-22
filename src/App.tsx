@@ -1524,6 +1524,7 @@ function ReservationFlow({
     setService(serviceId);
     setPrivacyAcknowledged(false);
     setGuests(serviceId === "Swimming Pool" ? 1 : serviceId === "Resort Venue Only" ? 1 : serviceId === "Room Accommodation" ? 4 : 50);
+    setGuestInput(null);
     setSelectedPackageId("");
     setSelectedVariantId("");
     setDatabaseVariants([]);
@@ -1537,6 +1538,18 @@ function ReservationFlow({
   };
   const [selectedVariantId, setSelectedVariantId] = useState(initialDraft.selectedVariantId ?? "");
   const [guests, setGuests] = useState(initialDraft.guests ?? 50);
+  // Allow an empty input while a customer replaces the prefilled guest count.
+  const [guestInput, setGuestInput] = useState<string | null>(null);
+  const changeGuestCount = (raw: string) => {
+    if (raw === "") { setGuestInput(""); return; }
+    if (!/^\d+$/.test(raw)) return;
+    setGuestInput(raw);
+    setGuests(Number(raw));
+  };
+  const finishGuestCountEdit = () => {
+    if (guestInput === "" || guests < minimumGuests) setGuests(minimumGuests);
+    setGuestInput(null);
+  };
   const [guestName, setGuestName] = useState(initialDraft.guestName ?? "");
   const [email, setEmail] = useState(initialDraft.email ?? "");
   const [phone, setPhone] = useState(initialDraft.phone ?? "");
@@ -1739,6 +1752,7 @@ function ReservationFlow({
     setCateringChoice(requestedService === "Food Orders & Party Trays" ? "party-trays" : null);
     setStaycationChoice(requestedService === "Resort Venue Only" ? "venue" : null);
     setGuests(requestedService === "Swimming Pool" ? 1 : requestedService === "Resort Venue Only" ? 1 : requestedService === "Room Accommodation" ? 4 : 50);
+    setGuestInput(null);
     setSelectedPackageId("");
     setSelectedVariantId("");
     setAddOns([]);
@@ -2295,13 +2309,13 @@ function ReservationFlow({
     (step === 2 && Boolean(selectedDate) && !conflictReason && !selectedDateOverlaps && !calendarAvailabilityLoading && !calendarAvailabilityError && (
       scheduleMode !== "customer_select" || Boolean(startTime && reservationEndTime)
     )) ||
-    (step === 3 && Boolean(packageChoice) && !selectedDateOverlaps && !calendarAvailabilityLoading && !calendarAvailabilityError && (service !== "Catering" || packagePriceConfigured) && poolPricingReady && poolCapacityReady && poolAvailabilityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && cottageSelectionReady && tourAccommodationChosen && (isPoolPackage || (!variantLoading && !variantError)) && scheduleReady && (
+    (step === 3 && guestInput !== "" && Boolean(packageChoice) && !selectedDateOverlaps && !calendarAvailabilityLoading && !calendarAvailabilityError && (service !== "Catering" || packagePriceConfigured) && poolPricingReady && poolCapacityReady && poolAvailabilityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && cottageSelectionReady && tourAccommodationChosen && (isPoolPackage || (!variantLoading && !variantError)) && scheduleReady && (
       !variantRequired || Boolean(selectedVariant)
     ) && (
       activeService?.quantityMode !== "tour" || guests >= minimumGuests
     )) ||
     (step === 4 && hasIncludedMenu && menuComplete) ||
-    (step === 5 && Boolean(guestName && email && normalizePhilippineMobile(phone)) && deliveryAddressReady && guests >= minimumGuests && poolCapacityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && (
+    (step === 5 && guestInput !== "" && Boolean(guestName && email && normalizePhilippineMobile(phone)) && deliveryAddressReady && guests >= minimumGuests && poolCapacityReady && roomPricingReady && venueOnlyPricingReady && poolAccessPricingReady && (
       effectiveGuestCapacity == null || guests <= effectiveGuestCapacity
     )) ||
     step === 6 ||
@@ -2980,7 +2994,7 @@ function ReservationFlow({
                   <div className="booking-quantity-panel">
                     {service === "Swimming Pool" && !poolCapacityRecordReady && <div className="booking-inline-error" role="status">Pool bookings are paused until the Administrator verifies and audits the physical maximum capacity. The legacy guest_capacity value is not treated as a confirmed pool maximum.</div>}
                     <div><strong>Tour guests</strong><span>{configuredStartTime.slice(0, 5)}–{configuredEndTime.slice(0, 5)}{configuredEndTime <= configuredStartTime ? " · ends the following day" : ""} · {currency(effectiveUnitPrice)} per guest</span></div>
-                    <label><span>Guests</span><input aria-label="Number of tour guests" max={effectiveGuestCapacity ?? undefined} min={minimumGuests} onChange={(event) => setGuests(Math.max(minimumGuests, Number(event.target.value)))} type="number" value={guests} /><small>{effectiveGuestCapacity == null ? "Guest bookings stay paused until the Administrator confirms and audits the actual physical maximum." : `Allowed for this tour: ${minimumGuests}–${effectiveGuestCapacity} guests.`}</small></label>
+                    <label><span>Guests</span><input aria-label="Number of tour guests" max={effectiveGuestCapacity ?? undefined} min={minimumGuests} onChange={(event) => changeGuestCount(event.target.value)} onBlur={finishGuestCountEdit} inputMode="numeric" step={1} type="number" value={guestInput ?? guests} /><small>{effectiveGuestCapacity == null ? "Guest bookings stay paused until the Administrator confirms and audits the actual physical maximum." : `Allowed for this tour: ${minimumGuests}–${effectiveGuestCapacity} guests.`}</small></label>
                     {guests < minimumGuests && <small className="booking-schedule-error" role="alert">This tour requires at least {minimumGuests} guests.</small>}
                     {effectiveGuestCapacity != null && guests > effectiveGuestCapacity && <small className="booking-schedule-error" role="alert">This tour is limited to {effectiveGuestCapacity} guests.</small>}
                   </div>
@@ -3108,7 +3122,7 @@ function ReservationFlow({
                   </label>
                   <label>
                     <span>Number of guests</span>
-                    <input max={effectiveGuestCapacity ?? undefined} min={minimumGuests} type="number" value={guests} onChange={(event) => setGuests(Math.max(minimumGuests, Number(event.target.value)))} />
+                    <input max={effectiveGuestCapacity ?? undefined} min={minimumGuests} type="number" inputMode="numeric" step={1} value={guestInput ?? guests} onChange={(event) => changeGuestCount(event.target.value)} onBlur={finishGuestCountEdit} />
                     {effectiveGuestCapacity != null && <small>{service === "Resort Venue Only" ? "Demo booking guest limit; actual venue capacity requires Owner confirmation." : `Maximum capacity for ${selectedPackageLabel}: ${effectiveGuestCapacity} guests.`}</small>}
                     {effectiveGuestCapacity != null && guests > effectiveGuestCapacity && <small role="alert">Reduce the guest count to continue with this package.</small>}
                   </label>
