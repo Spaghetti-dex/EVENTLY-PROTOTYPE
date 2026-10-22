@@ -3905,3 +3905,15 @@ section[id] { scroll-margin-top: 88px; }
 .calendar-day { position:relative; }
 .calendar-day__booked-label { position:absolute; bottom:2px; left:50%; transform:translateX(-50%); font-size:9px; font-weight:800; letter-spacing:.02em; line-height:1; white-space:nowrap; pointer-events:none; }
 .calendar-day--unavailable .calendar-day__booked-label { color:#9c3e35; }
+
+/* Shared terms agreement across reservation and food ordering flows. */
+.evently-terms { display:grid;gap:16px;padding:clamp(18px,3vw,30px);border:1px solid #cbded4;border-radius:18px;background:#fffefa;color:#29453a;box-shadow:0 8px 24px rgba(24,69,49,.06); }
+.evently-terms__eyebrow {font-size:11px;letter-spacing:.14em;font-weight:800;color:#317d68;}
+.evently-terms h3 {font-size:clamp(22px,3vw,30px);margin:0;color:#173f35;}
+.evently-terms h4 {font-size:16px;margin:0 0 7px;color:#245e4e;}
+.evently-terms p {margin:0;line-height:1.7;color:#465d54;}
+.evently-terms article {padding:14px 0;border-top:1px solid #e2ebe5;}
+.evently-terms__agreement {display:flex;align-items:flex-start;gap:12px;background:#eaf5ed;border:1px solid #b9d8c7;border-radius:12px;padding:16px;cursor:pointer;font-weight:650;line-height:1.55;}
+.evently-terms__agreement input {flex:none;width:19px;height:19px;margin-top:2px;accent-color:#216b54;}
+.evently-terms small {color:#65776f;}
+@media(max-width:600px){.evently-terms{padding:18px;gap:12px}.evently-terms__agreement{padding:12px;}}
