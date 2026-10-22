@@ -1188,6 +1188,7 @@ const addOnOptions = serviceCatalog.flatMap(({ extras }) => extras).filter(
 );
 
 const bookingDraftKey = "evently-booking-draft";
+const foodOrderDraftKey = "evently-food-order-draft";
 const customerBookingsChangedEvent = "evently-customer-bookings-changed";
 
 type BookingDraft = {
@@ -1214,6 +1215,7 @@ type BookingDraft = {
   rooms: number;
   nights: number;
   cottageSelected: boolean;
+  selectedRoomPackageId?: string;
   poolAccessSelected: boolean;
   specialRequests: string;
   deliveryStreet?: string;
@@ -1345,32 +1347,47 @@ function EventlyTerms({accepted,onChange,food=false}:{accepted:boolean;onChange:
 }
 
 type IndividualFoodItem = {id:string; name:string; category:string; tray_price:number; is_active:boolean; is_available:boolean};
+type FoodOrderDraft = {
+  quantities: Record<string,number>; mode: "pickup"|"delivery"; date:string; time:string;
+  fullName:string; phone:string; street:string; barangay:string; city:string;
+  notes:string; privacyConfirmed:boolean; requestId:string;
+};
+function readFoodOrderDraft(): Partial<FoodOrderDraft> {
+  try { return JSON.parse(sessionStorage.getItem(foodOrderDraftKey) ?? "{}") as Partial<FoodOrderDraft>; }
+  catch { return {}; }
+}
 function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
   onBack:()=>void; onRequireLogin?:()=>void; customerProfile?:CustomerAccountProfile|null
 }) {
   const {session}=useAuth();
+  const [initialFoodDraft]=useState(() => readFoodOrderDraft());
   const [items,setItems]=useState<IndividualFoodItem[]>([]);
-  const [quantities,setQuantities]=useState<Record<string,number>>({});
+  const [quantities,setQuantities]=useState<Record<string,number>>(initialFoodDraft.quantities ?? {});
   const [activeCategory,setActiveCategory]=useState("Beef");
   const [loading,setLoading]=useState(true);
   const [loadError,setLoadError]=useState("");
-  const [mode,setMode]=useState<"pickup"|"delivery">("pickup");
+  const [mode,setMode]=useState<"pickup"|"delivery">(initialFoodDraft.mode ?? "pickup");
   const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
   const earliestFoodOrderDate=()=>{const d=new Date();d.setDate(d.getDate()+5);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
-  const [date,setDate]=useState(earliestFoodOrderDate);
-  const [time,setTime]=useState("12:00");
-  const [fullName,setFullName]=useState(customerProfile?.fullName??"");
-  const [phone,setPhone]=useState(customerProfile?.mobile??"");
-  const [street,setStreet]=useState("");
-  const [barangay,setBarangay]=useState("");
-  const [city,setCity]=useState("");
-  const [notes,setNotes]=useState("");
-  const [privacyConfirmed,setPrivacyConfirmed]=useState(false);
+  const [date,setDate]=useState(initialFoodDraft.date ?? earliestFoodOrderDate());
+  const [time,setTime]=useState(initialFoodDraft.time ?? "12:00");
+  const [fullName,setFullName]=useState(initialFoodDraft.fullName ?? customerProfile?.fullName ?? "");
+  const [phone,setPhone]=useState(initialFoodDraft.phone ?? customerProfile?.mobile ?? "");
+  const [street,setStreet]=useState(initialFoodDraft.street ?? "");
+  const [barangay,setBarangay]=useState(initialFoodDraft.barangay ?? "");
+  const [city,setCity]=useState(initialFoodDraft.city ?? "");
+  const [notes,setNotes]=useState(initialFoodDraft.notes ?? "");
+  const [privacyConfirmed,setPrivacyConfirmed]=useState(initialFoodDraft.privacyConfirmed ?? false);
   const [termsAccepted,setTermsAccepted]=useState(false);
-  const [requestId]=useState(()=>crypto.randomUUID());
+  const [requestId]=useState(()=>initialFoodDraft.requestId ?? crypto.randomUUID());
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [receipt,setReceipt]=useState<{code:string;total:number}|null>(null);
+  useEffect(()=>{
+    if (receipt) return;
+    const draft:FoodOrderDraft={quantities,mode,date,time,fullName,phone,street,barangay,city,notes,privacyConfirmed,requestId};
+    try { sessionStorage.setItem(foodOrderDraftKey,JSON.stringify(draft)); } catch { /* Storage may be unavailable. */ }
+  },[quantities,mode,date,time,fullName,phone,street,barangay,city,notes,privacyConfirmed,requestId,receipt]);
   useEffect(()=>{
     let live=true;
     const load=async()=>{
@@ -1422,7 +1439,8 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
       const result=data as {order_code:string;total:number};
       if(!result?.order_code)throw new Error("The system did not return an order confirmation.");
       setReceipt({code:result.order_code,total:Number(result.total)});
-      sessionStorage.removeItem("evently-booking-draft");
+      sessionStorage.removeItem(foodOrderDraftKey);
+      sessionStorage.removeItem(bookingDraftKey);
     }catch(err){setError(err instanceof Error?err.message:"Could not place food order. Please try again.");}
     finally{setBusy(false);}
   };
@@ -1506,7 +1524,8 @@ function ReservationFlow({
   const { session } = useAuth();
   const [initialDraft] = useState(() => readBookingDraft());
   const [clientRequestId, setClientRequestId] = useState(initialDraft.clientRequestId ?? crypto.randomUUID());
-  const [step, setStep] = useState(initialDraft.step ?? 1);
+  // Never restore terms consent automatically after a refresh.
+  const [step, setStep] = useState(initialDraft.step === 8 ? 10 : initialDraft.step ?? 1);
   const [service, setService] = useState(initialDraft.service ?? "");
   const [selectedMainCategory, setSelectedMainCategory] = useState<BookingMainCategory | null>(initialDraft.selectedMainCategory ?? mainCategoryForService(initialDraft.service ?? ""));
   const [cateringChoice, setCateringChoice] = useState<CateringChoice>(initialDraft.cateringChoice ?? null);
@@ -1559,7 +1578,7 @@ function ReservationFlow({
   const [adults, setAdults] = useState(initialDraft.adults ?? 2);
   const [children, setChildren] = useState(initialDraft.children ?? 0);
   const [rooms, setRooms] = useState(initialDraft.rooms ?? 1);
-  const [selectedRoomPackageId, setSelectedRoomPackageId] = useState("");
+  const [selectedRoomPackageId, setSelectedRoomPackageId] = useState(initialDraft.selectedRoomPackageId ?? "");
   const [nights, setNights] = useState(initialDraft.nights ?? 1);
   const [cottageSelected, setCottageSelected] = useState(initialDraft.cottageSelected ?? false);
   const [poolAccessSelected, setPoolAccessSelected] = useState(initialDraft.poolAccessSelected ?? false);
@@ -1586,6 +1605,7 @@ function ReservationFlow({
   const [catalogError, setCatalogError] = useState("");
   const [addonError, setAddonError] = useState("");
   const [addonLoading, setAddonLoading] = useState(false);
+  const [addonCatalogReady, setAddonCatalogReady] = useState(false);
   const [variantError, setVariantError] = useState("");
   const [variantLoading, setVariantLoading] = useState(false);
   const [menuError, setMenuError] = useState("");
@@ -1703,9 +1723,11 @@ function ReservationFlow({
       ? "resort"
       : service.trim().toLowerCase();
     setDatabaseAddons([]);
+    setAddonCatalogReady(false);
     setAddonError("");
     if (!compatibleService) {
       setAddonLoading(false);
+      setAddonCatalogReady(true);
       return () => { active = false; };
     }
     setAddonLoading(true);
@@ -1717,11 +1739,13 @@ function ReservationFlow({
         .then(({ data, error }) => {
         if (!active) return;
         setAddonLoading(false);
+        setAddonCatalogReady(true);
         setAddonError(error?.message ?? "");
         if (!error) setDatabaseAddons((data ?? []) as BookingAddonRow[]);
       }, (error: unknown) => {
         if (!active) return;
         setAddonLoading(false);
+        setAddonCatalogReady(true);
         setAddonError(error instanceof Error ? error.message : "The add-on catalog could not be reached. Please try again.");
       });
     };
@@ -1765,7 +1789,7 @@ function ReservationFlow({
   }, [requestedService]);
 
   useEffect(() => {
-    if (addonLoading || addonError) return;
+    if (!addonCatalogReady || addonLoading || addonError) return;
     const compatibleNames = new Set(databaseAddons
       .filter((item) => service !== "Event" && !/pool\s*access/i.test(item.name))
       .map((item) => item.name));
@@ -1773,7 +1797,7 @@ function ReservationFlow({
       const compatible = current.filter((name) => compatibleNames.has(name));
       return compatible.length === current.length ? current : compatible;
     });
-  }, [addonError, addonLoading, databaseAddons, selectedPackageId, service]);
+  }, [addonCatalogReady, addonError, addonLoading, databaseAddons, selectedPackageId, service]);
 
   useEffect(() => {
     if (menuCatalogState === "loading" || menuCatalogState === "error") return;
@@ -1813,6 +1837,7 @@ function ReservationFlow({
       rooms,
       nights,
       cottageSelected,
+      selectedRoomPackageId,
       poolAccessSelected,
       specialRequests,
       deliveryStreet,
@@ -1825,8 +1850,8 @@ function ReservationFlow({
       paymentAmount,
       paymentReference,
     };
-    sessionStorage.setItem(bookingDraftKey, JSON.stringify(draft));
-  }, [addOns, adults, cateringChoice, children, clientRequestId, cottageSelected, email, endTime, guestName, guests, itemQuantity, menuSelections, month, nights, paymentAmount, paymentMethod, paymentReference, phone, poolAccessSelected, privacyAcknowledged, rooms, selectedDate, selectedMainCategory, selectedPackageId, selectedVariantId, service, specialRequests, deliveryStreet, deliveryBarangay, deliveryCity, startTime, staycationChoice, step]);
+    try { sessionStorage.setItem(bookingDraftKey, JSON.stringify(draft)); } catch { /* Storage may be unavailable. */ }
+  }, [addOns, adults, cateringChoice, children, clientRequestId, cottageSelected, selectedRoomPackageId, email, endTime, guestName, guests, itemQuantity, menuSelections, month, nights, paymentAmount, paymentMethod, paymentReference, phone, poolAccessSelected, privacyAcknowledged, rooms, selectedDate, selectedMainCategory, selectedPackageId, selectedVariantId, service, specialRequests, deliveryStreet, deliveryBarangay, deliveryCity, startTime, staycationChoice, step]);
 
   const hasIncludedMenu = service === "Catering";
   const steps = service === "Food Orders & Party Trays" ? [{ id: 1, label: "Choose Service" }, { id: 2, label: "Build Your Food Order" }]
@@ -2094,6 +2119,7 @@ function ReservationFlow({
     ? [service, packageChoice.id, selectedVariant?.id ?? "", service === "Room Accommodation" ? rooms : 0].join("|")
     : "";
   const lastGuestCapacitySelection = useRef("");
+  const restoredGuestSelection = useRef(Boolean(initialDraft.service && initialDraft.selectedPackageId));
   useEffect(() => {
     if (!guestCapacitySelectionKey) {
       lastGuestCapacitySelection.current = "";
@@ -2104,6 +2130,11 @@ function ReservationFlow({
     const validMax = effectiveGuestCapacity != null && Number.isFinite(effectiveGuestCapacity)
       && effectiveGuestCapacity >= minimumGuests;
     setGuests((current) => {
+      if (selectionChanged && restoredGuestSelection.current
+          && initialDraft.service === service && initialDraft.selectedPackageId === packageChoice?.id) {
+        restoredGuestSelection.current = false;
+        return validMax ? Math.min(effectiveGuestCapacity, Math.max(minimumGuests, current)) : Math.max(minimumGuests, current);
+      }
       if (selectionChanged) return validMax ? effectiveGuestCapacity : Math.max(minimumGuests, 1);
       if (validMax && current > effectiveGuestCapacity) return effectiveGuestCapacity;
       return current < minimumGuests ? minimumGuests : current;
@@ -5188,10 +5219,16 @@ function Homepage() {
   const authenticated = Boolean(session);
   const headerActiveSection = pathname === "/" && hash === "#booking" ? "booking" : activeSection;
 
-  // Opening the site root should always begin at the hero. Preserve explicit
-  // #booking deep links when a visitor deliberately uses them.
+  // A refresh during checkout must resume the booking rather than force the homepage.
+  // Explicit navigation to another section still takes priority.
   useEffect(() => {
     if (window.location.pathname !== "/" || window.location.hash) return;
+    const saved = readBookingDraft();
+    if (saved.service && (saved.step ?? 1) >= 1 && saved.step !== 9) {
+      window.history.replaceState(window.history.state, "", "/#booking");
+      setActiveSection("booking");
+      return;
+    }
     const previousRestoration = window.history.scrollRestoration;
     window.history.scrollRestoration = "manual";
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
