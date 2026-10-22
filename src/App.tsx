@@ -4366,6 +4366,7 @@ function OrderPage() {
   const [error, setError] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<CustomerPaymentMethod>("gcash");
   const [paymentReference, setPaymentReference] = useState("");
+  const [paymentTermsAccepted,setPaymentTermsAccepted]=useState(false);
   const [paymentProof, setPaymentProof] = useState<File | null>(null);
   const paymentProofInput = useRef<HTMLInputElement | null>(null);
   const [paymentProofPreview, setPaymentProofPreview] = useState("");
@@ -4494,6 +4495,7 @@ function OrderPage() {
   const submitPayment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!session || !order || paymentSubmitting) return;
+    if (!paymentTermsAccepted) { setPaymentMessage("Accept the Terms and Conditions before submitting payment."); return; }
     setPaymentMessage("");
     const amount = demoPaymentMode ? amountDueNow : Number(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0 || amount > outstandingBalance) {
@@ -4535,6 +4537,8 @@ function OrderPage() {
       }
       const reservationId = String(rowValue(order, ["reservation_id"]) ?? "");
       if (!reservationId) throw new Error("This order is not linked to a reservation.");
+      const {error:acceptanceError}=await supabase.rpc("evently_accept_terms",{p_reservation_id:reservationId,p_version:EVENTLY_TERMS_VERSION});
+      if(acceptanceError) throw acceptanceError;
       const { error: submitError } = demoPaymentMode ? await supabase.rpc("evently_submit_demo_payment", { p_reservation_id: reservationId, p_method: paymentMethod, p_reference_number: paymentMethod === "cash" ? null : (paymentReference.trim() || `DEMO-${crypto.randomUUID().slice(0,8)}`), p_proof_path: proofPath || null }) : await supabase.rpc("evently_submit_payment_proof", {
         p_reservation_id: reservationId,
         p_amount: amount,
@@ -4604,7 +4608,8 @@ function OrderPage() {
                 setPaymentProof(file);
              }} required={!demoPaymentMode && !paymentProof} type="file" /></label>}
               {paymentProof && <div className="booking-receipt-preview"><img alt="Receipt screenshot preview" src={paymentProofPreview} /><div><strong>{paymentProof.name}</strong><span>{(paymentProof.size / (1024 * 1024)).toFixed(2)} MB</span><div><button onClick={() => paymentProofInput.current?.click()} type="button">Replace image</button><button onClick={() => { setPaymentProof(null); setPendingPaymentProofPath(""); if (paymentProofInput.current) paymentProofInput.current.value = ""; }} type="button">Remove image</button></div></div></div>}
-              <button disabled={paymentSubmitting || (!demoPaymentMode && (!availablePaymentMethods.length || Boolean(paymentOptionsError)))} type="submit">{paymentSubmitting ? "Submitting…" : "Submit for Verification"}</button>
+              <EventlyTerms accepted={paymentTermsAccepted} onChange={setPaymentTermsAccepted} />
+              <button disabled={!paymentTermsAccepted || paymentSubmitting || (!demoPaymentMode && (!availablePaymentMethods.length || Boolean(paymentOptionsError)))} type="submit">{paymentSubmitting ? "Submitting…" : "Submit for Verification"}</button>
             {paymentMessage && <span role="status">{paymentMessage}</span>}
            </form>}
         </aside>
