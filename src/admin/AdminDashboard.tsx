@@ -12,6 +12,7 @@ type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled";
 const sections = [
   ["dashboard", "Dashboard", "grid"],
   ["reservations", "Reservations", "calendar"],
+  ["staff-approvals", "Staff Approval Queue", "check"],
   ["orders", "Orders", "list"],
   ["customers", "Customers", "users"],
   ["packages", "Packages & Services", "box"],
@@ -141,7 +142,7 @@ const columnsBySection: Record<string, { label: string; keys: string[] }[]> = {
 
 const navigationGroups = [
   { label: "Dashboard", paths: ["dashboard", "notifications"] },
-  { label: "Booking Management", paths: ["reservations", "orders"] },
+  { label: "Booking Management", paths: ["staff-approvals", "reservations", "orders"] },
   { label: "Business Management", paths: ["packages", "catering-menu", "addons", "customers", "staff"] },
   { label: "Finance & Insights", paths: ["payments", "reports", "reviews"] },
   { label: "Communication", paths: ["messages"] },
@@ -151,6 +152,7 @@ const navigationGroups = [
 const pageDescriptions: Record<string, string> = {
   dashboard: "Monitor reservations, payments, and business activity in one place.",
   reservations: "Review booking details, payment progress, and reservation status.",
+  "staff-approvals": "Review staff recommendations and coordinate final booking decisions.",
   orders: "Track fulfillment and keep every Evently order moving.",
   customers: "Find customer profiles and review account information.",
   packages: "Manage Catering, Resort, and Staycation offerings.",
@@ -2688,9 +2690,9 @@ function RecommendationsView() {
   const load = useCallback(async () => {
     const { data: recommendations, error } = await supabase.from("evently_booking_recommendations").select("*").eq("review_state", "awaiting_admin").order("created_at", { ascending: true });
     if (error) { setMessage(error.message); return; }
-    const [reservations, profiles, staffNotes] = await Promise.all([supabase.from("reservations").select("id,reservation_code,customer_name,package_name,reservation_date,start_time,end_time,resource_key,status"), supabase.from("profiles").select("id,full_name"), supabase.from("evently_reservation_staff_notes").select("reservation_id,note,created_at,staff_id").order("created_at", { ascending: false })]);
+    const [reservations, profiles, staffNotes, packages] = await Promise.all([supabase.from("reservations").select("*"), supabase.from("profiles").select("id,full_name"), supabase.from("evently_reservation_staff_notes").select("reservation_id,note,created_at,staff_id").order("created_at", { ascending: false }), supabase.from("packages").select("id,name")]);
     const bookings = (reservations.data ?? []) as Row[]; const people = (profiles.data ?? []) as Row[]; const notesByReservation = (staffNotes.data ?? []) as Row[];
-    setRows(((recommendations ?? []) as Row[]).map((rec) => ({ ...rec, _booking: bookings.find((booking) => booking.id === rec.reservation_id), _staff: people.find((person) => person.id === rec.staff_id), _staff_notes: notesByReservation.filter((note) => note.reservation_id === rec.reservation_id) })));
+    setRows(((recommendations ?? []) as Row[]).map((rec) => { const booking = bookings.find((item) => item.id === rec.reservation_id); return { ...rec, _booking: booking, _customer: people.find((person) => person.id === booking?.customer_id), _package: (packages.data ?? []).find((p) => p.id === booking?.package_id), _staff: people.find((person) => person.id === rec.staff_id), _staff_notes: notesByReservation.filter((note) => note.reservation_id === rec.reservation_id) }; }));
   }, []);
   useEffect(() => { void load(); const event = () => void load(); const interval = window.setInterval(() => void load(), 30000); window.addEventListener("evently-admin-data-changed", event); return () => { window.clearInterval(interval); window.removeEventListener("evently-admin-data-changed", event); }; }, [load]);
   const decide = async (row: Row, decision: "approve" | "reject" | "return") => {
@@ -2706,7 +2708,7 @@ function RecommendationsView() {
     if (!error) { await load(); window.dispatchEvent(new Event("evently-admin-data-changed")); window.dispatchEvent(new Event("evently-customer-bookings-changed")); }
     void booking;
   };
-  return <section className="admin-card admin-table-card admin-attention-card"><div className="admin-card-heading"><div><h2>Awaiting Admin Decision</h2><p>Staff recommendations awaiting an authorized final outcome.</p></div><b>{rows.length}</b></div>{message && <p className="admin-action-message">{message}</p>}<div className="admin-table-scroll"><table><thead><tr><th>Reservation</th><th>Customer / Package</th><th>Schedule</th><th>Validation warnings</th><th>Staff recommendation</th><th>Reviewer / submitted</th><th>Notes</th><th>Decision</th></tr></thead><tbody>{rows.map((row) => { const booking = row._booking as Row | undefined; const staff = row._staff as Row | undefined; const warnings = [!booking?.reservation_date && "Reservation date missing", (!booking?.start_time || !booking?.end_time) && "Schedule incomplete", !booking?.resource_key && "Resource not assigned"]; const activeWarnings = warnings.filter(Boolean); const notes = (row._staff_notes as Row[] | undefined) ?? []; return <tr key={String(row.id)}><td>{show(booking?.reservation_code)}</td><td>{show(booking?.customer_name)}<small>{show(booking?.package_name)}</small></td><td>{show(booking?.reservation_date)}<small>{show(booking?.start_time)}–{show(booking?.end_time)} · {show(booking?.resource_key)}</small></td><td>{activeWarnings.length ? activeWarnings.join(" · ") : "No basic schedule warnings"}</td><td><Value label="status" value={row.recommendation}/><small>{show(row.reason)}</small></td><td>{show(staff?.full_name)}<small>{show(row.created_at)}</small></td><td>{show(row.notes)}{notes.map((note,index)=><small key={index}>{show(note.note)}</small>)}</td><td><div className="admin-inline-actions"><button disabled={!booking || String(booking.status).toLowerCase() !== "pending"} onClick={() => void decide(row,"approve")} type="button">Approve</button><button onClick={() => void decide(row,"reject")} type="button">Reject</button><button onClick={() => void decide(row,"return")} type="button">Return</button></div></td></tr>; })}</tbody></table>{!rows.length && <div className="admin-empty"><strong>No decisions waiting</strong><p>New staff recommendations will be listed here.</p></div>}</div></section>;
+  return <section className="admin-card admin-table-card admin-attention-card"><div className="admin-card-heading"><div><h2>Staff Recommendations — Awaiting Admin Decision</h2><p>Review staff notes and accept or decline each recommendation. A recommendation decision does not itself confirm the reservation; complete the final booking action in Reservations.</p></div><b>{rows.length}</b></div>{message && <p className="admin-action-message">{message}</p>}<div className="admin-table-scroll"><table><thead><tr><th>Reservation</th><th>Customer / Package</th><th>Schedule</th><th>Validation warnings</th><th>Staff recommendation</th><th>Reviewer / submitted</th><th>Notes</th><th>Decision</th></tr></thead><tbody>{rows.map((row) => { const booking = row._booking as Row | undefined; const staff = row._staff as Row | undefined; const warnings = [!booking?.reservation_date && "Reservation date missing", (!booking?.start_time || !booking?.end_time) && "Schedule incomplete", !booking?.resource_key && "Resource not assigned"]; const activeWarnings = warnings.filter(Boolean); const notes = (row._staff_notes as Row[] | undefined) ?? []; return <tr key={String(row.id)}><td>{show(booking?.reservation_code)}</td><td>{show((row._customer as Row | undefined)?.full_name ?? booking?.customer_id)}<small>{show((row._package as Row | undefined)?.name ?? booking?.package_id)}</small></td><td>{show(booking?.reservation_date)}<small>{show(booking?.start_time)}–{show(booking?.end_time)} · {show(booking?.resource_key)}</small></td><td>{activeWarnings.length ? activeWarnings.join(" · ") : "No basic schedule warnings"}</td><td><Value label="status" value={row.recommendation}/><small>{show(row.reason)}</small></td><td>{show(staff?.full_name)}<small>{show(row.created_at)}</small></td><td>{show(row.notes)}{notes.map((note,index)=><small key={index}>{show(note.note)}</small>)}</td><td><div className="admin-inline-actions"><button disabled={!booking || String(booking.status).toLowerCase() !== "pending"} onClick={() => void decide(row,"approve")} type="button">Accept Recommendation</button><button onClick={() => void decide(row,"reject")} type="button">Decline</button><button onClick={() => void decide(row,"return")} type="button">Return to Staff</button></div></td></tr>; })}</tbody></table>{!rows.length && <div className="admin-empty"><strong>No decisions waiting</strong><p>New staff recommendations will be listed here.</p></div>}</div></section>;
 }
 
 function ScheduleProposalsView() {
@@ -2933,26 +2935,30 @@ export default function AdminDashboard({ profile, path, navigate }: { profile: E
     });
   };
   const loadNavCounts = useCallback(async () => {
-    const [reservations, payments, notifications] = await Promise.all([
+    const [reservations, payments, notifications, recommendations] = await Promise.all([
       supabase.from("reservations").select("id").eq("status", "pending"),
       supabase.from("payments").select("*"),
-      supabase.from("notifications").select("id,is_read"),
+      supabase.from("notifications").select("id,is_read").eq("user_id", profile.id),
+      supabase.from("evently_booking_recommendations").select("id").eq("review_state", "awaiting_admin"),
     ]);
     setNavCounts({
       reservations: reservations.data?.length ?? 0,
+      "staff-approvals": recommendations.data?.length ?? 0,
       payments: (payments.data ?? []).filter((row) => String(first(row as Row, ["verification_status", "status"]) ?? "").toLowerCase() === "pending").length,
       notifications: (notifications.data ?? []).filter((row) => !row.is_read).length,
     });
-  }, []);
+  }, [profile.id]);
   useEffect(() => {
     void loadNavCounts();
     const refresh = () => { void loadNavCounts(); };
     window.addEventListener("evently-admin-data-changed", refresh);
-    return () => window.removeEventListener("evently-admin-data-changed", refresh);
+    const poll = window.setInterval(refresh, 20000);
+    return () => { window.removeEventListener("evently-admin-data-changed", refresh); window.clearInterval(poll); };
   }, [loadNavCounts]);
 
   let content: ReactNode;
   if (section === "dashboard") content = <><Overview go={go} /><RecommendationsView /><ScheduleProposalsView /></>;
+  else if (section === "staff-approvals") content = <RecommendationsView />;
   else if (section === "reservations") content = <ReservationsView canManageReservations={profile.role === "owner" || profile.role === "admin"} go={go} />;
   else if (section === "messages") content = <MessagingInbox onViewReservation={(id) => go(`reservations?record=${encodeURIComponent(id)}`)} role="admin" />;
   else if (section === "reports") content = <Reports />;
@@ -2998,7 +3004,7 @@ export default function AdminDashboard({ profile, path, navigate }: { profile: E
           <button className="admin-menu-button" onClick={() => setSidebarOpen(true)} type="button"><Icon name="list" /><span>Menu</span></button>
           <div className="admin-header-title"><span>Dashboard / {title}</span><strong>{title}</strong></div>
           <div className="admin-header-actions">
-            <button aria-label="Open notifications" onClick={() => go("notifications")} type="button"><Icon name="bell" /></button>
+            <button aria-label="Open notifications" onClick={() => go("notifications")} type="button"><Icon name="bell" />{Boolean(navCounts["staff-approvals"]) && <b>{navCounts["staff-approvals"]}</b>}</button>
             <div className="admin-profile-menu">
               <button aria-expanded={profileOpen} onClick={() => setProfileOpen((current) => !current)} type="button"><span>{profile.full_name?.slice(0, 1) || "A"}</span><p><strong>{profile.full_name || "Evently Admin"}</strong><small>{profile.role}</small></p><Icon name="chevron" /></button>
               {profileOpen && <div><button onClick={() => { setProfileOpen(false); go("settings"); }} type="button">Account settings</button><button onClick={() => { setProfileOpen(false); void logout(); }} type="button">Logout</button></div>}
