@@ -1347,32 +1347,47 @@ function EventlyTerms({accepted,onChange,food=false}:{accepted:boolean;onChange:
 }
 
 type IndividualFoodItem = {id:string; name:string; category:string; tray_price:number; is_active:boolean; is_available:boolean};
+type FoodOrderDraft = {
+  quantities: Record<string,number>; mode: "pickup"|"delivery"; date:string; time:string;
+  fullName:string; phone:string; street:string; barangay:string; city:string;
+  notes:string; privacyConfirmed:boolean; requestId:string;
+};
+function readFoodOrderDraft(): Partial<FoodOrderDraft> {
+  try { return JSON.parse(sessionStorage.getItem(foodOrderDraftKey) ?? "{}") as Partial<FoodOrderDraft>; }
+  catch { return {}; }
+}
 function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
   onBack:()=>void; onRequireLogin?:()=>void; customerProfile?:CustomerAccountProfile|null
 }) {
   const {session}=useAuth();
+  const [initialFoodDraft]=useState(() => readFoodOrderDraft());
   const [items,setItems]=useState<IndividualFoodItem[]>([]);
-  const [quantities,setQuantities]=useState<Record<string,number>>({});
+  const [quantities,setQuantities]=useState<Record<string,number>>(initialFoodDraft.quantities ?? {});
   const [activeCategory,setActiveCategory]=useState("Beef");
   const [loading,setLoading]=useState(true);
   const [loadError,setLoadError]=useState("");
-  const [mode,setMode]=useState<"pickup"|"delivery">("pickup");
+  const [mode,setMode]=useState<"pickup"|"delivery">(initialFoodDraft.mode ?? "pickup");
   const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
   const earliestFoodOrderDate=()=>{const d=new Date();d.setDate(d.getDate()+5);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
-  const [date,setDate]=useState(earliestFoodOrderDate);
-  const [time,setTime]=useState("12:00");
-  const [fullName,setFullName]=useState(customerProfile?.fullName??"");
-  const [phone,setPhone]=useState(customerProfile?.mobile??"");
-  const [street,setStreet]=useState("");
-  const [barangay,setBarangay]=useState("");
-  const [city,setCity]=useState("");
-  const [notes,setNotes]=useState("");
-  const [privacyConfirmed,setPrivacyConfirmed]=useState(false);
+  const [date,setDate]=useState(initialFoodDraft.date ?? earliestFoodOrderDate());
+  const [time,setTime]=useState(initialFoodDraft.time ?? "12:00");
+  const [fullName,setFullName]=useState(initialFoodDraft.fullName ?? customerProfile?.fullName ?? "");
+  const [phone,setPhone]=useState(initialFoodDraft.phone ?? customerProfile?.mobile ?? "");
+  const [street,setStreet]=useState(initialFoodDraft.street ?? "");
+  const [barangay,setBarangay]=useState(initialFoodDraft.barangay ?? "");
+  const [city,setCity]=useState(initialFoodDraft.city ?? "");
+  const [notes,setNotes]=useState(initialFoodDraft.notes ?? "");
+  const [privacyConfirmed,setPrivacyConfirmed]=useState(initialFoodDraft.privacyConfirmed ?? false);
   const [termsAccepted,setTermsAccepted]=useState(false);
-  const [requestId]=useState(()=>crypto.randomUUID());
+  const [requestId]=useState(()=>initialFoodDraft.requestId ?? crypto.randomUUID());
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [receipt,setReceipt]=useState<{code:string;total:number}|null>(null);
+  useEffect(()=>{
+    if (receipt) return;
+    const draft:FoodOrderDraft={quantities,mode,date,time,fullName,phone,street,barangay,city,notes,privacyConfirmed,requestId};
+    try { sessionStorage.setItem(foodOrderDraftKey,JSON.stringify(draft)); } catch { /* Storage may be unavailable. */ }
+  },[quantities,mode,date,time,fullName,phone,street,barangay,city,notes,privacyConfirmed,requestId,receipt]);
   useEffect(()=>{
     let live=true;
     const load=async()=>{
@@ -1424,7 +1439,8 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
       const result=data as {order_code:string;total:number};
       if(!result?.order_code)throw new Error("The system did not return an order confirmation.");
       setReceipt({code:result.order_code,total:Number(result.total)});
-      sessionStorage.removeItem("evently-booking-draft");
+      sessionStorage.removeItem(foodOrderDraftKey);
+      sessionStorage.removeItem(bookingDraftKey);
     }catch(err){setError(err instanceof Error?err.message:"Could not place food order. Please try again.");}
     finally{setBusy(false);}
   };
