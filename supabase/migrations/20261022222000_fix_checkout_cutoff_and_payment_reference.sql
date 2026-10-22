@@ -209,7 +209,7 @@ BEGIN
         'message', 'Receipt submitted for admin verification'
     );
 END;
-$function$;
+$function$;;
 
 
 NOTIFY pgrst, 'reload schema';
