@@ -4119,3 +4119,70 @@ section[id] { scroll-margin-top: 88px; }
   .customer-account-page .history-card-actions { grid-template-columns: minmax(0,1fr); }
   .customer-account-page .history-card-actions button.history-card-actions__primary { grid-column: 1; }
 }
+
+
+/* Tighter Booking History cards on phones: keep a scannable two-column summary. */
+@media (max-width: 767px) {
+  .customer-account-page .history-card-grid { gap: 10px; }
+  .customer-account-page .customer-history-card {
+    padding: 12px 13px;
+    border-radius: 13px;
+    box-shadow: 0 3px 12px rgba(18,70,63,.045);
+  }
+  .customer-account-page .customer-history-card__top { gap: 3px 8px; }
+  .customer-account-page .customer-history-card__top > span {
+    padding: 4px 7px;
+    font-size: 9px;
+  }
+  .customer-account-page .customer-history-card__top > strong { font-size: 10px; }
+  .customer-account-page .customer-history-card__top > i { font-size: 9px; }
+  .customer-account-page .customer-history-card h2 {
+    margin: 10px 0 2px;
+    font-size: 17px;
+  }
+  .customer-account-page .customer-history-card > p {
+    margin-top: 2px;
+    font-size: 11px;
+  }
+  .customer-account-page .customer-history-card dl {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: 7px 12px;
+    margin: 10px 0 12px;
+  }
+  .customer-account-page .customer-history-card dl > div {
+    gap: 2px;
+    padding-top: 6px;
+  }
+  .customer-account-page .customer-history-card dt {
+    font-size: 9px;
+    line-height: 1.25;
+  }
+  .customer-account-page .customer-history-card dd {
+    font-size: 11px;
+    line-height: 1.3;
+    margin-top: 0;
+  }
+  .customer-account-page .history-card-actions {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+    gap: 6px;
+    padding-top: 10px;
+  }
+  .customer-account-page .history-card-actions button {
+    min-height: 40px;
+    padding: 8px 5px;
+    border-radius: 8px;
+    font-size: 10px;
+  }
+  .customer-account-page .history-card-actions button.history-card-actions__primary {
+    grid-column: auto;
+  }
+}
+@media (max-width: 360px) {
+  .customer-account-page .customer-history-card { padding: 11px; }
+  .customer-account-page .history-card-actions {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+  .customer-account-page .history-card-actions button.history-card-actions__primary {
+    grid-column: 1 / -1;
+  }
+}
