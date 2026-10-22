@@ -1335,10 +1335,10 @@ const EVENTLY_TERMS_VERSION = "2026-10-22-v1";
 function EventlyTerms({accepted,onChange,food=false}:{accepted:boolean;onChange:(value:boolean)=>void;food?:boolean}) {
  return <section className="evently-terms" aria-labelledby="evently-terms-title">
   <span className="evently-terms__eyebrow">REVIEW BEFORE CHECKOUT</span><h3 id="evently-terms-title">Terms and Conditions</h3>
-  <p>These policies apply to all EVENTLY services. {food ? "For food orders and party trays, the service date means the agreed preparation, pickup, or delivery date." : "The service date means your scheduled booking, event, or stay date."}</p>
-  <article><h4>Cancellation Policy</h4><p>Cancellation requests must be submitted at least three (3) calendar days before the scheduled service date. Later requests cannot be accepted. All collected deposits are strictly non-refundable, including when cancellation is approved. If no deposit was collected, the deposit provision does not apply.</p></article>
-  <article><h4>Rescheduling Policy</h4><p>Rescheduling requests must be submitted at least three (3) calendar days before the original service date. Later requests cannot be accepted. The replacement date must be available, and management must approve the request. Approval is never automatic.</p></article>
-  <article><h4>Property Damage and Customer Responsibility</h4><p>Customers are responsible for damage caused by themselves or their guests to business-owned equipment, furniture, utensils, decorations, facilities, appliances, or other property during applicable services. Any compensation depends on the damaged item, severity, and repair or replacement cost, and must be discussed and mutually agreed with the owner or authorized management. No automatic or arbitrary damage fee will be imposed.</p></article>
+  <p>Please review these policies after confirming your service details and before proceeding to payment. They apply to all EVENTLY services. {food ? "For food orders and party trays, the scheduled date means the agreed preparation, pickup, or delivery date." : "The scheduled date means your confirmed booking, event, tour, or stay date."}</p>
+  <article><h4>Cancellation Policy</h4><p>You may request cancellation no later than three (3) calendar days before your scheduled date, based on Asia/Manila time. Requests made within the final two (2) calendar days or on the scheduled date will not be accepted. Any deposit already paid is non-refundable, even if the cancellation is approved. If no deposit was collected, this deposit policy does not apply.</p></article>
+  <article><h4>Rescheduling Policy</h4><p>You may request a new schedule no later than three (3) calendar days before your original scheduled date, based on Asia/Manila time. Requests made after this cutoff will not be accepted. Your preferred new date is a request only, not an automatic change. The customer and the owner or authorized management must coordinate to confirm that the requested date and time are available and do not conflict with other bookings. Rescheduling takes effect only after management approves the available replacement schedule.</p></article>
+  <article><h4>Property Damage and Customer Responsibility</h4><p>During catering, events place reservations, staycations, resort activities, and other applicable services, you are responsible for any business-owned equipment, furniture, utensils, decorations, appliances, or facilities damaged by you or your guests. If damage occurs, you and the owner or authorized management must discuss and agree on a fair compensation amount. The amount may vary depending on the damaged property, the extent of damage, and the cost of repair or replacement. No automatic damage fee will be added to your booking or order.</p></article>
   <label className="evently-terms__agreement"><input type="checkbox" checked={accepted} onChange={e=>onChange(e.target.checked)}/><span>I have read and agree to the Terms and Conditions, including the cancellation, rescheduling, non-refundable deposit, and property damage policies.</span></label>
   <small>Version: {EVENTLY_TERMS_VERSION}. Acceptance will be recorded with your reservation or order.</small>
  </section>;
@@ -2467,6 +2467,8 @@ function ReservationFlow({
               guest_count: guests,
               booking_service: service,
               idempotency_key: clientRequestId,
+              terms_accepted: termsAccepted,
+              terms_version: EVENTLY_TERMS_VERSION,
               menu: hasIncludedMenu ? menuSelections : {},
               package_id: packageChoice.id,
               package_variant_id: selectedVariant?.id ?? null,
@@ -2849,7 +2851,7 @@ function ReservationFlow({
                   <p>{service === "Event" ? "Choose one of three venue-only locations. Catering, meals, decorations and waiters are not included. Prices below are demonstration estimates." : service === "Swimming Pool" ? "Your tour was selected in Step 1. Review its rate and optionally request accommodation below." : "Each package can be refined with our team after your reservation."}</p>
                 </div>
                 {["Room Accommodation", "Resort Venue Only"].includes(service) && <div className="booking-policy-notice"><strong>VENICE Resort · Sariaya, Quezon</strong><p>{sariayaLocation}. This is separate from the three Events Place locations on Daffodil and Amarillo Streets.</p>{service === "Resort Venue Only" && <p>Choose Aircon or Non-Aircon venue rental. Catering is not included; Pool Access is optional for ₱5,000. Venue capacity requires Owner confirmation.</p>}</div>}
-                {service === "Catering" && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Customers must request any cancellation or rescheduling at least 3 days (72 hours) before their scheduled catering event. Rescheduling requests are subject to Administrator approval.</p></div>}
+                {service === "Catering" && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Cancellation and rescheduling requests must be submitted at least three (3) calendar days before the service date in Asia/Manila. Collected deposits are non-refundable. Rescheduling requires availability and management approval.</p></div>}
                 {selectedMainCategory === "Staycation" && <div className="booking-policy-notice"><strong>Payment Policy</strong><p>Customers must submit the required 30% down payment within 24 hours after creating their reservation. Payment is subject to Administrator verification. Reservations without timely payment submission may be automatically cancelled.</p></div>}
                 {service === "Event" ? <div className="event-venue-package-grid" aria-label="Three venue-only events places">
                   {[...packageOptions].sort((left,right) => String(left.name).localeCompare(String(right.name))).map((venue) => {
@@ -3151,7 +3153,7 @@ function ReservationFlow({
                   <h3>Everything look right?</h3>
                   <p>Review your booking before reserving the schedule.</p>
                 </div>
-                {service === "Catering" && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Customers must request any cancellation or rescheduling at least 3 days (72 hours) before their scheduled catering event. Rescheduling requests are subject to Administrator approval.</p></div>}
+                {service === "Catering" && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Cancellation and rescheduling requests must be submitted at least three (3) calendar days before the service date in Asia/Manila. Collected deposits are non-refundable. Rescheduling requires availability and management approval.</p></div>}
                 {selectedMainCategory === "Staycation" && <div className="booking-policy-notice"><strong>Payment Policy</strong><p>Submit the required 30% down payment within 24 hours after creating your reservation. Payment is subject to Administrator verification. Reservations without timely payment submission may be automatically cancelled.</p></div>}
                 <div className="review-banner">
                   <PhotoPlaceholder context={`${selectedPackageLabel || "Selected"} Package Photo`} compact className="review-booking-photo" />
@@ -3264,7 +3266,7 @@ function ReservationFlow({
                   <h3>Your Venice moment is on its way.</h3>
                   <p>Your schedule has been reserved. Please submit your 30% deposit within 24 hours to secure your booking.</p>
                 </header>
-                {service === "Catering" && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Customers must request any cancellation or rescheduling at least 3 days (72 hours) before their scheduled catering event. Rescheduling requests are subject to Administrator approval.</p></div>}
+                {service === "Catering" && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Cancellation and rescheduling requests must be submitted at least three (3) calendar days before the service date in Asia/Manila. Collected deposits are non-refundable. Rescheduling requires availability and management approval.</p></div>}
                 {selectedMainCategory === "Staycation" && <div className="booking-policy-notice"><strong>Payment Policy</strong><p>Submit the required 30% down payment within 24 hours after creating your reservation. Payment is subject to Administrator verification. Timely submitted proof remains subject to Administrator review. Reservations without timely payment submission may be automatically cancelled.</p></div>}
                 {demoPaymentMode && confirmationReceiptSaved && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>Your sample reference and receipt are demonstration data only.</span></div>}
                 <div className="confirmation__status-grid" aria-label="Current payment and booking status">
@@ -4048,9 +4050,17 @@ function CustomerHistoryPage() {
   });
   const selectedPayment = selected ? customerPaymentFor(selected) : null;
   const selectedIsCatering = Boolean(selected && String(rowValue(selected, ["service", "service_type", "service_category"]) ?? "").toLowerCase().includes("cater"));
+  const scheduledDay = selected ? rowText(selected, ["reservation_date", "event_date", "date"], "").slice(0, 10) : "";
+  const manilaTodayParts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const manilaToday = ["year", "month", "day"].map((part) => manilaTodayParts.find((entry) => entry.type === part)?.value ?? "").join("-");
+  const daysUntilService = /^\\d{4}-\\d{2}-\\d{2}$/.test(scheduledDay) && /^\\d{4}-\\d{2}-\\d{2}$/.test(manilaToday)
+    ? Math.round((Date.parse(scheduledDay + "T00:00:00Z") - Date.parse(manilaToday + "T00:00:00Z")) / 86400000)
+    : -1;
+  const changeRequestEligible = daysUntilService >= 3;
   const submitCateringChangeRequest = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected || !selectedIsCatering || cateringRequestSubmitting) return;
+    if (!changeRequestEligible) { setCateringRequestFeedback("Requests must be made at least three Manila calendar days before the scheduled date."); return; }
     if (cateringRequestAction === "reschedule" && (!cateringRequestDate || !cateringRequestStart || !cateringRequestEnd)) { setCateringRequestFeedback("Select the event date, start time and end time before submitting."); return; }
     setCateringRequestSubmitting(true);
     setCateringRequestFeedback("");
@@ -4211,21 +4221,22 @@ function CustomerHistoryPage() {
             {(Boolean(rowValue(selected, ["cottage_selected"])) || rowList(selected, ["addons", "selected_addons"]).length > 0) && <div className="detail-panel__section"><span>Selected Add-ons</span><p>{[...(Boolean(rowValue(selected, ["cottage_selected"])) ? [`Cottage · ${formatPhp(rowNumber(selected, ["cottage_fee"]))}`] : []), ...rowList(selected, ["addons", "selected_addons"])].join(" · ")}</p></div>}
            {Boolean(rowValue(selected, ["special_requests", "requests", "notes"])) && <div className="detail-panel__section"><span>Special Requests</span><p>{rowText(selected, ["special_requests", "requests", "notes"])}</p></div>}
            <div className="history-payment-summary"><div><span>Total Booking Cost</span><strong>{formatPhp(rowNumber(selected, ["total_amount", "total", "amount"]))}</strong></div><div><span>Required Deposit</span><strong>{formatPhp(requiredDeposit(selected))}</strong></div><div><span>Verified Amount Paid</span><strong>{formatPhp(rowNumber(selected, ["amount_paid", "paid_amount"]))}</strong></div><div><span>Remaining Balance</span><strong>{formatPhp(remainingBalance(selected))}</strong></div></div>
-            {String(rowValue(selected, ["service", "service_type", "service_category"]) ?? "").toLowerCase().includes("cater") && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Customers must request any cancellation or rescheduling at least 3 days (72 hours) before their scheduled catering event. Rescheduling requests are subject to Administrator approval.</p></div>}
+            {String(rowValue(selected, ["service", "service_type", "service_category"]) ?? "").toLowerCase().includes("cater") && <div className="booking-policy-notice"><strong>Cancellation and Rescheduling Policy</strong><p>Cancellation and rescheduling requests must be submitted at least three (3) calendar days before the service date in Asia/Manila. Collected deposits are non-refundable. Rescheduling requires availability and management approval.</p></div>}
             {Boolean(dueAt) && <div className="booking-policy-notice"><strong>Staycation payment deadline · Asia/Manila</strong><p>Submit the required 30% down payment by <PaymentDeadline awaitingReview={timelyPaymentPending} dueAt={dueAt} expired={expiredBooking} paymentVerified={verifiedDepositReached} />. Timely submitted payment proof remains subject to Administrator review. A rejected proof does not reset the original deadline.</p></div>}
             <section aria-labelledby="customer-manage-booking-title" className="customer-manage-booking">
              <h3 id="customer-manage-booking-title">Manage Booking</h3>
               <p>{readOnlyStatus ? `This reservation is ${expiredBooking ? "expired" : statusKey} and can no longer be changed.` : selectedIsCatering ? "Send a cancellation or rescheduling request for Administrator review." : "Schedule changes require Administrator assistance."}</p>
               {paymentCanBeSubmitted && Boolean(rowValue(selected, ["_order_code"])) && <button onClick={() => navigate(`/order?ref=${encodeURIComponent(rowText(selected, ["_order_code"]))}`)} type="button">Submit 30% Deposit</button>}
-              {selectedIsCatering && !readOnlyStatus ? <form className="catering-change-request-form" onSubmit={(event) => void submitCateringChangeRequest(event)}>
+              {selectedIsCatering && !readOnlyStatus && changeRequestEligible ? <form className="catering-change-request-form" onSubmit={(event) => void submitCateringChangeRequest(event)}>
                 <label><span>Request type</span><select value={cateringRequestAction} onChange={(event) => setCateringRequestAction(event.target.value as "cancel" | "reschedule")}><option value="cancel">Cancel this booking</option><option value="reschedule">Request a new schedule</option></select></label>
                 {cateringRequestAction === "reschedule" && <><label><span>Proposed event date</span><input required type="date" value={cateringRequestDate} onChange={(event) => setCateringRequestDate(event.target.value)} /></label><div><label><span>Proposed start time</span><BookingTimePicker label="Proposed start time" value={cateringRequestStart} onChange={setCateringRequestStart} /></label><label><span>Proposed end time</span><BookingTimePicker label="Proposed end time" value={cateringRequestEnd} onChange={setCateringRequestEnd} /></label></div></>}
                 <label><span>Reason for your request</span><textarea required maxLength={2000} value={cateringRequestReason} onChange={(event) => setCateringRequestReason(event.target.value)} /></label>
-                <small>Submit at least 72 hours before the event. Exactly 72 hours is eligible. Rescheduling takes effect only after Administrator approval.</small>
+                <small>Submit at least three (3) Manila calendar days before the scheduled event. Rescheduling requires availability and Administrator approval. Collected deposits are non-refundable.</small>
                 <button disabled={cateringRequestSubmitting} type="submit">{cateringRequestSubmitting ? "Sending request…" : "Send to Administrator"}</button>
                 {cateringRequestFeedback && <p role="status">{cateringRequestFeedback}</p>}
-              </form> : !selectedIsCatering && <div><button disabled title={readOnlyStatus ? `Unavailable for ${statusKey} reservations` : "Contact an Administrator to request a schedule change"} type="button"><CalendarClock aria-hidden="true" size={18} /> Reschedule Booking</button><button className="customer-manage-booking__cancel" disabled title={readOnlyStatus ? `Unavailable for ${statusKey} reservations` : "Contact an Administrator to cancel this reservation"} type="button"><CalendarX aria-hidden="true" size={18} /> Cancel Booking</button></div>}
-              {!selectedIsCatering && <small>Requests require Administrator assistance. This page does not submit cancellation or issue refunds.</small>}
+              </form> : null}
+              {selectedIsCatering && !readOnlyStatus && !changeRequestEligible && <p role="status">The three-calendar-day request window has closed. Cancellation and rescheduling requests are no longer accepted.</p>}
+              {!selectedIsCatering && <small>For cancellation or rescheduling assistance, contact management at least three Manila calendar days before your scheduled service date. This page does not submit requests, process refunds, or automatically approve schedule changes.</small>}
            </section>
          </aside></>;
        })()}

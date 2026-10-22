@@ -588,6 +588,23 @@ function ReservationDrawer({ row, profileId, permissions, recommendations, propo
   onSaveNote: () => void; onProposeSchedule: () => void; onRecommend: (decision: "approve" | "reject") => void;
 }) {
   const permission = (key: string) => permissions.some((grant) => grant.permission === key && grant.granted);
+  const [termsAcceptance, setTermsAcceptance] = useState<Row | null>(null);
+  const [termsLoading, setTermsLoading] = useState(false);
+  useEffect(() => {
+    if (!permission("view_reservations") || !row.id) { setTermsAcceptance(null); return; }
+    let mounted = true;
+    setTermsAcceptance(null);
+    setTermsLoading(true);
+    void supabase.from("evently_terms_acceptances")
+      .select("accepted,accepted_at,terms_version").eq("reservation_id",row.id)
+      .maybeSingle().then(({data}) => {
+        if (mounted) {
+          setTermsAcceptance((data as Row | null) ?? null);
+          setTermsLoading(false);
+        }
+      });
+    return () => { mounted = false; };
+  }, [row.id, permissions]);
   const rowRecommendations = recommendations.filter((item) => item.reservation_id === row.id);
   const activeRecommendation = rowRecommendations[0];
   const recommendationState = String(activeRecommendation?.review_state ?? row.staff_recommendation_status ?? "");
@@ -598,6 +615,7 @@ function ReservationDrawer({ row, profileId, permissions, recommendations, propo
     <section className="admin-detail-section"><h3>Booking and service</h3><dl>{[["Customer","customer_name"],["Customer email","customer_email"],["Service","service_type"],["Package","package_name"],["Date","reservation_date"],["Time","start_time"],["End","end_time"],["Venue / Resource","resource_name","resource_key"],["Guest count","guest_count"],["Special requests","special_requests"],["Booking status","status"]].map(([title,...keys])=><div key={title}><dt>{title}</dt><dd>{title === "Date" ? formatDate(row[keys[0]]) : title === "Time" || title === "End" ? displayTime(row[keys[0]]) : label(row,...keys)}</dd></div>)}</dl>
       {availability !== null && <p className={availability ? "staff-availability is-available" : "staff-availability is-unavailable"}>{availability ? <CheckCircle2 size={16}/> : <AlertTriangle size={16}/>} Package/date check: {availability ? "eligible" : "unavailable"}. Admin approval still performs final resource/time conflict validation.</p>}{availabilityError && <p className="staff-availability is-pending"><AlertTriangle size={16}/> Availability check failed: {availabilityError}</p>}
     </section>
+    {permission("view_reservations") && <section className="admin-detail-section"><h3>Terms and Conditions agreement</h3><dl><div><dt>Status</dt><dd>{termsLoading ? "Checking…" : termsAcceptance?.accepted === true ? "Accepted" : "Not recorded"}</dd></div><div><dt>Terms version</dt><dd>{String(termsAcceptance?.terms_version ?? "—")}</dd></div><div><dt>Accepted at · Asia/Manila</dt><dd>{termsAcceptance?.accepted_at ? new Intl.DateTimeFormat("en-PH", {dateStyle:"medium",timeStyle:"short",timeZone:"Asia/Manila"}).format(new Date(String(termsAcceptance.accepted_at))) : "—"}</dd></div></dl></section>}
     <section className="admin-detail-section"><h3>Recommendation history</h3>{rowRecommendations.map((item)=><p key={String(item.id)}><strong>{label(item,"recommendation")}</strong> · {label(item,"review_state")} · {formatDate(item.created_at)}<br/>{label(item,"decision_note","reason","notes")}<small>Updated {formatDate(item.updated_at)}</small></p>)}{!rowRecommendations.length && <p>No recommendation has been submitted for this reservation.</p>}{proposals.filter((item)=>item.reservation_id===row.id).map((item)=><p key={String(item.id)}><strong>Schedule proposal: {label(item,"proposal_state")}</strong> · {displayTime(item.proposed_start_time)}–{displayTime(item.proposed_end_time)}<br/>{label(item,"decision_note","note")}</p>)}{notes.filter((item)=>item.reservation_id===row.id).map((item)=><p key={String(item.id)}><strong>Internal note</strong> · {label(item,"note")}<small>{formatDate(item.created_at)}</small></p>)}</section>
     {statusOf(row) === "pending" && <section className="admin-workflow-actions"><h3>Operational actions</h3>
       {permission("edit_reservation_details") && <><label>Internal booking note<textarea maxLength={3000} value={internalNote} onChange={(event)=>onInternalNote(event.target.value)} rows={3}/></label><button className="admin-secondary-action" disabled={!internalNote.trim() || Boolean(actionBusy)} onClick={onSaveNote} type="button">{actionBusy === "note" ? "Saving…" : "Save Internal Note"}</button></>}

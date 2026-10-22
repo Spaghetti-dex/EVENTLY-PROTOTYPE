@@ -1275,6 +1275,8 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
   actionStateRef.current = actionState;
   const [actionMessage, setActionMessage] = useState("");
   const [relatedPayments, setRelatedPayments] = useState<Row[]>([]);
+  const [termsAcceptance, setTermsAcceptance] = useState<Row | null>(null);
+  const [termsAcceptanceLoading, setTermsAcceptanceLoading] = useState(false);
   const [relatedPaymentsLoading, setRelatedPaymentsLoading] = useState(false);
   const [relatedActivity, setRelatedActivity] = useState<Row[]>([]);
   const [customerReservations, setCustomerReservations] = useState<Row[]>([]);
@@ -1339,6 +1341,21 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
   });
   const remaining = Object.entries(row).filter(([key]) => !used.has(key));
   useEffect(() => { void loadRelatedPayments(); }, [loadRelatedPayments]);
+  useEffect(() => {
+    if (section !== "reservations" || !row.id) { setTermsAcceptance(null); return; }
+    let active = true;
+    setTermsAcceptance(null);
+    setTermsAcceptanceLoading(true);
+    void supabase.from("evently_terms_acceptances")
+      .select("accepted,accepted_at,terms_version")
+      .eq("reservation_id", row.id)
+      .maybeSingle().then(({data}) => {
+        if (!active) return;
+        setTermsAcceptance((data as Row | null) ?? null);
+        setTermsAcceptanceLoading(false);
+      });
+    return () => { active = false; };
+  }, [row.id, section]);
   useEffect(() => {
     if (section !== "reservations" || !row.id) return;
     void Promise.all([
@@ -1730,6 +1747,7 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
       <aside aria-label={`${title} details`} aria-modal="true" className="admin-detail-drawer" role="dialog">
         <div className="admin-drawer-heading"><div><span>{sections.find(([path]) => path === section)?.[1]} details</span><h2>{title}</h2></div><button aria-label="Close details" onClick={onClose} type="button">Close</button></div>
          {[...grouped, { label: "Additional information", test: /.*/, entries: remaining }].filter((group) => group.entries.length).map((group) => <section className="admin-detail-section" key={group.label}><h3>{group.label}</h3><dl>{group.entries.map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, " ")}</dt><dd><Value label={key} value={detailValue(key, value)} /></dd></div>)}</dl></section>)}
+           {section === "reservations" && <section className="admin-detail-section"><h3>Terms and Conditions agreement</h3><dl><div><dt>Status</dt><dd>{termsAcceptanceLoading ? "Checking…" : termsAcceptance?.accepted === true ? "Accepted" : "Not recorded"}</dd></div><div><dt>Terms version</dt><dd>{String(termsAcceptance?.terms_version ?? "—")}</dd></div><div><dt>Accepted at</dt><dd>{termsAcceptance?.accepted_at ? new Intl.DateTimeFormat("en-PH", {dateStyle:"medium",timeStyle:"short",timeZone:"Asia/Manila"}).format(new Date(String(termsAcceptance.accepted_at))) : "—"}</dd></div></dl></section>}
            {section === "reservations" && <CateringChangeRequestsPanel canManage={canManageReservations} onChanged={onChanged} requests={Array.isArray(row._catering_change_requests) ? row._catering_change_requests as Row[] : []} />}
            {section === "reservations" && row.cottage_selected === true && <section className="admin-detail-section"><h3>Selected add-ons</h3><dl><div><dt>Cottage</dt><dd>{money.format(Number(row.cottage_fee ?? 0))}</dd></div></dl></section>}
            {section === "reservations" && <section className="admin-detail-section"><h3>Assigned venue</h3><p><strong>{String(first(scheduleValidation ?? {}, ["resource_name"]) ?? selectedResource?.label ?? first(row, ["resource_name", "resource_key"]) ?? "No physical venue required")}</strong>{selectedResource?.location ? ` · ${selectedResource.location}` : ""}</p>{currentStatus === "pending" && effectiveResourceRequired && <button className="admin-secondary-action" disabled={actionState === "loading"} onClick={() => setScheduleEditing(true)} type="button">Change Venue / Schedule</button>}</section>}
