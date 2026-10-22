@@ -1,31 +1,37 @@
 -- Apply only after review in the intended Supabase environment.
 -- Does not approve cancellations, rescheduling, refunds, or damage charges.
-create table if not exists public.evently_customer_change_requests (
+create table if not exists public.evently_catering_change_requests (
   id uuid primary key default gen_random_uuid(),
   reservation_id uuid not null references public.reservations(id) on delete cascade,
   customer_id uuid not null references auth.users(id),
-  action text not null check (action in ('cancel','reschedule')),
+  request_action text not null check (request_action in ('cancel','reschedule')),
   reason text not null check (length(btrim(reason)) between 1 and 2000),
   proposed_reservation_date date,
   proposed_start_time time,
   proposed_end_time time,
-  status text not null default 'pending' check (status in ('pending','approved','rejected')),
+  request_status text not null default 'pending' check (request_status in ('pending','approved','rejected')),
+  requested_at timestamptz not null default now(),
+  original_reservation_date date not null,
+  original_start_time time,
+  decision_note text,
+  decided_at timestamptz,
+  decided_by uuid references auth.users(id),
   created_at timestamptz not null default now(),
-  check (action='cancel' or (proposed_reservation_date is not null and proposed_start_time is not null and proposed_end_time is not null and proposed_end_time>proposed_start_time))
+  check (request_action='cancel' or (proposed_reservation_date is not null and proposed_start_time is not null and proposed_end_time is not null and proposed_end_time>proposed_start_time))
 );
-create unique index if not exists evently_one_pending_change_per_reservation
-on public.evently_customer_change_requests(reservation_id) where status='pending';
-alter table public.evently_customer_change_requests enable row level security;
-revoke all on public.evently_customer_change_requests from anon, authenticated;
-grant select on public.evently_customer_change_requests to authenticated;
-drop policy if exists evently_change_customer_select on public.evently_customer_change_requests;
-create policy evently_change_customer_select on public.evently_customer_change_requests
+create unique index if not exists evently_one_pending_catering_change_per_reservation
+on public.evently_catering_change_requests(reservation_id) where request_status='pending';
+alter table public.evently_catering_change_requests enable row level security;
+revoke all on public.evently_catering_change_requests from anon, authenticated;
+grant select on public.evently_catering_change_requests to authenticated;
+drop policy if exists evently_change_customer_select on public.evently_catering_change_requests;
+create policy evently_change_customer_select on public.evently_catering_change_requests
 for select to authenticated using (customer_id=(select auth.uid()));
-drop policy if exists evently_change_admin_select on public.evently_customer_change_requests;
-create policy evently_change_admin_select on public.evently_customer_change_requests
+drop policy if exists evently_change_admin_select on public.evently_catering_change_requests;
+create policy evently_change_admin_select on public.evently_catering_change_requests
 for select to authenticated using (public.is_evently_admin());
-drop policy if exists evently_change_staff_select on public.evently_customer_change_requests;
-create policy evently_change_staff_select on public.evently_customer_change_requests
+drop policy if exists evently_change_staff_select on public.evently_catering_change_requests;
+create policy evently_change_staff_select on public.evently_catering_change_requests
 for select to authenticated using (
  exists (select 1 from public.evently_staff_permissions p
  where p.staff_id=(select auth.uid()) and p.permission='view_reservations' and p.granted=true)
@@ -63,11 +69,11 @@ begin
      raise exception 'Choose a valid replacement date and time';
    end if;
  end if;
- insert into public.evently_customer_change_requests(
-  reservation_id,customer_id,action,reason,proposed_reservation_date,
+ insert into public.evently_catering_change_requests(
+  reservation_id,customer_id,request_action,reason,original_reservation_date,original_start_time,proposed_reservation_date,
   proposed_start_time,proposed_end_time
  ) values (
-  v_res.id,auth.uid(),p_action,btrim(p_reason),
+  v_res.id,auth.uid(),p_action,btrim(p_reason),v_res.reservation_date,v_res.start_time,
   case when p_action='reschedule' then p_proposed_reservation_date else null end,
   case when p_action='reschedule' then p_proposed_start_time else null end,
   case when p_action='reschedule' then p_proposed_end_time else null end
