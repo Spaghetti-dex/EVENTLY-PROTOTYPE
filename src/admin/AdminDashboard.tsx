@@ -1275,6 +1275,8 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
   actionStateRef.current = actionState;
   const [actionMessage, setActionMessage] = useState("");
   const [relatedPayments, setRelatedPayments] = useState<Row[]>([]);
+  const [termsAcceptance, setTermsAcceptance] = useState<Row | null>(null);
+  const [termsAcceptanceLoading, setTermsAcceptanceLoading] = useState(false);
   const [relatedPaymentsLoading, setRelatedPaymentsLoading] = useState(false);
   const [relatedActivity, setRelatedActivity] = useState<Row[]>([]);
   const [customerReservations, setCustomerReservations] = useState<Row[]>([]);
@@ -1339,6 +1341,21 @@ function DetailDrawer({ row, section, title, onClose, onChanged, onNavigate, ope
   });
   const remaining = Object.entries(row).filter(([key]) => !used.has(key));
   useEffect(() => { void loadRelatedPayments(); }, [loadRelatedPayments]);
+  useEffect(() => {
+    if (section !== "reservations" || !row.id) { setTermsAcceptance(null); return; }
+    let active = true;
+    setTermsAcceptance(null);
+    setTermsAcceptanceLoading(true);
+    void supabase.from("evently_terms_acceptances")
+      .select("accepted,accepted_at,terms_version")
+      .eq("reservation_id", row.id)
+      .maybeSingle().then(({data}) => {
+        if (!active) return;
+        setTermsAcceptance((data as Row | null) ?? null);
+        setTermsAcceptanceLoading(false);
+      });
+    return () => { active = false; };
+  }, [row.id, section]);
   useEffect(() => {
     if (section !== "reservations" || !row.id) return;
     void Promise.all([
