@@ -1331,6 +1331,19 @@ function BookingTimePicker({ value, onChange, disabled = false, label }: { value
 }
 
 
+const EVENTLY_TERMS_VERSION = "2026-10-22-v1";
+function EventlyTerms({accepted,onChange,food=false}:{accepted:boolean;onChange:(value:boolean)=>void;food?:boolean}) {
+ return <section className="evently-terms" aria-labelledby="evently-terms-title">
+  <span className="evently-terms__eyebrow">REVIEW BEFORE CHECKOUT</span><h3 id="evently-terms-title">Terms and Conditions</h3>
+  <p>These policies apply to all EVENTLY services. {food ? "For food orders and party trays, the service date means the agreed preparation, pickup, or delivery date." : "The service date means your scheduled booking, event, or stay date."}</p>
+  <article><h4>Cancellation Policy</h4><p>Cancellation requests must be submitted at least three (3) calendar days before the scheduled service date. Later requests cannot be accepted. All collected deposits are strictly non-refundable, including when cancellation is approved. If no deposit was collected, the deposit provision does not apply.</p></article>
+  <article><h4>Rescheduling Policy</h4><p>Rescheduling requests must be submitted at least three (3) calendar days before the original service date. Later requests cannot be accepted. The replacement date must be available, and management must approve the request. Approval is never automatic.</p></article>
+  <article><h4>Property Damage and Customer Responsibility</h4><p>Customers are responsible for damage caused by themselves or their guests to business-owned equipment, furniture, utensils, decorations, facilities, appliances, or other property during applicable services. Any compensation depends on the damaged item, severity, and repair or replacement cost, and must be discussed and mutually agreed with the owner or authorized management. No automatic or arbitrary damage fee will be imposed.</p></article>
+  <label className="evently-terms__agreement"><input type="checkbox" checked={accepted} onChange={e=>onChange(e.target.checked)}/><span>I have read and agree to the Terms and Conditions, including the cancellation, rescheduling, non-refundable deposit, and property damage policies.</span></label>
+  <small>Version: {EVENTLY_TERMS_VERSION}. Acceptance will be recorded with your reservation or order.</small>
+ </section>;
+}
+
 type IndividualFoodItem = {id:string; name:string; category:string; tray_price:number; is_active:boolean; is_available:boolean};
 function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
   onBack:()=>void; onRequireLogin?:()=>void; customerProfile?:CustomerAccountProfile|null
@@ -1353,6 +1366,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
   const [city,setCity]=useState("");
   const [notes,setNotes]=useState("");
   const [privacyConfirmed,setPrivacyConfirmed]=useState(false);
+  const [termsAccepted,setTermsAccepted]=useState(false);
   const [requestId]=useState(()=>crypto.randomUUID());
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -1389,6 +1403,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
     ...(!timeReady ? ["Choose a time between 7 AM and 8 PM"] : []),
     ...(!addressReady ? ["Complete your Metro Manila delivery address"] : []),
     ...(!privacyConfirmed ? ["Accept the Privacy Notice"] : []),
+    ...(!termsAccepted ? ["Accept the Terms and Conditions"] : []),
   ];
   const submit=async(e:React.FormEvent<HTMLFormElement>)=>{
     e.preventDefault();
@@ -1398,7 +1413,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
     setBusy(true);setError("");
     try{
       const {data,error:rpcError}=await supabase.rpc("evently_customer_create_food_order",{p_payload:{
-        request_id:requestId,date,time,fulfillment:mode,customer_name:fullName.trim(),
+        request_id:requestId,date,time,fulfillment:mode,terms_accepted:termsAccepted,terms_version:EVENTLY_TERMS_VERSION,customer_name:fullName.trim(),
         customer_phone:normalizePhilippineMobile(phone),notes:notes.trim(),
         address:mode==="delivery"?{street:street.trim(),barangay:barangay.trim(),city}:null,
         items:ordered.map(item=>({id:item.id,quantity:item.quantity}))
@@ -1470,6 +1485,7 @@ function FoodOrderComposer({onBack,onRequireLogin,customerProfile}: {
       <p className="food-order-disclaimer">Orders are requests until Venice confirms availability and the preparation schedule. Pickup location, payment instructions, and any delivery fee will be confirmed by staff.</p>
       <label className="food-consent"><input type="checkbox" required checked={privacyConfirmed} onChange={e=>setPrivacyConfirmed(e.target.checked)} /> <span>I acknowledge the Privacy Notice and consent to use of my information for processing this food order.</span></label>
       <PrivacyNoticeDisclosure id="evently-food-order-privacy" />
+      <EventlyTerms accepted={termsAccepted} onChange={setTermsAccepted} food />
       {missingRequirements.length>0 && <div className="food-form-guidance" role="status"><strong>Before placing your order</strong><ul>{missingRequirements.map(requirement=><li key={requirement}>{requirement}</li>)}</ul></div>}
       {error && <p className="booking-inline-error" role="alert">{error}</p>}
       {!session && <p className="food-login-note">You'll be asked to sign in before placing your order.</p>}
@@ -1496,6 +1512,7 @@ function ReservationFlow({
   const [cateringChoice, setCateringChoice] = useState<CateringChoice>(initialDraft.cateringChoice ?? null);
   const [staycationChoice, setStaycationChoice] = useState<StaycationChoice>(initialDraft.staycationChoice ?? null);
   const [privacyAcknowledged, setPrivacyAcknowledged] = useState(initialDraft.privacyAcknowledged ?? false);
+  const [termsAccepted,setTermsAccepted]=useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(() => initialDraft.selectedDate ? new Date(initialDraft.selectedDate) : null);
   const [month, setMonth] = useState(() => {
     if (initialDraft.month) return new Date(initialDraft.month);
@@ -1807,6 +1824,7 @@ function ReservationFlow({
       { id: 5, label: "Customer Information" },
       { id: 6, label: "Recommended Add-ons" },
       { id: 7, label: "Review Booking" },
+      { id: 10, label: "Terms and Conditions" },
       { id: 8, label: "Payment" },
       { id: 9, label: "Booking Status" },
     ]
@@ -2288,6 +2306,7 @@ function ReservationFlow({
     )) ||
     step === 6 ||
     step === 7 ||
+    (step === 10 && termsAccepted) ||
     (step === 8 && Boolean(
       (service !== "Catering" || packagePriceConfigured)
       && poolPricingReady
@@ -2384,7 +2403,9 @@ function ReservationFlow({
       onRequireLogin?.();
       return;
     }
+    if (step === 10) { if (!termsAccepted) { setBookingError("Accept the Terms and Conditions before proceeding to payment."); return; } setBookingError(""); setStep(8); return; }
     if (step === 8) {
+      if (!termsAccepted) { setBookingError("Accept the Terms and Conditions before payment."); return; }
       if (submittingBooking.current) return;
       submittingBooking.current = true;
       setBookingSubmitting(true);
@@ -2473,6 +2494,8 @@ function ReservationFlow({
           setCreatedReservation(reservation);
         }
 
+        const {error: termsError}=await supabase.rpc("evently_accept_terms",{p_reservation_id:reservation.id,p_version:EVENTLY_TERMS_VERSION});
+        if (termsError) throw termsError;
         if (paymentSubmissionStarted) {
           let proofPath = pendingPaymentProofPath;
           if (!proofPath && paymentProof) {
@@ -2534,12 +2557,13 @@ function ReservationFlow({
       }
       return;
     }
-    setStep((current) => current === 3 && !hasIncludedMenu ? 5 : current === 5 && (service === "Event" || selectedMainCategory === "Staycation") ? 7 : Math.min(8, current + 1));
+    setStep((current) => current === 3 && !hasIncludedMenu ? 5 : current === 5 && (service === "Event" || selectedMainCategory === "Staycation") ? 7 : current === 7 ? 10 : Math.min(8, current + 1));
   };
 
   const resetBooking = () => {
     setStep(1);
     setClientRequestId(crypto.randomUUID());
+    setTermsAccepted(false);
     setService("");
     setSelectedMainCategory(null);
     setCateringChoice(null);
@@ -3181,6 +3205,7 @@ function ReservationFlow({
               </div>
             )}
 
+            {step === 10 && <div className="booking-step booking-step--enter"><EventlyTerms accepted={termsAccepted} onChange={setTermsAccepted} /></div>}
             {step === 8 && (
               <div className="booking-step booking-step--enter booking-payment-step">
                 <div className="booking-step__heading">
@@ -3258,16 +3283,16 @@ function ReservationFlow({
               </div>
             )}
 
-            {step < 9 && !(service === "Food Orders & Party Trays" && step === 2) && (
+            {(step < 9 || step === 10) && !(service === "Food Orders & Party Trays" && step === 2) && (
               <>
               {bookingError && <div className="booking-inline-error" role="alert">{bookingError}</div>}
               <div className="booking-controls">
-                <button className="booking-back" disabled={step === 1 || (step === 8 && Boolean(createdReservation))} type="button" onClick={() => setStep((current) => current === 7 && (service === "Event" || selectedMainCategory === "Staycation") ? 5 : current === 5 && !hasIncludedMenu ? 3 : Math.max(1, current - 1))}>
+                <button className="booking-back" disabled={step === 1 || (step === 8 && Boolean(createdReservation))} type="button" onClick={() => setStep((current) => current === 8 ? 10 : current === 10 ? 7 : current === 7 && (service === "Event" || selectedMainCategory === "Staycation") ? 5 : current === 5 && !hasIncludedMenu ? 3 : Math.max(1, current - 1))}>
                   Back
                 </button>
                 {step === 6 && selectedMainCategory !== "Staycation" && <button className="skip-offer-button" onClick={() => setStep(7)} type="button">Skip This Offer</button>}
                 <button className="booking-primary" data-booking-cta="true" disabled={!canContinue || Boolean(conflictReason) || selectedDateOverlaps || calendarAvailabilityLoading || Boolean(calendarAvailabilityError) || bookingSubmitting} type="button" onClick={nextStep}>
-                  {step === 8 ? bookingSubmitting ? "Reserving Schedule…" : createdReservation ? "Retry Booking" : "Reserve Schedule" : step === 7 ? "Continue to Payment" : step === 6 ? "Continue to Review" : "Continue"} <Icon name="arrow" size={18} />
+                  {step === 8 ? bookingSubmitting ? "Reserving Schedule…" : createdReservation ? "Retry Booking" : "Reserve Schedule" : step === 10 ? "Proceed to Payment" : step === 7 ? "Review Terms and Conditions" : step === 6 ? "Continue to Review" : "Continue"} <Icon name="arrow" size={18} />
                 </button>
               </div>
               </>
