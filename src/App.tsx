@@ -5223,28 +5223,20 @@ function Homepage() {
   const authenticated = Boolean(session);
   const headerActiveSection = pathname === "/" && hash === "#booking" ? "booking" : activeSection;
 
-  // A refresh during checkout must resume the booking rather than force the homepage.
-  // Explicit navigation to another section still takes priority.
-  useEffect(() => {
-    if (window.location.pathname !== "/" || window.location.hash) return;
-    const saved = readBookingDraft();
-    if (saved.service && (saved.step ?? 1) >= 1 && saved.step !== 9) {
-      window.history.replaceState(window.history.state, "", "/#booking");
-      setActiveSection("booking");
-      return;
-    }
-    const previousRestoration = window.history.scrollRestoration;
-    window.history.scrollRestoration = "manual";
-    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-    const frame = window.requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-      setActiveSection("home");
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.history.scrollRestoration = previousRestoration;
-    };
-  }, []);
+  // Refresh restores the last visible area, independently of the saved booking
+  // draft. Only an explicit Booking link should navigate to the booking section.
+  const refreshScrollPosition = useRef<number | null>(
+    (() => {
+      try {
+        const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+        if (navigation?.type !== "reload" || window.location.pathname !== "/") return null;
+        const stored = sessionStorage.getItem("evently-home-scroll-position");
+        if (stored === null) return null;
+        const position = Number(stored);
+        return Number.isFinite(position) && position >= 0 ? position : null;
+      } catch { return null; }
+    })()
+  );
 
   useEffect(() => {
     if (!authProfile) return;
@@ -5321,7 +5313,7 @@ function Homepage() {
     const observedSections = sectionIds.map((id) => document.getElementById(id)).filter((section): section is HTMLElement => Boolean(section));
     const normalizeSection = (id: string) => ["services", "catering", "events", "resort"].includes(id) ? "services" : id;
     const initialTarget = observedSections.find((section) => `#${section.id}` === window.location.hash);
-    if (initialTarget) {
+    if (initialTarget && refreshScrollPosition.current === null) {
       window.requestAnimationFrame(() => {
         initialTarget.scrollIntoView();
         setActiveSection(normalizeSection(initialTarget.id));
@@ -5357,12 +5349,36 @@ function Homepage() {
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(updateParallax);
     };
-    updateParallax();
-    window.addEventListener("scroll", onScroll, { passive: true });
+    // Record the actual viewport, not merely the URL hash (which can remain
+    // #booking after the visitor scrolls to Home or Gallery).
+    let readyToSaveScroll = refreshScrollPosition.current === null;
+    const saveScroll = () => {
+      if (!readyToSaveScroll || window.location.pathname !== "/") return;
+      try { sessionStorage.setItem("evently-home-scroll-position", String(window.scrollY)); } catch { /* storage unavailable */ }
+    };
+    const trackScroll = () => { onScroll(); saveScroll(); };
+    const restoreY = refreshScrollPosition.current;
+    let restoreFrame = 0;
+    if (restoreY !== null) {
+      // Wait for the homepage layout before restoring its previous position.
+      restoreFrame = window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          window.scrollTo({ top: restoreY, behavior: "instant" });
+          refreshScrollPosition.current = null;
+          readyToSaveScroll = true;
+          updateParallax();
+          saveScroll();
+        });
+      });
+    } else updateParallax();
+    window.addEventListener("scroll", trackScroll, { passive: true });
+    window.addEventListener("pagehide", saveScroll);
     return () => {
       observer.disconnect();
       sectionObserver.disconnect();
-      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("scroll", trackScroll);
+      window.removeEventListener("pagehide", saveScroll);
+      if (restoreFrame) cancelAnimationFrame(restoreFrame);
       if (frame) cancelAnimationFrame(frame);
     };
   }, []);
@@ -5460,9 +5476,9 @@ function Homepage() {
   return (
     <main>
       <header className={`public-header ${scrolled ? "public-header--scrolled" : ""}`}>
-        <a className="brand-link" href="/" aria-label="Venice home"><Brand /></a>
+        <a className="brand-link" href="#home" aria-label="Venice home" onClick={() => setActiveSection("home")}><Brand /></a>
         <nav className="public-nav" aria-label="Main navigation">
-          <a aria-current={headerActiveSection === "home" ? "page" : undefined} className={headerActiveSection === "home" ? "nav-link--active" : ""} href="/" onClick={() => setServicesMenuOpen(false)}>Home</a>
+          <a aria-current={headerActiveSection === "home" ? "page" : undefined} className={headerActiveSection === "home" ? "nav-link--active" : ""} href="#home" onClick={() => { setServicesMenuOpen(false); setActiveSection("home"); }}>Home</a>
           <div className="public-services-nav">
             <button aria-expanded={servicesMenuOpen} aria-current={headerActiveSection === "services" ? "page" : undefined} className={headerActiveSection === "services" ? "nav-link--active" : ""} onClick={() => setServicesMenuOpen((open) => !open)} type="button">Services <Icon name="chevron" size={13} /></button>
             {servicesMenuOpen && <div>{serviceLinks.map(([label, href]) => <a href={href} key={label} onClick={() => setServicesMenuOpen(false)}>{label}</a>)}</div>}
@@ -5522,7 +5538,7 @@ function Homepage() {
         </button>
         {menuOpen && (
           <nav className="mobile-nav public-mobile-nav" aria-label="Mobile navigation">
-            <a aria-current={headerActiveSection === "home" ? "page" : undefined} className={headerActiveSection === "home" ? "nav-link--active" : ""} href="#home" onClick={closeMenu}>Home</a>
+            <a aria-current={headerActiveSection === "home" ? "page" : undefined} className={headerActiveSection === "home" ? "nav-link--active" : ""} href="#home" onClick={() => { closeMenu(); setActiveSection("home"); }}>Home</a>
             <button aria-expanded={servicesMenuOpen} className={`mobile-services-toggle ${headerActiveSection === "services" ? "nav-link--active" : ""}`} onClick={() => setServicesMenuOpen((open) => !open)} type="button">Services <Icon name="chevron" size={15} /></button>
             {servicesMenuOpen && <div className="mobile-services-submenu">{serviceLinks.map(([label, href]) => <a href={href} key={label} onClick={() => { setServicesMenuOpen(false); closeMenu(); }}>{label}</a>)}</div>}
             {navItems.filter(([label]) => label !== "Home").map(([label, href]) => <a aria-current={headerActiveSection === href.slice(1) ? "page" : undefined} className={headerActiveSection === href.slice(1) ? "nav-link--active" : ""} href={href} key={label} onClick={() => { closeMenu(); setActiveSection(href.slice(1)); }}>{label}</a>)}
