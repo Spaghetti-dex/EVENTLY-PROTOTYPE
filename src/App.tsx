@@ -2206,7 +2206,7 @@ function ReservationFlow({
   const cottageSelectionReady = !cottageSelected || cottageAddonConfigured;
   const poolAccessEligibleService = service === "Room Accommodation" || service === "Resort Venue Only";
   const poolAccessPricingReady = !poolAccessEligibleService || Number(packageChoice?.pool_access_fee) === 5000;
-  const paymentSubmissionStarted = demoPaymentMode ? true : Boolean(paymentProof);
+  const paymentSubmissionStarted = demoPaymentMode || Boolean(paymentProof || paymentReference.trim() || paymentAmount.trim());
   const poolAccessFee = poolAccessSelected && poolAccessEligibleService ? Number(packageChoice?.pool_access_fee ?? 0) : 0;
   const optionalRoomPackage = service === "Swimming Pool" ? staycationRoomPackages.find((room) => room.id === selectedRoomPackageId) : undefined;
   const isSharedPoolTour = service === "Swimming Pool" && Boolean(packageChoice && /^(day|night) tour/i.test(packageChoice.name));
@@ -2386,7 +2386,10 @@ function ReservationFlow({
       && tourAccommodationChosen
       && privacyAcknowledged
       && subtotal > 0
-      && (demoPaymentMode || !paymentSubmissionStarted || (
+      && (!paymentSubmissionStarted || (
+        paymentReference.trim().length > 0
+        && paymentReference.trim().length <= 160
+        && (demoPaymentMode || (
         paymentMethod
         && availablePaymentMethods.includes(paymentMethod)
         && paymentReference.trim()
@@ -2396,6 +2399,7 @@ function ReservationFlow({
         && paymentProof
         && !paymentOptionsLoading
         && !paymentOptionsError
+        ))
       ))
     ));
 
@@ -2511,7 +2515,7 @@ function ReservationFlow({
           if (!demoPaymentMode && (!Number.isFinite(amount) || amount < requiredPaymentAmount || amount > subtotal)) {
             throw new Error(`Payment proof must cover the required deposit/payment amount of ${formatPhp(requiredPaymentAmount)} and cannot exceed the booking total.`);
           }
-          if (!demoPaymentMode && (!paymentReference.trim() || paymentReference.trim().length > 160)) {
+          if (!paymentReference.trim() || paymentReference.trim().length > 160) {
             throw new Error("Enter a transaction reference number (160 characters or fewer).");
           }
           if (paymentProof && (!["image/jpeg", "image/png", "image/webp"].includes(paymentProof.type) || paymentProof.size > 5 * 1024 * 1024)) {
@@ -2578,7 +2582,7 @@ function ReservationFlow({
             setPendingPaymentProofPath(proofPath);
           }
 
-          const { error: paymentError } = demoPaymentMode ? await supabase.rpc("evently_submit_demo_payment", { p_reservation_id: reservation.id, p_method: paymentMethod, p_reference_number: paymentMethod === "cash" ? null : (paymentReference.trim() || `DEMO-${crypto.randomUUID().slice(0,8)}`), p_proof_path: proofPath || null }) : await supabase.rpc("evently_submit_payment_proof", {
+          const { error: paymentError } = demoPaymentMode ? await supabase.rpc("evently_submit_demo_payment", { p_reservation_id: reservation.id, p_method: paymentMethod, p_reference_number: paymentReference.trim(), p_proof_path: proofPath || null }) : await supabase.rpc("evently_submit_payment_proof", {
             p_reservation_id: reservation.id,
             p_amount: Number(paymentAmount),
             p_method: paymentMethod,
@@ -3284,7 +3288,7 @@ function ReservationFlow({
                 </div>
                 {selectedMainCategory === "Staycation" && <div className="booking-policy-notice"><strong>Payment Policy</strong><p>Submit the required 30% down payment within 24 hours after creating your reservation. Payment is subject to Administrator verification. Timely submitted proof remains subject to Administrator review. Reservations without timely payment submission may be automatically cancelled.</p></div>}
                 {demoPaymentMode && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>This capstone demonstration records sample payment information for administrator review only. Do not send real funds based on this demo screen.</span></div>}
-                {service === "Event" && <div className="booking-demo-payment-note"><strong>Venue rate is a provisional estimate</strong><span>This capstone amount is for demonstration only. Venice must confirm the actual venue price before collecting any money. Do not transfer funds based on this estimate.</span></div>}
+}
                 <div className="booking-payment-summary">
                   <div><span>Package or service</span><strong>{bookingSummaryCategory(service, cateringChoice, staycationChoice)} · {selectedPackageLabel}</strong></div>
                   <div><span>Booking date and time</span><strong>{selectedDate?.toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · {reservationStartTime && reservationEndTime ? `${reservationStartTime.slice(0, 5)}–${reservationEndTime.slice(0, 5)}` : "Time to be assigned by Admin"}</strong></div>
@@ -3302,7 +3306,8 @@ function ReservationFlow({
                   <label><span>Payment method</span><select disabled={!demoPaymentMode && !availablePaymentMethods.length} onChange={(event) => setPaymentMethod(event.target.value as CustomerPaymentMethod)} required value={paymentMethod}>{(demoPaymentMode ? ["gcash", "bank_transfer", "cash"] as CustomerPaymentMethod[] : availablePaymentMethods).map((method) => <option key={method} value={method}>{customerPaymentMethodLabels[method]}</option>)}</select></label>
                   {!demoPaymentMode && selectedPaymentAccount && <div className="booking-payment-destination"><strong>{selectedPaymentAccount.display_name}</strong>{selectedPaymentAccount.account_holder && <span>Account holder: {selectedPaymentAccount.account_holder}</span>}{selectedPaymentAccount.bank_name && <span>Bank: {selectedPaymentAccount.bank_name}</span>}{(selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number) && <span>Send to: {selectedPaymentAccount.mobile_wallet_number || selectedPaymentAccount.account_number}</span>}{selectedPaymentAccount.qr_code_url && <img alt={`${selectedPaymentAccount.display_name} payment QR code`} src={selectedPaymentAccount.qr_code_url} />}<p>{selectedPaymentInstructions}</p></div>}
                   <label><span>{demoPaymentMode ? "Simulated deposit (PHP) · 30% automatically calculated" : "Actual amount paid (PHP) · optional"}</span><input autoComplete="off" max={subtotal} min="0.01" onChange={(event) => setPaymentAmount(event.target.value)} readOnly={demoPaymentMode} step="0.01" type="number" value={demoPaymentMode ? requiredPaymentAmount : paymentAmount} /><small>Required deposit: {currency(requiredPaymentAmount)}. Timely payment proof is held for Administrator review.</small></label>
-                  <label><span>Payment reference / transaction number · optional</span><input autoComplete="off" maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} placeholder={demoPaymentMode ? "Example: DEMO-GCASH-2026-001" : "Enter your transaction reference"} value={paymentReference} /></label>
+                  <label><span>Payment reference / transaction number · required</span><input autoComplete="off" maxLength={160} required aria-required="true" onChange={(event) => setPaymentReference(event.target.value)} placeholder={demoPaymentMode ? "Enter your sample payment reference" : "Enter your transaction reference"} value={paymentReference} /></label>
+                  {paymentSubmissionStarted && !paymentReference.trim() && <small className="booking-schedule-error" role="alert">Enter a payment reference number to submit your booking.</small>}
                   <label><span>Receipt screenshot (JPG, PNG, or WebP · max 5 MB)</span><input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" ref={paymentProofInput} onChange={(event) => {
                     const file = event.target.files?.[0] ?? null;
                     if (file && (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024)) {
@@ -4588,7 +4593,7 @@ function OrderPage() {
       setPaymentMessage("A payment submission is already awaiting administrator review. Please wait for its decision.");
       return;
     }
-    if (!demoPaymentMode && (!paymentReference.trim() || !paymentProof)) {
+    if (!paymentReference.trim() || paymentReference.trim().length > 160 || (!demoPaymentMode && !paymentProof)) {
       setPaymentMessage("A transaction reference and proof of payment are required.");
       return;
     }
@@ -4617,7 +4622,7 @@ function OrderPage() {
       if (!reservationId) throw new Error("This order is not linked to a reservation.");
       const {error:acceptanceError}=await supabase.rpc("evently_accept_terms",{p_reservation_id:reservationId,p_version:EVENTLY_TERMS_VERSION});
       if(acceptanceError) throw acceptanceError;
-      const { error: submitError } = demoPaymentMode ? await supabase.rpc("evently_submit_demo_payment", { p_reservation_id: reservationId, p_method: paymentMethod, p_reference_number: paymentMethod === "cash" ? null : (paymentReference.trim() || `DEMO-${crypto.randomUUID().slice(0,8)}`), p_proof_path: proofPath || null }) : await supabase.rpc("evently_submit_payment_proof", {
+      const { error: submitError } = demoPaymentMode ? await supabase.rpc("evently_submit_demo_payment", { p_reservation_id: reservationId, p_method: paymentMethod, p_reference_number: paymentReference.trim(), p_proof_path: proofPath || null }) : await supabase.rpc("evently_submit_payment_proof", {
         p_reservation_id: reservationId,
         p_amount: amount,
         p_method: paymentMethod,
@@ -4672,7 +4677,7 @@ function OrderPage() {
                <div className="payment-card__balance"><span>Total booking price</span><strong>{formatPhp(total)}</strong></div>
                <div className="payment-card__balance"><span>Suggested amount due</span><strong>{formatPhp(amountDueNow)}</strong></div>
                 <label><span>{demoPaymentMode ? "Simulated payment amount (PHP)" : "Actual amount paid (PHP)"}</span><input max={outstandingBalance} min={Math.max(0.01, remainingDeposit)} onChange={(event) => setPaymentAmount(event.target.value)} readOnly={demoPaymentMode} required step="0.01" type="number" value={demoPaymentMode ? String(amountDueNow) : paymentAmount} /><small>Enter the amount you actually transferred. It must cover any remaining required deposit and may differ from the suggested amount.</small></label>
-             {(!demoPaymentMode || paymentMethod !== "cash") && <label><span>{demoPaymentMode ? "Sample transaction reference (optional)" : "Transaction reference"}</span><input maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} required={!demoPaymentMode} value={paymentReference} /></label>}
+             <label><span>{demoPaymentMode ? "Sample transaction reference (required)" : "Transaction reference (required)"}</span><input maxLength={160} onChange={(event) => setPaymentReference(event.target.value)} required aria-required="true" value={paymentReference} /></label>
               {(!demoPaymentMode || paymentMethod !== "cash") && <label><span>{demoPaymentMode ? "Optional sample proof (JPG, PNG, WebP)" : "Proof of payment (JPG, PNG, or WebP · max 5 MB)"}</span><input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" ref={paymentProofInput} onChange={(event) => {
                const file = event.target.files?.[0] ?? null;
                 if (file && (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024)) {
