@@ -2467,6 +2467,8 @@ function ReservationFlow({
               guest_count: guests,
               booking_service: service,
               idempotency_key: clientRequestId,
+              terms_accepted: termsAccepted,
+              terms_version: EVENTLY_TERMS_VERSION,
               menu: hasIncludedMenu ? menuSelections : {},
               package_id: packageChoice.id,
               package_variant_id: selectedVariant?.id ?? null,
