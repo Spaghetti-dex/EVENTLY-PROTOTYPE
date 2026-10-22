@@ -60,7 +60,7 @@ revoke all on function public.evently_accept_terms(uuid,uuid,text) from public,a
 grant execute on function public.evently_accept_terms(uuid,uuid,text) to authenticated;
 
 
--- Does not approve cancellations, rescheduling, refunds, or damage charges.
+-- Customer requests are pending until an Admin/Owner decides; no refunds or damage charges are automated.
 create table if not exists public.evently_catering_change_requests (
   id uuid primary key default gen_random_uuid(),
   reservation_id uuid not null references public.reservations(id) on delete cascade,
@@ -259,3 +259,6 @@ end
 $$;
 revoke all on function public.evently_admin_decide_catering_change(uuid,text,text) from public,anon;
 grant execute on function public.evently_admin_decide_catering_change(uuid,text,text) to authenticated;
+
+-- Refresh PostgREST's RPC metadata when the migration is actually applied.
+notify pgrst, 'reload schema';
