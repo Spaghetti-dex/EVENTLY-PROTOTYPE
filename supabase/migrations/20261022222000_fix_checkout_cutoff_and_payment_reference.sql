@@ -65,7 +65,7 @@ begin
  insert into public.payments(customer_id,reservation_id,amount,method,reference_number,status,proof_url,demo_mode)
  values(auth.uid(),r.id,v_amount,v_method,nullif(btrim(p_reference_number),''),'pending',nullif(btrim(p_proof_path),''),true) returning id into v_id;
  return jsonb_build_object('payment_id',v_id,'amount',v_amount,'status','pending','demo_mode',true,'message','Demo payment submitted for admin review. No funds transferred.');
-end $function$
+end $function$;
 
 
 CREATE OR REPLACE FUNCTION public.evently_submit_payment_proof(p_reservation_id uuid, p_amount numeric, p_method text, p_reference_number text, p_proof_path text)
