@@ -3288,7 +3288,6 @@ function ReservationFlow({
                 </div>
                 {selectedMainCategory === "Staycation" && <div className="booking-policy-notice"><strong>Payment Policy</strong><p>Submit the required 30% down payment within 24 hours after creating your reservation. Payment is subject to Administrator verification. Timely submitted proof remains subject to Administrator review. Reservations without timely payment submission may be automatically cancelled.</p></div>}
                 {demoPaymentMode && <div className="booking-demo-payment-note"><strong>Demo Payment — No Actual Money Transfer</strong><span>This capstone demonstration records sample payment information for administrator review only. Do not send real funds based on this demo screen.</span></div>}
-}
                 <div className="booking-payment-summary">
                   <div><span>Package or service</span><strong>{bookingSummaryCategory(service, cateringChoice, staycationChoice)} · {selectedPackageLabel}</strong></div>
                   <div><span>Booking date and time</span><strong>{selectedDate?.toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · {reservationStartTime && reservationEndTime ? `${reservationStartTime.slice(0, 5)}–${reservationEndTime.slice(0, 5)}` : "Time to be assigned by Admin"}</strong></div>
