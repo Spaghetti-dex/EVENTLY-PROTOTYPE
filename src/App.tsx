@@ -1543,7 +1543,7 @@ function ReservationFlow({
   const changeGuestCount = (raw: string) => {
     if (raw === "") { setGuestInput(""); return; }
     if (!/^\d+$/.test(raw)) return;
-    setGuestInput(null);
+    setGuestInput(raw);
     setGuests(Number(raw));
   };
   const finishGuestCountEdit = () => {
