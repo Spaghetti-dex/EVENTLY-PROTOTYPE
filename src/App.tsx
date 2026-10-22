@@ -1188,6 +1188,7 @@ const addOnOptions = serviceCatalog.flatMap(({ extras }) => extras).filter(
 );
 
 const bookingDraftKey = "evently-booking-draft";
+const foodOrderDraftKey = "evently-food-order-draft";
 const customerBookingsChangedEvent = "evently-customer-bookings-changed";
 
 type BookingDraft = {
@@ -1214,6 +1215,7 @@ type BookingDraft = {
   rooms: number;
   nights: number;
   cottageSelected: boolean;
+  selectedRoomPackageId?: string;
   poolAccessSelected: boolean;
   specialRequests: string;
   deliveryStreet?: string;
@@ -1506,7 +1508,8 @@ function ReservationFlow({
   const { session } = useAuth();
   const [initialDraft] = useState(() => readBookingDraft());
   const [clientRequestId, setClientRequestId] = useState(initialDraft.clientRequestId ?? crypto.randomUUID());
-  const [step, setStep] = useState(initialDraft.step ?? 1);
+  // Never restore terms consent automatically after a refresh.
+  const [step, setStep] = useState(initialDraft.step === 8 ? 10 : initialDraft.step ?? 1);
   const [service, setService] = useState(initialDraft.service ?? "");
   const [selectedMainCategory, setSelectedMainCategory] = useState<BookingMainCategory | null>(initialDraft.selectedMainCategory ?? mainCategoryForService(initialDraft.service ?? ""));
   const [cateringChoice, setCateringChoice] = useState<CateringChoice>(initialDraft.cateringChoice ?? null);
@@ -1559,7 +1562,7 @@ function ReservationFlow({
   const [adults, setAdults] = useState(initialDraft.adults ?? 2);
   const [children, setChildren] = useState(initialDraft.children ?? 0);
   const [rooms, setRooms] = useState(initialDraft.rooms ?? 1);
-  const [selectedRoomPackageId, setSelectedRoomPackageId] = useState("");
+  const [selectedRoomPackageId, setSelectedRoomPackageId] = useState(initialDraft.selectedRoomPackageId ?? "");
   const [nights, setNights] = useState(initialDraft.nights ?? 1);
   const [cottageSelected, setCottageSelected] = useState(initialDraft.cottageSelected ?? false);
   const [poolAccessSelected, setPoolAccessSelected] = useState(initialDraft.poolAccessSelected ?? false);
@@ -1586,6 +1589,7 @@ function ReservationFlow({
   const [catalogError, setCatalogError] = useState("");
   const [addonError, setAddonError] = useState("");
   const [addonLoading, setAddonLoading] = useState(false);
+  const [addonCatalogReady, setAddonCatalogReady] = useState(false);
   const [variantError, setVariantError] = useState("");
   const [variantLoading, setVariantLoading] = useState(false);
   const [menuError, setMenuError] = useState("");
@@ -1703,9 +1707,11 @@ function ReservationFlow({
       ? "resort"
       : service.trim().toLowerCase();
     setDatabaseAddons([]);
+    setAddonCatalogReady(false);
     setAddonError("");
     if (!compatibleService) {
       setAddonLoading(false);
+      setAddonCatalogReady(true);
       return () => { active = false; };
     }
     setAddonLoading(true);
@@ -1717,11 +1723,13 @@ function ReservationFlow({
         .then(({ data, error }) => {
         if (!active) return;
         setAddonLoading(false);
+        setAddonCatalogReady(true);
         setAddonError(error?.message ?? "");
         if (!error) setDatabaseAddons((data ?? []) as BookingAddonRow[]);
       }, (error: unknown) => {
         if (!active) return;
         setAddonLoading(false);
+        setAddonCatalogReady(true);
         setAddonError(error instanceof Error ? error.message : "The add-on catalog could not be reached. Please try again.");
       });
     };
@@ -1765,7 +1773,7 @@ function ReservationFlow({
   }, [requestedService]);
 
   useEffect(() => {
-    if (addonLoading || addonError) return;
+    if (!addonCatalogReady || addonLoading || addonError) return;
     const compatibleNames = new Set(databaseAddons
       .filter((item) => service !== "Event" && !/pool\s*access/i.test(item.name))
       .map((item) => item.name));
@@ -1773,7 +1781,7 @@ function ReservationFlow({
       const compatible = current.filter((name) => compatibleNames.has(name));
       return compatible.length === current.length ? current : compatible;
     });
-  }, [addonError, addonLoading, databaseAddons, selectedPackageId, service]);
+  }, [addonCatalogReady, addonError, addonLoading, databaseAddons, selectedPackageId, service]);
 
   useEffect(() => {
     if (menuCatalogState === "loading" || menuCatalogState === "error") return;
@@ -1813,6 +1821,7 @@ function ReservationFlow({
       rooms,
       nights,
       cottageSelected,
+      selectedRoomPackageId,
       poolAccessSelected,
       specialRequests,
       deliveryStreet,
@@ -1825,8 +1834,8 @@ function ReservationFlow({
       paymentAmount,
       paymentReference,
     };
-    sessionStorage.setItem(bookingDraftKey, JSON.stringify(draft));
-  }, [addOns, adults, cateringChoice, children, clientRequestId, cottageSelected, email, endTime, guestName, guests, itemQuantity, menuSelections, month, nights, paymentAmount, paymentMethod, paymentReference, phone, poolAccessSelected, privacyAcknowledged, rooms, selectedDate, selectedMainCategory, selectedPackageId, selectedVariantId, service, specialRequests, deliveryStreet, deliveryBarangay, deliveryCity, startTime, staycationChoice, step]);
+    try { sessionStorage.setItem(bookingDraftKey, JSON.stringify(draft)); } catch { /* Storage may be unavailable. */ }
+  }, [addOns, adults, cateringChoice, children, clientRequestId, cottageSelected, selectedRoomPackageId, email, endTime, guestName, guests, itemQuantity, menuSelections, month, nights, paymentAmount, paymentMethod, paymentReference, phone, poolAccessSelected, privacyAcknowledged, rooms, selectedDate, selectedMainCategory, selectedPackageId, selectedVariantId, service, specialRequests, deliveryStreet, deliveryBarangay, deliveryCity, startTime, staycationChoice, step]);
 
   const hasIncludedMenu = service === "Catering";
   const steps = service === "Food Orders & Party Trays" ? [{ id: 1, label: "Choose Service" }, { id: 2, label: "Build Your Food Order" }]
