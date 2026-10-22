@@ -31,7 +31,7 @@ create or replace function public.evently_accept_terms(
  p_order_id uuid default null,
  p_version text default '2026-10-22-v1'
 ) returns jsonb language plpgsql security definer set search_path=''
-as $
+as $$
 declare v_customer uuid := auth.uid(); v_id uuid;
 begin
  if v_customer is null then raise exception 'Sign in to accept terms'; end if;
@@ -55,7 +55,7 @@ begin
  if v_id is null then raise exception 'Existing acceptance does not match the current version'; end if;
  return jsonb_build_object('id',v_id,'version',p_version,'accepted',true);
 end
-$;
+$$;
 revoke all on function public.evently_accept_terms(uuid,uuid,text) from public,anon;
 grant execute on function public.evently_accept_terms(uuid,uuid,text) to authenticated;
 
